@@ -1,0 +1,94 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  full_name    String
+  role         String
+  created_date DateTime @default(now())
+}
+
+model Employee {
+  id              String   @id @default(cuid())
+  full_name       String?
+  email           String   @unique
+  position        String?
+  avatar_url      String?
+  role            String   @default("employee")
+  status          String   @default("active")
+  created_date    DateTime @default(now())
+  updated_date    DateTime @updatedAt
+  first_name      String?
+  surname         String?
+  employee_number String?
+  phone           String?
+  branch          String?
+  department      String?
+}
+
+model Shift {
+  id           String   @id @default(cuid())
+  date         String
+  status       String   @default("scheduled")
+  employee_id  String?
+  created_date DateTime @default(now())
+  updated_date DateTime @updatedAt
+}
+
+model TimeEntry {
+  id                 String    @id @default(cuid())
+  employee_email     String
+  employee_name      String?
+  first_name         String?
+  surname            String?
+  employee_code      String?
+  phone              String?
+  branch             String?
+  department         String?
+  clock_in           DateTime
+  clock_out          DateTime?
+  date               String
+  total_hours        Float?
+  status             String    @default("completed")
+  break_minutes      Int?
+  is_manual_override Boolean   @default(false)
+  clocked_by_id      String?
+  clocked_by_name    String?
+  created_date       DateTime  @default(now())
+  updated_date       DateTime  @updatedAt
+}
+
+model CompanySettings {
+  id                                 String   @id @default(cuid())
+  ordinary_hours_per_day             Float    @default(8)
+  overtime_threshold_hours           Float    @default(8)
+  work_days                          String[] @default(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+  use_monthly_overtime_threshold     Boolean  @default(false)
+  monthly_overtime_threshold_hours   Float    @default(195)
+  sunday_overtime_enabled            Boolean  @default(true)
+  sunday_overtime_multiplier         Float    @default(1.5)
+  public_holiday_overtime_enabled    Boolean  @default(true)
+  public_holiday_overtime_multiplier Float    @default(2.0)
+  public_holidays                    String[]
+  created_date                       DateTime @default(now())
+  updated_date                       DateTime @updatedAt
+}
+
+model GeofenceSettings {
+  id            String   @id @default(cuid())
+  name          String
+  address       String?
+  latitude      Float
+  longitude     Float
+  radius_meters Int      @default(200)
+  is_active     Boolean  @default(true)
+  created_date  DateTime @default(now())
+  updated_date  DateTime @updatedAt
+}

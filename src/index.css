@@ -1,0 +1,104 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-inter: 'Montserrat', sans-serif;
+    --background: 225 20% 97%;
+    --foreground: 230 25% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 230 25% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 230 25% 10%;
+    --primary: 245 58% 51%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 225 20% 93%;
+    --secondary-foreground: 230 25% 15%;
+    --muted: 225 15% 94%;
+    --muted-foreground: 225 10% 45%;
+    --accent: 245 40% 95%;
+    --accent-foreground: 245 58% 51%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 225 15% 90%;
+    --input: 225 15% 90%;
+    --ring: 245 58% 51%;
+    --chart-1: 245 58% 51%;
+    --chart-2: 168 56% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 340 65% 55%;
+    --chart-5: 200 70% 50%;
+    --radius: 0.75rem;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 230 25% 10%;
+    --sidebar-primary: 245 58% 51%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 245 40% 95%;
+    --sidebar-accent-foreground: 245 58% 51%;
+    --sidebar-border: 225 15% 90%;
+    --sidebar-ring: 245 58% 51%;
+  }
+
+  .dark {
+    --background: 230 20% 8%;
+    --foreground: 0 0% 95%;
+    --card: 230 20% 11%;
+    --card-foreground: 0 0% 95%;
+    --popover: 230 20% 11%;
+    --popover-foreground: 0 0% 95%;
+    --primary: 245 58% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 230 15% 18%;
+    --secondary-foreground: 0 0% 90%;
+    --muted: 230 15% 18%;
+    --muted-foreground: 225 10% 55%;
+    --accent: 245 30% 20%;
+    --accent-foreground: 245 58% 70%;
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 230 15% 18%;
+    --input: 230 15% 18%;
+    --ring: 245 58% 60%;
+    --chart-1: 245 58% 60%;
+    --chart-2: 168 56% 50%;
+    --chart-3: 30 80% 60%;
+    --chart-4: 340 65% 60%;
+    --chart-5: 200 70% 55%;
+    --sidebar-background: 230 20% 11%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 245 58% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 245 30% 20%;
+    --sidebar-accent-foreground: 245 58% 70%;
+    --sidebar-border: 230 15% 18%;
+    --sidebar-ring: 245 58% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground font-inter;
+    overscroll-behavior: none;
+  }
+
+  /* Safe area insets for notched devices */
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* No text selection on interactive elements */
+  button, a {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+}

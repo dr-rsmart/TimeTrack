@@ -1,0 +1,16 @@
+{
+  "name": "timetrack-server",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "pg": "^8.22.0",
+    "prisma": "^6.19.3"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0"
+  }
+}
