@@ -2,6 +2,7 @@
   "name": "timetrack-server",
   "private": true,
   "version": "0.0.0",
+  "type": "module",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts"
   },
