@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import prisma from './prisma';
 
 dotenv.config();
@@ -10,6 +12,13 @@ const port = process.env.PORT || 5001;
 
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from the React app
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const frontendPath = path.join(__dirname, '../../dist');
+
+app.use(express.static(frontendPath));
 
 // SSE Clients
 let clients: any[] = [];
@@ -116,6 +125,16 @@ app.get('/api/auth/me', async (req, res) => {
   } catch {
     res.json({ id: '1', email: 'admin@example.com', full_name: 'Admin User', role: 'admin' });
   }
+});
+
+// The "catchall" handler: for any request that doesn't
+// match one above, send back React's index.html file.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(frontendPath, 'index.html'));
+});
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
 });
 
 app.listen(port, () => {

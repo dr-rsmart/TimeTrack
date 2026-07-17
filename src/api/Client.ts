@@ -2,7 +2,7 @@
  * API client - talks to the Node.js backend
  */
 
-const API_BASE = 'http://localhost:5001/api';
+const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
 export interface User {
   id: string;
