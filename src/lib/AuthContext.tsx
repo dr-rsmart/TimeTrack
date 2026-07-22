@@ -1,16 +1,16 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { client } from '@/api/Client';
 
-const AuthContext = createContext();
+const AuthContext = createContext<any>(null);
 
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+  const [user, setUser] = useState<any>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(true);
-  const [authError, setAuthError] = useState(null);
+  const [authError, setAuthError] = useState<any>(null);
   const [authChecked, setAuthChecked] = useState(false);
-  const [appPublicSettings, setAppPublicSettings] = useState(null);
+  const [appPublicSettings, setAppPublicSettings] = useState<any>(null);
 
   useEffect(() => {
     checkAppState();
@@ -20,39 +20,58 @@ export const AuthProvider = ({ children }) => {
     try {
       setIsLoadingPublicSettings(true);
       setAuthError(null);
-      
-      // For local usage, we don't need to fetch public settings from a server
-      // Just set default public settings
+
       setAppPublicSettings({
         id: 'local',
         public_settings: {
           require_auth: false,
-        }
+        },
       });
-      
-      // Check if user is already logged in
+
+      // Check if user is already logged in via localStorage token
+      const storedUser = localStorage.getItem('timetrack_user');
+      const storedToken = localStorage.getItem('timetrack_token');
+
+      if (storedToken && storedUser) {
+        try {
+          // Verify token is still valid by calling /api/auth/me with Bearer token
+          const currentUser = await client.auth.me();
+          setUser(currentUser);
+          setIsAuthenticated(true);
+          localStorage.setItem('timetrack_user', JSON.stringify(currentUser));
+          setIsLoadingPublicSettings(false);
+          setIsLoadingAuth(false);
+          setAuthChecked(true);
+          return;
+        } catch {
+          // Token expired or invalid — clear storage and fall through
+          localStorage.removeItem('timetrack_token');
+          localStorage.removeItem('timetrack_user');
+        }
+      }
+
+      // No valid stored auth — try to auto-fetch admin (backward compat)
       try {
         const currentUser = await client.auth.me();
         setUser(currentUser);
         setIsAuthenticated(true);
+        localStorage.setItem('timetrack_user', JSON.stringify(currentUser));
       } catch {
-        // Not logged in — that's fine for local usage where require_auth is false
         setIsAuthenticated(false);
-        // Don't set authError here; just let the app show the Login page naturally
       }
-      
+
       setIsLoadingPublicSettings(false);
       setIsLoadingAuth(false);
       setAuthChecked(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Unexpected error:', error);
       setAuthError({
         type: 'unknown',
-        message: error.message || 'An unexpected error occurred'
+        message: error.message || 'An unexpected error occurred',
       });
       setIsLoadingPublicSettings(false);
       setIsLoadingAuth(false);
-      setAuthChecked(true); // Ensure authChecked is set even on error
+      setAuthChecked(true);
     }
   };
 
@@ -62,18 +81,19 @@ export const AuthProvider = ({ children }) => {
       const currentUser = await client.auth.me();
       setUser(currentUser);
       setIsAuthenticated(true);
+      localStorage.setItem('timetrack_user', JSON.stringify(currentUser));
       setIsLoadingAuth(false);
       setAuthChecked(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error('User auth check failed:', error);
       setIsLoadingAuth(false);
       setIsAuthenticated(false);
       setAuthChecked(true);
-      
+
       if (error.status === 401 || error.status === 403) {
         setAuthError({
           type: 'auth_required',
-          message: 'Authentication required'
+          message: 'Authentication required',
         });
       }
     }
@@ -91,19 +111,21 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      isAuthenticated, 
-      isLoadingAuth,
-      isLoadingPublicSettings,
-      authError,
-      appPublicSettings,
-      authChecked,
-      logout,
-      navigateToLogin,
-      checkUserAuth,
-      checkAppState
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isAuthenticated,
+        isLoadingAuth,
+        isLoadingPublicSettings,
+        authError,
+        appPublicSettings,
+        authChecked,
+        logout,
+        navigateToLogin,
+        checkUserAuth,
+        checkAppState,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

@@ -39,7 +39,7 @@ const emitter = createEventEmitter();
 // Connect to SSE for real-time updates from server
 const connectSSE = () => {
   const eventSource = new EventSource('/api/events');
-  
+
   eventSource.onmessage = (event) => {
     try {
       const { entity, type, data } = JSON.parse(event.data);
@@ -65,7 +65,7 @@ const createEntityOperations = (entityName: string) => ({
   list: async (sort?: string, limit?: number) => {
     const res = await fetch(`${API_BASE}/${entityName}`);
     let items = await res.json();
-    
+
     // Apply sorting (simple client-side fallback for now, though server could handle)
     if (sort) {
       const desc = sort.startsWith('-');
@@ -76,18 +76,18 @@ const createEntityOperations = (entityName: string) => ({
         return 0;
       });
     }
-    
+
     if (limit) {
       items = items.slice(0, limit);
     }
-    
+
     return items;
   },
 
   filter: async (filterObj?: Record<string, any>, sort?: string, limit?: number) => {
     // Simple filter using list and filtering on client side for now
     let items = await createEntityOperations(entityName).list(sort, limit);
-    
+
     if (filterObj) {
       items = items.filter((item) => {
         return Object.entries(filterObj).every(([key, value]) => {
@@ -96,7 +96,7 @@ const createEntityOperations = (entityName: string) => ({
         });
       });
     }
-    
+
     return items;
   },
 
@@ -112,8 +112,11 @@ const createEntityOperations = (entityName: string) => ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    const newItem = await res.json();
-    return newItem;
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Failed to create ${entityName}`);
+    }
+    return await res.json();
   },
 
   update: async (id: string, data: any) => {
@@ -122,16 +125,18 @@ const createEntityOperations = (entityName: string) => ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    const updatedItem = await res.json();
-    return updatedItem;
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Failed to update ${entityName}`);
+    }
+    return await res.json();
   },
 
   delete: async (id: string) => {
     const res = await fetch(`${API_BASE}/${entityName}/${id}`, {
       method: 'DELETE',
     });
-    const deletedItem = await res.json();
-    return deletedItem;
+    return await res.json();
   },
 
   bulkCreate: async (items: any[]) => {
@@ -148,35 +153,68 @@ const createEntityOperations = (entityName: string) => ({
   },
 });
 
-// Auth operations
+// ── Auth operations with real API calls ──
+
+const TOKEN_KEY = 'timetrack_token';
+const USER_KEY = 'timetrack_user';
+
+const getAuthHeaders = () => {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+};
+
 const auth = {
   me: async (): Promise<User | null> => {
-    const res = await fetch(`${API_BASE}/auth/me`);
+    const res = await fetch(`${API_BASE}/auth/me`, {
+      headers: getAuthHeaders(),
+    });
     if (!res.ok) throw new Error('Not authenticated');
     return await res.json();
   },
 
-  login: async (email: string, password?: string): Promise<User> => {
-    // In production, this would be a POST to /api/auth/login
-    // For now, we mock the me check
-    const user = { id: '1', email, full_name: 'Admin User', role: 'admin' as const, created_date: new Date().toISOString() };
-    localStorage.setItem('timetrack_user', JSON.stringify(user));
+  login: async (email: string, password: string): Promise<User> => {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Login failed. Please check your credentials.');
+    }
+    const { user, token } = await res.json();
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
     return user;
   },
 
-  loginViaEmailPassword: async (email: string, password?: string): Promise<User> => {
+  loginViaEmailPassword: async (email: string, password: string): Promise<User> => {
     return auth.login(email, password);
   },
 
   logout: (redirectUrl?: string) => {
-    localStorage.removeItem('timetrack_user');
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
     if (redirectUrl) {
       window.location.href = '/Login';
     }
   },
 
-  signup: async (email: string, password?: string, fullName?: string): Promise<User> => {
-    // Mock signup
+  signup: async (email: string, password: string, fullName?: string): Promise<User> => {
+    const res = await fetch(`${API_BASE}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, full_name: fullName || email, role: 'employee' }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Registration failed.');
+    }
+    // Auto-login after signup
     return auth.login(email, password);
   },
 };

@@ -8,11 +8,12 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  full_name    String
-  role         String
-  created_date DateTime @default(now())
+  id            String   @id @default(cuid())
+  email         String   @unique
+  full_name     String
+  role          String
+  password_hash String?
+  created_date  DateTime @default(now())
 }
 
 model Employee {
