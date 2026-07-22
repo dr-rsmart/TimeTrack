@@ -56,6 +56,10 @@ export default function EmployeeManagement() {
       queryClient.invalidateQueries({ queryKey: ["employees"] });
       toast.success(editing ? "Employee updated!" : "Employee added!");
       setEditing(null);
+      setFormOpen(false);
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || error?.error || "Failed to save employee. Please try again.");
     },
   });
 
