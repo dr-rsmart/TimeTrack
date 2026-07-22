@@ -8,10 +8,18 @@
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
     "pg": "^8.22.0",
     "prisma": "^6.19.3"
   },
   "devDependencies": {
-    "@types/pg": "^8.20.0"
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.13.5",
+    "@types/pg": "^8.20.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.8.2"
   }
 }

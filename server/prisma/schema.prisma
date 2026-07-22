@@ -3,8 +3,10 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  directUrl         = env("DIRECT_URL")
+  relationMode      = "prisma"
 }
 
 model User {
@@ -34,12 +36,16 @@ model Employee {
 }
 
 model Shift {
-  id           String   @id @default(cuid())
-  date         String
-  status       String   @default("scheduled")
-  employee_id  String?
-  created_date DateTime @default(now())
-  updated_date DateTime @updatedAt
+  id             String   @id @default(cuid())
+  date           String
+  status         String   @default("scheduled")
+  employee_id    String?
+  employee_email String?
+  employee_name  String?
+  start_time     String?
+  end_time       String?
+  created_date   DateTime @default(now())
+  updated_date   DateTime @updatedAt
 }
 
 model TimeEntry {
@@ -63,6 +69,11 @@ model TimeEntry {
   clocked_by_name    String?
   created_date       DateTime  @default(now())
   updated_date       DateTime  @updatedAt
+
+  @@index([date])
+  @@index([employee_email])
+  @@index([status])
+  @@index([date, employee_email])
 }
 
 model CompanySettings {

@@ -1,0 +1,11 @@
+[build]
+  builder = "nixpacks"
+  buildCommand = "npm run build"
+
+[deploy]
+  startCommand = "npm run start"
+  healthcheckPath = "/api/auth/me"
+  restartPolicyMaxRetries = 3
+
+[service]
+  port = 5001

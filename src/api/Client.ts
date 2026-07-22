@@ -38,7 +38,7 @@ const emitter = createEventEmitter();
 
 // Connect to SSE for real-time updates from server
 const connectSSE = () => {
-  const eventSource = new EventSource('http://localhost:5001/api/events');
+  const eventSource = new EventSource('/api/events');
   
   eventSource.onmessage = (event) => {
     try {
