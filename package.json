@@ -8,7 +8,7 @@
     "dev:server": "cd server && ts-node-dev --respawn --transpile-only src/index.ts",
     "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:server\"",
     "build:frontend": "vite build",
-    "build:server": "cd server && npm install && npx prisma generate && npx prisma migrate deploy && npx tsc",
+    "build:server": "cd server && npm install && npx prisma generate && npx tsc",
     "build": "npm run build:frontend && npm run build:server",
     "start": "node server/dist/index.js",
     "lint": "eslint . --quiet",
