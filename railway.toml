@@ -4,7 +4,7 @@
 
 [deploy]
   startCommand = "npm run start"
-  preDeployCommand = "cd server && npx prisma migrate deploy"
+  preDeployCommand = "cd server && npx prisma db push"
   healthcheckPath = "/api/auth/me"
   restartPolicyMaxRetries = 3
 
