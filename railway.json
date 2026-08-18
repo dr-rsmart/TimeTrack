@@ -5,7 +5,7 @@
     "buildCommand": "npm install && cd server && npm install && npx prisma generate --schema=prisma/schema.prisma && cd .. && npm run build"
   },
   "deploy": {
-    "startCommand": "cd server && npx prisma db push --schema=prisma/schema.prisma && cd .. && node server/dist/index.js",
+    "startCommand": "cd server && npx prisma db push --accept-data-loss --schema=prisma/schema.prisma && cd .. && node server/dist/index.js",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE",
