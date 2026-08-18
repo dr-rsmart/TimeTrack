@@ -138,8 +138,9 @@ const staticDistPath = path.resolve(__dirname, '../../dist');
 
 if (fs.existsSync(staticDistPath)) {
   app.use(express.static(staticDistPath));
-  app.get('*', (req, res, next) => {
+  app.use((req, res, next) => {
     if (
+      req.method !== 'GET' ||
       req.path.startsWith('/api') ||
       req.path.startsWith('/health') ||
       req.path.startsWith('/ready') ||
