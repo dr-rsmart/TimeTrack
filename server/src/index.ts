@@ -35,6 +35,10 @@ import settingsRoutes from './routes/settings.js';
 import auditRoutes from './routes/audit.js';
 import masterRoutes from './routes/master.js';
 import healthRoutes from './routes/health.js';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 const app = express();
 const server = http.createServer(app);
@@ -215,6 +219,18 @@ server.listen(PORT, async () => {
   await ensureDatabaseIndexes();
   await syncEmployeeUserAccounts();
   startCron();
+  
+  // Run seed script in production if SEED_ON_START is set
+  if (process.env.SEED_ON_START === 'true') {
+    console.log('[server] Running seed script...');
+    try {
+      const { stdout, stderr } = await execAsync('cd server && npm run seed');
+      console.log('[server] Seed output:', stdout);
+      if (stderr) console.error('[server] Seed errors:', stderr);
+    } catch (err) {
+      console.error('[server] Seed failed:', err);
+    }
+  }
 });
 
 // ── Graceful shutdown ──
