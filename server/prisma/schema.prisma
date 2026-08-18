@@ -1,0 +1,348 @@
+// TimeTrack — Prisma schema
+// Rebuilt from TimeTrack with cleaner types, enums, and performance indexes.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Identity & Tenancy
+// ─────────────────────────────────────────────────────────────
+
+enum Role {
+  master
+  admin
+  manager
+  employee
+}
+
+model User {
+  id                 String          @id @default(cuid())
+  email              String          @unique
+  fullName           String
+  role               Role            @default(employee)
+  passwordHash       String?
+  mustChangePassword Boolean         @default(false)
+  companyProfileId   String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id])
+  ownedCompanies   CompanyProfile[] @relation("CompanyOwner")
+
+  @@index([companyProfileId])
+}
+
+model CompanyProfile {
+  id                 String             @id @default(cuid())
+  name               String
+  ownerUserId        String?
+  isActive           Boolean            @default(true)
+  phone              String?
+  address            String?
+  vatNumber          String?
+  registrationNumber String?
+  billingTier        String             @default("standard")
+  primaryContactName String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  owner              User?              @relation("CompanyOwner", fields: [ownerUserId], references: [id])
+  users              User[]
+  employees          Employee[]
+  shifts             Shift[]
+  timeEntries        TimeEntry[]
+  geofences          Geofence[]
+  settings           CompanySettings[]
+  locationPresets    LocationPreset[]
+
+  @@index([ownerUserId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Workforce
+// ─────────────────────────────────────────────────────────────
+
+enum EmployeeStatus {
+  active
+  suspended
+  terminated
+}
+
+model Employee {
+  id               String             @id @default(cuid())
+  firstName        String
+  surname          String
+  email            String
+  position         String?
+  avatarUrl        String?
+  role             Role               @default(employee)
+  status           EmployeeStatus     @default(active)
+  employeeNumber   String?
+  phone            String?
+  branch           String             @default("Unassigned")
+  department       String             @default("General")
+  hireDate         DateTime?
+  salaryInfo       Json?
+  jurisdiction     String?
+  taxId            String?
+  employmentType   String?
+  managerId        String?
+  geofenceId       String?
+  version          Int                @default(1)
+  companyProfileId String?
+  createdBy        String?
+  updatedBy        String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  geofence         Geofence?          @relation(fields: [geofenceId], references: [id])
+  manager          Employee?          @relation("ManagerSubordinates", fields: [managerId], references: [id])
+  subordinates     Employee[]         @relation("ManagerSubordinates")
+  shifts           Shift[]
+  timeEntries      TimeEntry[]
+  employmentHistory EmploymentHistory[] @relation("EmploymentEmployee")
+  managedAssignments EmploymentHistory[] @relation("EmploymentManager")
+  companyProfile   CompanyProfile?    @relation(fields: [companyProfileId], references: [id])
+
+  @@unique([email, companyProfileId])
+  @@index([managerId])
+  @@index([geofenceId])
+  @@index([branch])
+  @@index([department])
+  @@index([status])
+  @@index([companyProfileId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Scheduling & Time Tracking
+// ─────────────────────────────────────────────────────────────
+
+enum ShiftStatus {
+  scheduled
+  active
+  completed
+  cancelled
+  no_show
+}
+
+enum ShiftType {
+  full_day
+  half_day
+  Holiday
+  Leave
+  Sick
+  PTO
+  Unpaid
+}
+
+model Shift {
+  id               String          @id @default(cuid())
+  date             DateTime        @db.Date
+  startTime        String?         // "HH:mm"
+  endTime          String?         // "HH:mm"
+  status           ShiftStatus     @default(scheduled)
+  shiftType        ShiftType       @default(full_day)
+  location         String?
+  notes            String?
+  employeeId       String?
+  branch           String?
+  department       String?
+  employeeEmail    String?
+  employeeName     String?
+  companyProfileId String?
+  createdBy        String?
+  updatedBy        String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  employee         Employee?       @relation(fields: [employeeId], references: [id])
+  companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id])
+
+  @@index([date])
+  @@index([employeeId])
+  @@index([status])
+  @@index([date, employeeId])
+  @@index([employeeId, status])
+  @@index([companyProfileId])
+  @@index([employeeEmail, date, status])
+  @@index([companyProfileId, date])
+}
+
+model TimeEntry {
+  id                 String          @id @default(cuid())
+  employeeId         String?
+  employeeEmail      String
+  employeeName       String?
+  branch             String?
+  department         String?
+  clockIn            DateTime
+  clockOut           DateTime?
+  date               DateTime        @db.Date
+  totalHours         Float?
+  status             String          @default("completed") // completed | active
+  breakMinutes       Int?
+  isManualOverride   Boolean         @default(false)
+  clockedById        String?
+  clockedByName      String?
+  geofenceName       String?
+  geofenceAddress    String?
+  geofenceLatitude   Float?
+  geofenceLongitude  Float?
+  geofenceRadius     Int?
+  isAutoGeofence     Boolean         @default(false)
+  companyProfileId   String?
+  createdBy          String?
+  updatedBy          String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  employee           Employee?       @relation(fields: [employeeId], references: [id])
+  companyProfile     CompanyProfile? @relation(fields: [companyProfileId], references: [id])
+
+  @@index([date])
+  @@index([employeeEmail])
+  @@index([status])
+  @@index([date, employeeEmail])
+  @@index([status, date])
+  @@index([companyProfileId])
+  @@index([employeeEmail, date, status])
+  @@index([companyProfileId, date])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Configuration
+// ─────────────────────────────────────────────────────────────
+
+model CompanySettings {
+  id                                String          @id @default(cuid())
+  ordinaryHoursPerDay               Float           @default(8)
+  overtimeThresholdHours            Float           @default(8)
+  workDays                          String[]        @default(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+  useMonthlyOvertimeThreshold       Boolean         @default(false)
+  monthlyOvertimeThresholdHours     Float           @default(195)
+  sundayOvertimeEnabled             Boolean         @default(true)
+  sundayOvertimeMultiplier          Float           @default(1.5)
+  publicHolidayOvertimeEnabled      Boolean         @default(true)
+  publicHolidayOvertimeMultiplier   Float           @default(2.0)
+  publicHolidays                    String[]        @default([])
+  companyProfileId                  String?
+  createdAt                         DateTime        @default(now())
+  updatedAt                         DateTime        @updatedAt
+
+  companyProfile                    CompanyProfile? @relation(fields: [companyProfileId], references: [id])
+
+  @@index([companyProfileId])
+}
+
+model Geofence {
+  id               String          @id @default(cuid())
+  name             String
+  address          String?
+  latitude         Float
+  longitude        Float
+  radiusMeters     Int             @default(200)
+  isActive         Boolean         @default(true)
+  companyProfileId String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  employees        Employee[]
+  companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id])
+
+  @@index([companyProfileId])
+}
+
+model LocationPreset {
+  id               String          @id @default(cuid())
+  name             String
+  address          String?
+  latitude         Float
+  longitude        Float
+  radiusMeters     Int             @default(200)
+  companyProfileId String
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  companyProfile   CompanyProfile  @relation(fields: [companyProfileId], references: [id], onDelete: Cascade)
+
+  @@index([companyProfileId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Audit, Retention & Integrations
+// ─────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id               String   @id @default(cuid())
+  entity           String
+  entityId         String
+  action           String
+  actorId          String
+  actorEmail       String
+  actorRole        String
+  changes          Json?
+  justification    String?
+  ipAddress        String?
+  branch           String?
+  department       String?
+  companyProfileId String?
+  createdAt        DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([actorId])
+  @@index([createdAt])
+  @@index([action])
+  @@index([companyProfileId])
+}
+
+model RetentionPolicy {
+  id            String   @id @default(cuid())
+  entity        String   @unique
+  retentionDays Int
+  autoPurge     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// NOTE: IntegrationSettings and WebhookDeliveryLog models were removed as
+// dead schema (no routes, no writer code). If webhook/WhatsApp integration
+// is required in future, re-introduce them alongside the implementing routes.
+
+model CronLock {
+  id         String   @id @default(cuid())
+  jobName    String   @unique
+  acquiredBy String
+  acquiredAt DateTime @default(now())
+  expiresAt  DateTime
+
+  @@index([expiresAt])
+}
+
+model EmploymentHistory {
+  id         String    @id @default(cuid())
+  employeeId String
+  managerId  String?
+  startDate  DateTime
+  endDate    DateTime?
+  role       String?
+  department String?
+  branch     String?
+  notes      String?
+  createdBy  String
+  version    Int       @default(1)
+  createdAt  DateTime  @default(now())
+
+  employee   Employee  @relation("EmploymentEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  manager    Employee? @relation("EmploymentManager", fields: [managerId], references: [id])
+
+  @@index([employeeId])
+  @@index([managerId])
+  @@index([employeeId, startDate, endDate])
+  @@index([employeeId, endDate])
+}

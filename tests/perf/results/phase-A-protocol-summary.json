@@ -1,0 +1,440 @@
+{
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {
+            "dashboard: aggregation queries": {
+                "name": "dashboard: aggregation queries",
+                "path": "::dashboard: aggregation queries",
+                "id": "bd9731d210700b086773e377f6895f1b",
+                "groups": {},
+                "checks": {
+                        "dashboard: summary 200": {
+                            "passes": 960,
+                            "fails": 0,
+                            "name": "dashboard: summary 200",
+                            "path": "::dashboard: aggregation queries::dashboard: summary 200",
+                            "id": "ff3c3422386c9bf41db4a737c575a569"
+                        },
+                        "dashboard: trend 200": {
+                            "name": "dashboard: trend 200",
+                            "path": "::dashboard: aggregation queries::dashboard: trend 200",
+                            "id": "6c784eda8929efcdbe9a7775ca7a6174",
+                            "passes": 960,
+                            "fails": 0
+                        },
+                        "dashboard: dept perf 200": {
+                            "name": "dashboard: dept perf 200",
+                            "path": "::dashboard: aggregation queries::dashboard: dept perf 200",
+                            "id": "1ffd52470484b00737b7906b4e7633c5",
+                            "passes": 960,
+                            "fails": 0
+                        }
+                    }
+            },
+            "db: query stress": {
+                "groups": {},
+                "checks": {
+                        "db: time entries 200": {
+                            "name": "db: time entries 200",
+                            "path": "::db: query stress::db: time entries 200",
+                            "id": "51e6762db082ef2e4cbd9b0f6d342ab6",
+                            "passes": 992,
+                            "fails": 0
+                        },
+                        "db: shifts 200": {
+                            "name": "db: shifts 200",
+                            "path": "::db: query stress::db: shifts 200",
+                            "id": "198bf940687465b44168bdc9481f8080",
+                            "passes": 992,
+                            "fails": 0
+                        },
+                        "db: employees 200": {
+                            "id": "db9918e31732764575eda5ac7161498e",
+                            "passes": 992,
+                            "fails": 0,
+                            "name": "db: employees 200",
+                            "path": "::db: query stress::db: employees 200"
+                        }
+                    },
+                "name": "db: query stress",
+                "path": "::db: query stress",
+                "id": "6421704dc3c5fb566ac5dc0c0045d520"
+            }
+        },
+        "checks": {
+            "health: status 200": {
+                "id": "73274babb93df6aaf60956333620494b",
+                "passes": 2481,
+                "fails": 0,
+                "name": "health: status 200",
+                "path": "::health: status 200"
+            },
+            "health: body ok": {
+                "passes": 2481,
+                "fails": 0,
+                "name": "health: body ok",
+                "path": "::health: body ok",
+                "id": "f9b4f777eda6b84a99c21f5085cc1ed5"
+            },
+            "login: status 200": {
+                "path": "::login: status 200",
+                "id": "4d9cb0041884c26a6b714904c7aba027",
+                "passes": 932,
+                "fails": 0,
+                "name": "login: status 200"
+            },
+            "login: token received": {
+                "name": "login: token received",
+                "path": "::login: token received",
+                "id": "eaf6a89325844746d98f1ce3d9dfa70e",
+                "passes": 932,
+                "fails": 0
+            },
+            "sse: stream established": {
+                "fails": 0,
+                "name": "sse: stream established",
+                "path": "::sse: stream established",
+                "id": "8c2b85589e5c50d38d41a6472092f726",
+                "passes": 346
+            },
+            "clock-in: 201 or 409 (already active)": {
+                "id": "86b22b45ae4289f40c0edebb930bb3e4",
+                "passes": 552,
+                "fails": 0,
+                "name": "clock-in: 201 or 409 (already active)",
+                "path": "::clock-in: 201 or 409 (already active)"
+            },
+            "clock-out: status 200": {
+                "name": "clock-out: status 200",
+                "path": "::clock-out: status 200",
+                "id": "e61efbfe3d01b671fbeae67b82606a17",
+                "passes": 552,
+                "fails": 0
+            },
+            "tenant: stress employees 200": {
+                "name": "tenant: stress employees 200",
+                "path": "::tenant: stress employees 200",
+                "id": "2bf455ebc24a41c2ea9b8df2910c6f9d",
+                "passes": 168,
+                "fails": 0
+            },
+            "tenant: demo employees 200": {
+                "id": "9c659c31a6e1af0092825f4e78d37f6b",
+                "passes": 168,
+                "fails": 0,
+                "name": "tenant: demo employees 200",
+                "path": "::tenant: demo employees 200"
+            },
+            "soak: summary 200": {
+                "id": "d065485c08098a130430727e082837e4",
+                "passes": 710,
+                "fails": 0,
+                "name": "soak: summary 200",
+                "path": "::soak: summary 200"
+            },
+            "soak: entries 200": {
+                "id": "c453af9c10172f7b8e1205d575af1212",
+                "passes": 710,
+                "fails": 0,
+                "name": "soak: entries 200",
+                "path": "::soak: entries 200"
+            },
+            "soak: health 200": {
+                "name": "soak: health 200",
+                "path": "::soak: health 200",
+                "id": "5c725a1f9c3b58eaff64f1ec2d485344",
+                "passes": 710,
+                "fails": 0
+            }
+        }
+    },
+    "metrics": {
+        "vus_max": {
+            "value": 100,
+            "min": 100,
+            "max": 100
+        },
+        "http_req_duration{scenario:soak}": {
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0,
+            "thresholds": {
+                "p(95)<2000": false
+            }
+        },
+        "data_sent": {
+            "count": 16855099,
+            "rate": 23351.816324320793
+        },
+        "tt_error_rate": {
+            "passes": 0,
+            "fails": 6973,
+            "thresholds": {
+                "rate<0.05": false
+            },
+            "value": 0
+        },
+        "tt_login_duration": {
+            "avg": 2578.3776824034335,
+            "min": 56,
+            "med": 2499,
+            "max": 7272,
+            "p(90)": 4666,
+            "p(95)": 4937
+        },
+        "tt_clock_out_duration": {
+            "p(90)": 835,
+            "p(95)": 1104.4499999999998,
+            "avg": 171.6268115942029,
+            "min": 0,
+            "med": 11,
+            "max": 1343
+        },
+        "http_req_duration{scenario:clock_write}": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "thresholds": {
+                "p(99)<3000": false
+            }
+        },
+        "checks": {
+            "passes": 16598,
+            "fails": 0,
+            "value": 1
+        },
+        "http_req_duration{scenario:db_query_stress}": {
+            "p(95)": 0,
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "thresholds": {
+                "p(99)<3000": false
+            }
+        },
+        "http_req_duration{scenario:health_check}": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "thresholds": {
+                "p(99)<500": false
+            }
+        },
+        "tt_tenant_isolation_errors": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count<1": false
+            }
+        },
+        "tt_health_duration": {
+            "avg": 0.4671503426037888,
+            "min": 0,
+            "med": 0,
+            "max": 37,
+            "p(90)": 1,
+            "p(95)": 1
+        },
+        "vus": {
+            "value": 10,
+            "min": 0,
+            "max": 100
+        },
+        "http_req_failed": {
+            "passes": 346,
+            "fails": 16735,
+            "thresholds": {
+                "rate<0.05": false
+            },
+            "value": 0.020256425267841462
+        },
+        "iterations": {
+            "count": 7141,
+            "rate": 9.893464308454954
+        },
+        "tt_clock_in_duration": {
+            "max": 139,
+            "p(90)": 28,
+            "p(95)": 34.899999999999864,
+            "avg": 18.458333333333332,
+            "min": 0,
+            "med": 15
+        },
+        "iteration_duration": {
+            "p(90)": 4430.559,
+            "p(95)": 5148.0437,
+            "avg": 2073.919315768098,
+            "min": 300.002,
+            "med": 2003.5659,
+            "max": 7772.2205
+        },
+        "http_req_tls_handshaking": {
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0
+        },
+        "http_req_connecting": {
+            "max": 1.214,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.0011484632047304014,
+            "min": 0,
+            "med": 0
+        },
+        "http_req_waiting": {
+            "avg": 516.1945425619112,
+            "min": 0,
+            "med": 17.3651,
+            "max": 7263.014,
+            "p(90)": 2172.5014,
+            "p(95)": 3665.7277
+        },
+        "http_req_duration": {
+            "med": 20.5958,
+            "max": 7271.8323,
+            "p(90)": 2769.7087,
+            "p(95)": 3665.7277,
+            "avg": 577.1303009074348,
+            "min": 0
+        },
+        "tt_rate_limit_hits": {
+            "passes": 0,
+            "fails": 932,
+            "thresholds": {
+                "rate<0.02": false
+            },
+            "value": 0
+        },
+        "http_req_duration{scenario:concurrent_login}": {
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "thresholds": {
+                "p(99)<3000": false
+            }
+        },
+        "http_reqs": {
+            "count": 17081,
+            "rate": 23.664789784724697
+        },
+        "tt_dashboard_duration": {
+            "avg": 89.54375,
+            "min": 4,
+            "med": 88,
+            "max": 501,
+            "p(90)": 162,
+            "p(95)": 174.04999999999995
+        },
+        "http_req_duration{expected_response:true}": {
+            "p(95)": 3717.3986,
+            "avg": 527.0320323752609,
+            "min": 0,
+            "med": 18.9257,
+            "max": 7271.8323,
+            "p(90)": 2188.21398
+        },
+        "group_duration": {
+            "med": 98.7307,
+            "max": 1019.2114,
+            "p(90)": 179.36073,
+            "p(95)": 192.9277449999999,
+            "avg": 102.05386250000001,
+            "min": 3.3271
+        },
+        "tt_active_vus": {
+            "value": 75,
+            "min": 1,
+            "max": 100
+        },
+        "tt_sse_handshake_duration": {
+            "p(95)": 3001,
+            "avg": 3000.315028901734,
+            "min": 3000,
+            "med": 3000,
+            "max": 3001,
+            "p(90)": 3001,
+            "thresholds": {
+                "p(95)<3500": false
+            }
+        },
+        "tt_db_query_duration": {
+            "avg": 114.1320564516129,
+            "min": 3,
+            "med": 105,
+            "max": 1019,
+            "p(90)": 188,
+            "p(95)": 203
+        },
+        "http_req_sending": {
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.005590059130027519,
+            "min": 0,
+            "med": 0,
+            "max": 11.3257
+        },
+        "http_req_duration{kind:!sse}": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "thresholds": {
+                "p(95)<1500": false,
+                "p(90)<1000": false,
+                "p(99)<3000": false
+            }
+        },
+        "http_req_duration{scenario:dashboard_load}": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "thresholds": {
+                "p(99)<2500": false
+            }
+        },
+        "http_req_receiving": {
+            "avg": 60.93016828640013,
+            "min": 0,
+            "med": 0,
+            "max": 3000.8764,
+            "p(90)": 0.7316,
+            "p(95)": 3.0495
+        },
+        "http_req_blocked": {
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.0028145249107195147,
+            "min": 0,
+            "med": 0,
+            "max": 8.5573
+        },
+        "data_received": {
+            "count": 29739030,
+            "rate": 41201.796929431606
+        }
+    }
+}

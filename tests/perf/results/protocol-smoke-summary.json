@@ -1,0 +1,346 @@
+{
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {
+            "dashboard: aggregation queries": {
+                "id": "bd9731d210700b086773e377f6895f1b",
+                "groups": {},
+                "checks": {
+                        "dashboard: summary 200": {
+                            "fails": 0,
+                            "name": "dashboard: summary 200",
+                            "path": "::dashboard: aggregation queries::dashboard: summary 200",
+                            "id": "ff3c3422386c9bf41db4a737c575a569",
+                            "passes": 343
+                        },
+                        "dashboard: trend 200": {
+                            "passes": 343,
+                            "fails": 0,
+                            "name": "dashboard: trend 200",
+                            "path": "::dashboard: aggregation queries::dashboard: trend 200",
+                            "id": "6c784eda8929efcdbe9a7775ca7a6174"
+                        },
+                        "dashboard: dept perf 200": {
+                            "name": "dashboard: dept perf 200",
+                            "path": "::dashboard: aggregation queries::dashboard: dept perf 200",
+                            "id": "1ffd52470484b00737b7906b4e7633c5",
+                            "passes": 343,
+                            "fails": 0
+                        }
+                    },
+                "name": "dashboard: aggregation queries",
+                "path": "::dashboard: aggregation queries"
+            },
+            "db: query stress": {
+                "name": "db: query stress",
+                "path": "::db: query stress",
+                "id": "6421704dc3c5fb566ac5dc0c0045d520",
+                "groups": {},
+                "checks": {
+                        "db: time entries 200": {
+                            "name": "db: time entries 200",
+                            "path": "::db: query stress::db: time entries 200",
+                            "id": "51e6762db082ef2e4cbd9b0f6d342ab6",
+                            "passes": 388,
+                            "fails": 0
+                        },
+                        "db: shifts 200": {
+                            "passes": 388,
+                            "fails": 0,
+                            "name": "db: shifts 200",
+                            "path": "::db: query stress::db: shifts 200",
+                            "id": "198bf940687465b44168bdc9481f8080"
+                        },
+                        "db: employees 200": {
+                            "name": "db: employees 200",
+                            "path": "::db: query stress::db: employees 200",
+                            "id": "db9918e31732764575eda5ac7161498e",
+                            "passes": 388,
+                            "fails": 0
+                        }
+                    }
+            }
+        },
+        "checks": {
+            "health: status 200": {
+                "name": "health: status 200",
+                "path": "::health: status 200",
+                "id": "73274babb93df6aaf60956333620494b",
+                "passes": 218,
+                "fails": 0
+            },
+            "health: body ok": {
+                "name": "health: body ok",
+                "path": "::health: body ok",
+                "id": "f9b4f777eda6b84a99c21f5085cc1ed5",
+                "passes": 218,
+                "fails": 0
+            },
+            "login: status 200": {
+                "name": "login: status 200",
+                "path": "::login: status 200",
+                "id": "4d9cb0041884c26a6b714904c7aba027",
+                "passes": 337,
+                "fails": 0
+            },
+            "login: token received": {
+                "path": "::login: token received",
+                "id": "eaf6a89325844746d98f1ce3d9dfa70e",
+                "passes": 337,
+                "fails": 0,
+                "name": "login: token received"
+            },
+            "sse: stream established": {
+                "name": "sse: stream established",
+                "path": "::sse: stream established",
+                "id": "8c2b85589e5c50d38d41a6472092f726",
+                "passes": 31,
+                "fails": 0
+            }
+        }
+    },
+    "metrics": {
+        "vus_max": {
+            "max": 10,
+            "value": 10,
+            "min": 10
+        },
+        "http_req_duration": {
+            "avg": 110.71897379271394,
+            "min": 0,
+            "med": 3.4074,
+            "max": 3000.7384,
+            "p(90)": 382.8215,
+            "p(95)": 457.0555
+        },
+        "http_req_duration{scenario:concurrent_login}": {
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0,
+            "thresholds": {
+                "p(99)<3000": false
+            }
+        },
+        "group_duration": {
+            "med": 6.7482,
+            "max": 135.8838,
+            "p(90)": 13.2109,
+            "p(95)": 14.741299999999999,
+            "avg": 8.237045690834467,
+            "min": 0
+        },
+        "iteration_duration": {
+            "min": 300.3304,
+            "med": 772.2433,
+            "max": 4068.3491,
+            "p(90)": 997.54172,
+            "p(95)": 1044.0784800000001,
+            "avg": 776.7765145026569
+        },
+        "tt_rate_limit_hits": {
+            "passes": 0,
+            "fails": 337,
+            "thresholds": {
+                "rate<0.02": false
+            },
+            "value": 0
+        },
+        "tt_error_rate": {
+            "passes": 0,
+            "fails": 1317,
+            "thresholds": {
+                "rate<0.05": false
+            },
+            "value": 0
+        },
+        "vus": {
+            "value": 1,
+            "min": 0,
+            "max": 10
+        },
+        "data_sent": {
+            "count": 3895560,
+            "rate": 10815.186047390103
+        },
+        "tt_db_query_duration": {
+            "min": 0,
+            "med": 10,
+            "max": 115,
+            "p(90)": 14,
+            "p(95)": 15,
+            "avg": 9.969072164948454
+        },
+        "tt_health_duration": {
+            "max": 11,
+            "p(90)": 1,
+            "p(95)": 1,
+            "avg": 0.8623853211009175,
+            "min": 0,
+            "med": 1
+        },
+        "tt_login_duration": {
+            "p(90)": 497,
+            "p(95)": 543,
+            "avg": 270.3234421364985,
+            "min": 41,
+            "med": 328,
+            "max": 548
+        },
+        "http_req_duration{scenario:health_check}": {
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "thresholds": {
+                "p(99)<500": false
+            }
+        },
+        "http_req_duration{scenario:dashboard_load}": {
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0,
+            "thresholds": {
+                "p(99)<2500": false
+            }
+        },
+        "http_req_duration{scenario:db_query_stress}": {
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0,
+            "min": 0,
+            "thresholds": {
+                "p(99)<3000": false
+            }
+        },
+        "data_received": {
+            "count": 6481607,
+            "rate": 17994.79037444322
+        },
+        "http_req_sending": {
+            "avg": 0.0031358938153064103,
+            "min": 0,
+            "med": 0,
+            "max": 1.041,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_receiving": {
+            "p(95)": 6.1991,
+            "avg": 27.00523292855126,
+            "min": 0,
+            "med": 0,
+            "max": 3000.7055,
+            "p(90)": 1.583
+        },
+        "http_req_duration{kind:!sse}": {
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "thresholds": {
+                "p(99)<3000": false,
+                "p(95)<1500": false,
+                "p(90)<1000": false
+            }
+        },
+        "tt_sse_handshake_duration": {
+            "med": 3000,
+            "max": 3001,
+            "p(90)": 3001,
+            "p(95)": 3001,
+            "avg": 3000.3225806451615,
+            "min": 3000,
+            "thresholds": {
+                "p(95)<3500": false
+            }
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "iterations": {
+            "count": 1317,
+            "rate": 3.6563677685397646
+        },
+        "http_req_blocked": {
+            "avg": 0.005316661959898335,
+            "min": 0,
+            "med": 0,
+            "max": 9.1236,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "tt_dashboard_duration": {
+            "p(90)": 8,
+            "p(95)": 9,
+            "avg": 6.19533527696793,
+            "min": 2,
+            "med": 6,
+            "max": 136
+        },
+        "http_req_waiting": {
+            "min": 0,
+            "med": 3.0681,
+            "max": 555.9972,
+            "p(90)": 380.8896,
+            "p(95)": 439.0021,
+            "avg": 83.71060497034718
+        },
+        "tt_active_vus": {
+            "value": 9,
+            "min": 1,
+            "max": 10
+        },
+        "http_reqs": {
+            "count": 3541,
+            "rate": 9.83082632376561
+        },
+        "checks": {
+            "passes": 3334,
+            "fails": 0,
+            "value": 1
+        },
+        "http_req_failed": {
+            "passes": 31,
+            "fails": 3510,
+            "thresholds": {
+                "rate<0.05": false
+            },
+            "value": 0.00875458909912454
+        },
+        "http_req_duration{expected_response:true}": {
+            "p(90)": 381.3851,
+            "p(95)": 439.3005,
+            "avg": 85.19771809116804,
+            "min": 0,
+            "med": 3.3864,
+            "max": 555.9972
+        },
+        "http_req_connecting": {
+            "med": 0,
+            "max": 0.5433,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.000847528946625247,
+            "min": 0
+        }
+    }
+}

@@ -1,0 +1,48 @@
+{
+  "name": "tt-workforce-server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "TimeTrack API server — Express 5 + Prisma + PostgreSQL",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "prisma generate --schema=prisma/schema.prisma && tsc",
+    "start": "node dist/index.js",
+    "seed": "tsx src/seed.ts",
+    "seed:stress": "tsx src/seed-stress.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:push": "prisma db push --schema=prisma/schema.prisma",
+    "db:setup": "prisma db push --schema=prisma/schema.prisma && tsx src/seed.ts",
+    "db:migrate:deploy": "prisma migrate deploy --schema=prisma/schema.prisma",
+    "db:migrate:dev": "prisma migrate dev --schema=prisma/schema.prisma",
+    "db:migrate:status": "prisma migrate status --schema=prisma/schema.prisma",
+    "db:backup": "node backup_db.mjs",
+    "prisma:generate": "prisma generate --schema=prisma/schema.prisma"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "decimal.js": "^10.6.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.6.0",
+    "ioredis": "^5.4.1",
+    "jsonwebtoken": "^9.0.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.20.1",
+    "prisma": "^6.19.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.2",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,153 @@
+# =============================================================================
+# TimeTrack — Prometheus Alerting Rules for Stress Test Abort Thresholds
+# =============================================================================
+# These rules mirror the run-phases.mjs watchdog limits so the SAME abort
+# criteria fire as Prometheus alerts (Grafana notification channels) even
+# when tests run unattended in CI/Kubernetes.
+#
+# Install: copy to prometheus/rules/ and reference in prometheus.yml:
+#   rule_files:
+#     - /etc/prometheus/rules/timetrack-stress-alerts.yml
+# =============================================================================
+
+groups:
+  - name: timetrack-stress-abort-guards
+    interval: 10s
+    rules:
+      # ── Error Rate > 5% → abort ──
+      - alert: K6ErrorRateAboveThreshold
+        expr: |
+          100 * sum(rate(k6_http_req_failed_total[1m]))
+          / clamp_min(sum(rate(k6_http_reqs_total[1m])), 1) > 5
+        for: 30s
+        labels:
+          severity: critical
+          action: abort-test
+        annotations:
+          summary: "k6 error rate > 5% (abort threshold)"
+          description: "TimeTrack stress test error rate is {{ $value | printf \"%.2f\" }}% — exceeds 5% abort limit."
+
+      # ── p99 Latency > 3000ms → abort ──
+      - alert: K6P99LatencyDegradation
+        expr: |
+          histogram_quantile(0.99, sum(rate(k6_http_req_duration_bucket[1m])) by (le)) > 3000
+        for: 30s
+        labels:
+          severity: critical
+          action: abort-test
+        annotations:
+          summary: "k6 p99 latency > 3s (abort threshold)"
+          description: "p99 response time is {{ $value | printf \"%.0f\" }}ms — exceeds 3000ms abort limit."
+
+      # ── Host RAM > 90% → abort ──
+      - alert: HostMemoryAboveThreshold
+        expr: |
+          100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 90
+        for: 20s
+        labels:
+          severity: critical
+          action: abort-test
+        annotations:
+          summary: "Host RAM > 90% (abort threshold)"
+          description: "Memory usage is {{ $value | printf \"%.1f\" }}% — exceeds 90% abort limit."
+
+      # ── Swap/Page file > 90% → abort ──
+      - alert: HostSwapAboveThreshold
+        expr: |
+          100 * (1 - node_memory_SwapFree_bytes / clamp_min(node_memory_SwapTotal_bytes, 1)) > 90
+          and node_memory_SwapTotal_bytes > 0
+        for: 20s
+        labels:
+          severity: critical
+          action: abort-test
+        annotations:
+          summary: "Swap/page file > 90% (abort threshold)"
+          description: "Swap usage is {{ $value | printf \"%.1f\" }}% — exceeds 90% abort limit."
+
+      # ── Disk I/O queue length > 2 → abort ──
+      - alert: DiskQueueLengthAboveThreshold
+        expr: |
+          rate(node_disk_io_time_weighted_seconds_total[1m]) > 2
+        for: 20s
+        labels:
+          severity: critical
+          action: abort-test
+        annotations:
+          summary: "Disk I/O queue length > 2 (abort threshold)"
+          description: "Weighted disk queue on {{ $labels.device }} is {{ $value | printf \"%.2f\" }} — exceeds 2.0 abort limit."
+
+      # ── Disk 100% active time → abort ──
+      - alert: DiskFullySaturated
+        expr: |
+          rate(node_disk_io_time_seconds_total[1m]) > 0.99
+        for: 30s
+        labels:
+          severity: critical
+          action: abort-test
+        annotations:
+          summary: "Disk 100% active time (abort threshold)"
+          description: "Disk {{ $labels.device }} is saturated ({{ $value | printf \"%.2f\" }} s/s active)."
+
+      # ── CPU > 95% sustained → abort ──
+      - alert: HostCpuAboveThreshold
+        expr: |
+          100 * (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[1m]))) > 95
+        for: 60s
+        labels:
+          severity: critical
+          action: abort-test
+        annotations:
+          summary: "CPU > 95% sustained (abort threshold)"
+          description: "CPU utilization is {{ $value | printf \"%.1f\" }}% for >60s — exceeds 95% abort limit."
+
+      # ── High iowait (disk-bound CPU) → warning ──
+      - alert: HighIoWait
+        expr: |
+          100 * avg(rate(node_cpu_seconds_total{mode="iowait"}[1m])) > 20
+        for: 60s
+        labels:
+          severity: warning
+          action: investigate
+        annotations:
+          summary: "High %iowait — disk-bound CPU"
+          description: "iowait is {{ $value | printf \"%.1f\" }}% — CPU is stalling on disk I/O."
+
+  - name: timetrack-stress-quality-gates
+    interval: 15s
+    rules:
+      # ── Check pass rate degradation (early warning before 5% error abort) ──
+      - alert: K6CheckPassRateDegrading
+        expr: |
+          sum(rate(k6_checks_total[2m]))
+          / clamp_min(sum(rate(k6_checks_total[2m]) + rate(k6_checks_failed_total[2m])), 1) < 0.97
+        for: 1m
+        labels:
+          severity: warning
+          action: investigate
+        annotations:
+          summary: "k6 check pass rate < 97%"
+          description: "Check pass rate is {{ $value | printf \"%.4f\" }} — trending toward the 5% error abort."
+
+      # ── Rate limiting engaged heavily (perf bypass may not be active) ──
+      - alert: K6RateLimitingEngaged
+        expr: |
+          sum(rate(k6_http_reqs_total{status="429"}[1m])) > 10
+        for: 30s
+        labels:
+          severity: warning
+          action: investigate
+        annotations:
+          summary: "Heavy 429 rate limiting during stress test"
+          description: "{{ $value | printf \"%.0f\" }} req/s are being rate-limited — verify x-perf-bypass header."
+
+      # ── API health endpoint degraded ──
+      - alert: TimeTrackHealthDegraded
+        expr: |
+          probe_success{job="timetrack-health"} == 0
+        for: 15s
+        labels:
+          severity: critical
+          action: abort-test
+        annotations:
+          summary: "TimeTrack /api/health probe failing"
+          description: "The API health probe is failing — system under test is down."
