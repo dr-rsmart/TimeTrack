@@ -10,10 +10,10 @@
  *   validated ONLY against that geofence (matches backend). Unassigned
  *   employees see all active company geofences.
  * - GPS accuracy buffer awareness (150m, same as backend) for clock-in validation
- * - 3-tier proximity zone colours based on 110m auto clock-out buffer:
+ * - 3-tier proximity zone colours based on 200m auto clock-out buffer:
  *     🟢 Green  — inside geofence (distance <= radius)
- *     🟠 Orange — approaching boundary (radius < distance <= radius + 110m)
- *     🔴 Red    — outside / auto-clock-out zone (distance > radius + 110m)
+ *     🟠 Orange — approaching boundary (radius < distance <= radius + 200m)
+ *     🔴 Red    — outside / auto-clock-out zone (distance > radius + 200m)
  * - Integrated "Add Location" modal for creating new geofences
  * - Live distance auto-refresh every 10 seconds
  * - SSE listener for real-time geofence updates
@@ -39,7 +39,7 @@ const EARTH_RADIUS_METERS = 6_371_000;
  * geofence radius to prevent false declines when an employee is at the
  * boundary and GPS drift pushes the reported position slightly outside.
  *
- * NOTE: This is separate from EXIT_BUFFER_METERS (110m) which governs the
+ * NOTE: This is separate from EXIT_BUFFER_METERS (200m) which governs the
  * auto clock-out grace zone and the proximity colour states.
  */
 const GPS_ACCURACY_BUFFER_METERS = 150;
@@ -69,7 +69,7 @@ interface Geofence {
   employeeCount?: number;
 }
 
-/** Proximity zone relative to the geofence, based on the 110m auto clock-out buffer. */
+/** Proximity zone relative to the geofence, based on the 200m auto clock-out buffer. */
 type ProximityZone = 'inside' | 'approaching' | 'outside';
 
 interface DistanceResult {
@@ -77,7 +77,7 @@ interface DistanceResult {
   distanceMeters: number;
   /** True when within the manual clock-in validation radius (radius + 150m GPS buffer). */
   withinRadius: boolean;
-  /** Proximity zone used for colour display (based on 110m auto clock-out buffer). */
+  /** Proximity zone used for colour display (based on 200m auto clock-out buffer). */
   zone: ProximityZone;
   isAssigned: boolean;
 }

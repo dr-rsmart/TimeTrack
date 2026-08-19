@@ -438,7 +438,7 @@ export function GeofenceManager({ hideAssignEmployees = false }: { hideAssignEmp
             </span>
           </div>
           <p className="text-xs text-slate-500">
-            Automatically clocks user in upon sign-in/entry within allocated radius, and auto clocks out when reaching 110m outside the geofence perimeter.
+Automatically clocks user in upon sign-in/entry within allocated radius, and auto clocks out when reaching 200m outside the geofence perimeter.
           </p>
         </div>
         <button

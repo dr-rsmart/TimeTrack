@@ -52,7 +52,7 @@ export type AutoGeofenceEventType = 'ENTERED_GEOFENCE' | 'EXITED_GEOFENCE' | 'PO
 export type GeofenceZone = 'inside' | 'approaching' | 'outside';
 
 /** Grace distance (metres) outside the geofence radius before auto clock-out triggers. */
-export const EXIT_BUFFER_METERS = 110;
+export const EXIT_BUFFER_METERS = 200;
 
 /** Maximum GPS accuracy (metres) for a fix to be trusted. Fixes worse than this are dropped. */
 export const MAX_ACCURACY_METERS = 100;
@@ -199,7 +199,7 @@ class AutoGeofenceService {
    * Raw samples first pass the accuracy gate and speed filter. Only accepted
    * fixes update the displayed distance/zone. Auto clock-in triggers when
    * inside the geofence (distance <= radius_meters) and auto clock-out when
-   * 110m outside (distance > radius_meters + 110) — each confirmed by
+   * 200m outside (distance > radius_meters + 200) — each confirmed by
    * CONSECUTIVE_CONFIRMATIONS qualifying samples and rate-limited by
    * EVENT_COOLDOWN_MS.
    */
@@ -257,7 +257,7 @@ class AutoGeofenceService {
 
     // Inside geofence: distance is within configured radius
     const isInside = distance <= geofence.radius_meters;
-    // Exited geofence: distance exceeds radius + 110m exit boundary
+    // Exited geofence: distance exceeds radius + 200m exit boundary
     const isPastExitThreshold = distance > exitThreshold;
 
     this.state.isInsideGeofence = isInside;
@@ -314,12 +314,12 @@ class AutoGeofenceService {
   /**
    * Sync active clocked-in state from app to prevent manual clock-in race conditions.
    * If a user manually clocks in while inside or before exiting, ensure previousState
-   * is set to 'INSIDE' so auto clock-out reliably triggers when crossing > (radius + 110m).
+   * is set to 'INSIDE' so auto clock-out reliably triggers when crossing > (radius + 200m).
    *
    * When clocked in, previousState is ALWAYS set to 'INSIDE' regardless of the last
    * known distance — this guarantees the EXITED_GEOFENCE event can fire even if the
    * user clocked in while GPS had not yet reported a position, or was already in the
-   * approaching zone. The exit event itself is still gated on the 110m threshold,
+   * approaching zone. The exit event itself is still gated on the 200m threshold,
    * confirmation samples and cooldown.
    */
   syncClockedIn(isClockedIn: boolean): void {
