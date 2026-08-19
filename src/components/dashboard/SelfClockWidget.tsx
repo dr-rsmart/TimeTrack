@@ -188,14 +188,24 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
                   const zoneIconColor = zone === 'inside' ? 'text-emerald-500' : zone === 'approaching' ? 'text-orange-500' : 'text-red-500';
                   const zoneTextColor = zone === 'inside' ? 'text-emerald-600 dark:text-emerald-400' : zone === 'approaching' ? 'text-orange-600 dark:text-orange-400' : 'text-red-600 dark:text-red-400';
                   return (
-                    <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-secondary/40 px-2.5 py-0.5 rounded-full border border-border/30">
-                      <Navigation className={cn('w-3 h-3', zoneIconColor)} />
-                      <span>
-                        {autoGeo.autoGeofenceEnabled ? 'Auto-Geofence ON' : 'Auto-Geofence OFF'}: {autoGeo.geofence.name} ({autoGeo.geofence.radius_meters}m radius)
-                      </span>
-                      {autoGeo.monitorState?.lastDistance !== undefined && (
-                        <span className={cn('font-semibold', zoneTextColor)}>
-                          · ~{autoGeo.monitorState.lastDistance}m
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-secondary/40 px-2.5 py-0.5 rounded-full border border-border/30">
+                        <Navigation className={cn('w-3 h-3', zoneIconColor)} />
+                        <span>
+                          {autoGeo.autoGeofenceEnabled ? 'Auto-Geofence ON' : 'Auto-Geofence OFF'}: {autoGeo.geofence.name} ({autoGeo.geofence.radius_meters}m radius)
+                        </span>
+                        {autoGeo.monitorState?.lastDistance !== undefined && (
+                          <span className={cn('font-semibold', zoneTextColor)}>
+                            · ~{autoGeo.monitorState.lastDistance}m
+                            {autoGeo.monitorState.lastAccuracy !== undefined && (
+                              <span className="font-normal opacity-70"> ±{autoGeo.monitorState.lastAccuracy}m</span>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                      {autoGeo.monitorState?.poorSignal && (
+                        <span className="text-[10px] text-amber-600 dark:text-amber-400">
+                          ⚠ Poor GPS signal — waiting for a reliable fix (unstable readings ignored)
                         </span>
                       )}
                     </div>

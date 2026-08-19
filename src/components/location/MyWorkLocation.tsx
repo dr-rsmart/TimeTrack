@@ -110,6 +110,8 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
   const [loading, setLoading] = useState(true);
   const [locating, setLocating] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const [poorSignal, setPoorSignal] = useState(false);
   const [showAddLocation, setShowAddLocation] = useState(false);
 
   // ── Fetch all geofences and employee assignment ──
@@ -160,7 +162,16 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
         });
       });
 
-      const { latitude, longitude } = position.coords;
+      const { latitude, longitude, accuracy } = position.coords;
+
+      // Accuracy gate: never overwrite a good reading with an unreliable fix
+      // (matches AutoGeofenceService MAX_ACCURACY_METERS = 100)
+      if (typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > 100) {
+        setPoorSignal(true);
+        return;
+      }
+      setPoorSignal(false);
+      setGpsAccuracy(typeof accuracy === 'number' && Number.isFinite(accuracy) ? Math.round(accuracy) : null);
 
       // Determine allowed geofences (matches backend logic)
       const activeGeofences = allGeofences.filter((g) => g.isActive);
@@ -391,6 +402,14 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
             </div>
           )}
 
+          {/* Poor GPS signal hint — unstable readings are ignored */}
+          {poorSignal && !gpsError && (
+            <div className="rounded-lg p-3 bg-amber-50 border border-amber-200">
+              <p className="text-sm text-amber-700 font-medium">Poor GPS signal</p>
+              <p className="text-xs text-amber-600 mt-1">Unstable readings are ignored — showing your last reliable position.</p>
+            </div>
+          )}
+
           {/* Distance to closest geofence — 3-tier zone colours */}
           {closestResult && (
             <div className={`rounded-lg p-3 border ${zoneCardClass(closestResult.zone)}`}>
@@ -407,6 +426,9 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
               </div>
               <p className={`text-2xl font-bold tabular-nums ${zoneTextClass(closestResult.zone)}`}>
                 {formatDistance(closestResult.distanceMeters)}
+                {gpsAccuracy !== null && (
+                  <span className="text-sm font-normal text-slate-400 ml-1.5">±{gpsAccuracy}m</span>
+                )}
               </p>
               <div className="flex items-center gap-2 text-xs mt-1">
                 {closestResult.zone === 'inside' && (
