@@ -182,20 +182,25 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
                   </span>
                 </div>
 
-                {/* Auto Geofence Status Badge */}
-                {autoGeo.geofence && (
-                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-secondary/40 px-2.5 py-0.5 rounded-full border border-border/30">
-                    <Navigation className={cn('w-3 h-3', autoGeo.isInsideGeofence ? 'text-emerald-500' : 'text-blue-500')} />
-                    <span>
-                      {autoGeo.autoGeofenceEnabled ? 'Auto-Geofence ON' : 'Auto-Geofence OFF'}: {autoGeo.geofence.name} ({autoGeo.geofence.radius_meters}m radius)
-                    </span>
-                    {autoGeo.monitorState?.lastDistance !== undefined && (
-                      <span className={cn('font-semibold', autoGeo.isInsideGeofence ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400')}>
-                        · ~{autoGeo.monitorState.lastDistance}m
+                {/* Auto Geofence Status Badge — 3-tier zone colours (green / orange / red) */}
+                {autoGeo.geofence && (() => {
+                  const zone = autoGeo.monitorState?.zone ?? 'outside';
+                  const zoneIconColor = zone === 'inside' ? 'text-emerald-500' : zone === 'approaching' ? 'text-orange-500' : 'text-red-500';
+                  const zoneTextColor = zone === 'inside' ? 'text-emerald-600 dark:text-emerald-400' : zone === 'approaching' ? 'text-orange-600 dark:text-orange-400' : 'text-red-600 dark:text-red-400';
+                  return (
+                    <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-secondary/40 px-2.5 py-0.5 rounded-full border border-border/30">
+                      <Navigation className={cn('w-3 h-3', zoneIconColor)} />
+                      <span>
+                        {autoGeo.autoGeofenceEnabled ? 'Auto-Geofence ON' : 'Auto-Geofence OFF'}: {autoGeo.geofence.name} ({autoGeo.geofence.radius_meters}m radius)
                       </span>
-                    )}
-                  </div>
-                )}
+                      {autoGeo.monitorState?.lastDistance !== undefined && (
+                        <span className={cn('font-semibold', zoneTextColor)}>
+                          · ~{autoGeo.monitorState.lastDistance}m
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Timer display */}

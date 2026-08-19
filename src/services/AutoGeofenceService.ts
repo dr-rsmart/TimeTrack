@@ -27,6 +27,17 @@ export interface GeofenceDefinition {
 
 export type AutoGeofenceEventType = 'ENTERED_GEOFENCE' | 'EXITED_GEOFENCE' | 'POSITION_UPDATE' | 'ERROR';
 
+/**
+ * Geofence proximity zone:
+ * - 'inside':      distance <= radius (green)
+ * - 'approaching': radius < distance <= radius + EXIT_BUFFER_METERS (orange)
+ * - 'outside':     distance > radius + EXIT_BUFFER_METERS — auto clock-out zone (red)
+ */
+export type GeofenceZone = 'inside' | 'approaching' | 'outside';
+
+/** Grace distance (metres) outside the geofence radius before auto clock-out triggers. */
+export const EXIT_BUFFER_METERS = 110;
+
 export interface AutoGeofenceEvent {
   type: AutoGeofenceEventType;
   geofence?: GeofenceDefinition;
@@ -38,6 +49,8 @@ export interface AutoGeofenceEvent {
 export interface AutoGeofenceState {
   isMonitoring: boolean;
   isInsideGeofence: boolean;
+  /** Current proximity zone relative to the monitored geofence. */
+  zone: GeofenceZone;
   lastPosition?: { latitude: number; longitude: number };
   lastDistance?: number;
   geofence?: GeofenceDefinition;
@@ -73,6 +86,7 @@ class AutoGeofenceService {
   private state: AutoGeofenceState = {
     isMonitoring: false,
     isInsideGeofence: false,
+    zone: 'outside',
   };
   private eventListeners: Array<(event: AutoGeofenceEvent) => void> = [];
   private stateListeners: Array<(state: AutoGeofenceState) => void> = [];
@@ -90,6 +104,7 @@ class AutoGeofenceService {
     this.state = {
       isMonitoring: true,
       isInsideGeofence: false,
+      zone: 'outside',
       geofence,
     };
     this.previousState = null;
@@ -145,7 +160,7 @@ class AutoGeofenceService {
   /**
    * Process a GPS position update against the active geofence.
    * Auto clock-in triggers when inside geofence (distance <= radius_meters).
-   * Auto clock-out triggers after reaching 150m outside geofence radius (distance > radius_meters + 150).
+   * Auto clock-out triggers after reaching 110m outside geofence radius (distance > radius_meters + 110).
    */
   private processPosition(
     position: { latitude: number; longitude: number },
@@ -161,15 +176,15 @@ class AutoGeofenceService {
     );
     this.state.lastDistance = Math.round(distance);
 
-    const EXIT_BUFFER_METERS = 150;
     const exitThreshold = geofence.radius_meters + EXIT_BUFFER_METERS;
 
     // Inside geofence: distance is within configured radius
     const isInside = distance <= geofence.radius_meters;
-    // Exited geofence: distance exceeds radius + 150m exit boundary
+    // Exited geofence: distance exceeds radius + 110m exit boundary
     const isPastExitThreshold = distance > exitThreshold;
 
     this.state.isInsideGeofence = isInside;
+    this.state.zone = isInside ? 'inside' : isPastExitThreshold ? 'outside' : 'approaching';
 
     // Emit live position update
     this.emit({
@@ -202,17 +217,18 @@ class AutoGeofenceService {
   /**
    * Sync active clocked-in state from app to prevent manual clock-in race conditions.
    * If a user manually clocks in while inside or before exiting, ensure previousState
-   * is set to 'INSIDE' so auto clock-out reliably triggers when crossing > (radius + 150m).
+   * is set to 'INSIDE' so auto clock-out reliably triggers when crossing > (radius + 110m).
+   *
+   * When clocked in, previousState is ALWAYS set to 'INSIDE' regardless of the last
+   * known distance — this guarantees the EXITED_GEOFENCE event can fire even if the
+   * user clocked in while GPS had not yet reported a position, or was already in the
+   * approaching zone. The exit event itself is still gated on the 110m threshold.
    */
   syncClockedIn(isClockedIn: boolean): void {
     if (isClockedIn) {
-      if (this.previousState !== 'INSIDE' && (this.state.lastDistance == null || (this.state.geofence && this.state.lastDistance <= this.state.geofence.radius_meters + 150))) {
-        this.previousState = 'INSIDE';
-      }
+      this.previousState = 'INSIDE';
     } else {
-      if (this.state.lastDistance != null && this.state.geofence && this.state.lastDistance > this.state.geofence.radius_meters) {
-        this.previousState = 'OUTSIDE';
-      }
+      this.previousState = 'OUTSIDE';
     }
   }
 

@@ -9,10 +9,16 @@
  * - Assigned-geofence enforcement: employees with an assigned geofence are
  *   validated ONLY against that geofence (matches backend). Unassigned
  *   employees see all active company geofences.
- * - GPS accuracy buffer awareness (150m, same as backend)
+ * - GPS accuracy buffer awareness (150m, same as backend) for clock-in validation
+ * - 3-tier proximity zone colours based on 110m auto clock-out buffer:
+ *     🟢 Green  — inside geofence (distance <= radius)
+ *     🟠 Orange — approaching boundary (radius < distance <= radius + 110m)
+ *     🔴 Red    — outside / auto-clock-out zone (distance > radius + 110m)
  * - Integrated "Add Location" modal for creating new geofences
  * - Live distance auto-refresh every 10 seconds
  * - SSE listener for real-time geofence updates
+ * - Admin/master roles see the GeofenceManager component instead of the
+ *   distance list (avoids a messy "All Company Work Locations" list)
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -20,16 +26,21 @@ import { MapPin, Navigation, Radio, Plus } from 'lucide-react';
 import { Button, Card, CardContent, CardHeader, CardTitle, EmptyState, Spinner } from '../ui';
 import { useSSE } from '../../hooks/useSSE';
 import { AddLocationModal } from './AddLocationModal';
+import { GeofenceManager } from '../settings/GeofenceManager';
+import { EXIT_BUFFER_METERS } from '../../services/AutoGeofenceService';
 
 // ── Haversine distance (same as backend geoValidationService) ───────────────
 const EARTH_RADIUS_METERS = 6_371_000;
 
 /**
- * GPS accuracy tolerance buffer (in metres).
+ * GPS accuracy tolerance buffer (in metres) used for manual clock-in validation.
  * Must match server/src/geoValidationService.ts GPS_ACCURACY_BUFFER_METERS.
  * Mobile GPS typically has ±10–150m accuracy. This buffer is added to the
  * geofence radius to prevent false declines when an employee is at the
  * boundary and GPS drift pushes the reported position slightly outside.
+ *
+ * NOTE: This is separate from EXIT_BUFFER_METERS (110m) which governs the
+ * auto clock-out grace zone and the proximity colour states.
  */
 const GPS_ACCURACY_BUFFER_METERS = 150;
 
@@ -58,10 +69,16 @@ interface Geofence {
   employeeCount?: number;
 }
 
+/** Proximity zone relative to the geofence, based on the 110m auto clock-out buffer. */
+type ProximityZone = 'inside' | 'approaching' | 'outside';
+
 interface DistanceResult {
   geofence: Geofence;
   distanceMeters: number;
+  /** True when within the manual clock-in validation radius (radius + 150m GPS buffer). */
   withinRadius: boolean;
+  /** Proximity zone used for colour display (based on 110m auto clock-out buffer). */
+  zone: ProximityZone;
   isAssigned: boolean;
 }
 
@@ -70,8 +87,19 @@ interface MyWorkLocationProps {
    * Controls whether the "Add Location" button is shown.
    * Employees should not create geofences — only admin/master/manager roles
    * have that permission. Defaults to true for backward compatibility.
+   *
+   * When true (admin/master), the GeofenceManager component is rendered
+   * instead of the distance list to avoid a messy "All Company Work
+   * Locations" list.
    */
   canAddLocation?: boolean;
+}
+
+/** Determine the proximity zone for a given distance and geofence radius. */
+function getZone(distanceMeters: number, radiusMeters: number): ProximityZone {
+  if (distanceMeters <= radiusMeters) return 'inside';
+  if (distanceMeters <= radiusMeters + EXIT_BUFFER_METERS) return 'approaching';
+  return 'outside';
 }
 
 export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
@@ -148,6 +176,7 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
           geofence: gf,
           distanceMeters: Math.round(distance),
           withinRadius: distance <= effectiveRadius,
+          zone: getZone(Math.round(distance), gf.radiusMeters),
           isAssigned: gf.id === assignedGeofenceId,
         };
       });
@@ -214,17 +243,72 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
     return `${meters} m`;
   };
 
-  // ── Status determination ──
-  const getDistanceStatus = (): 'excellent' | 'inside' | 'outside' | null => {
-    if (!closestResult) return null;
-    if (closestResult.withinRadius && closestResult.distanceMeters < closestResult.geofence.radiusMeters * 0.25) {
-      return 'excellent';
+  // ── Zone colour helpers (green / orange / red) ──
+  const zoneCardClass = (zone: ProximityZone): string => {
+    switch (zone) {
+      case 'inside':
+        return 'bg-emerald-50 border-emerald-200';
+      case 'approaching':
+        return 'bg-orange-50 border-orange-200';
+      case 'outside':
+        return 'bg-red-50 border-red-200';
     }
-    if (closestResult.withinRadius) return 'inside';
-    return 'outside';
   };
 
-  const distanceStatus = getDistanceStatus();
+  const zoneIconClass = (zone: ProximityZone): string => {
+    switch (zone) {
+      case 'inside':
+        return 'text-emerald-600';
+      case 'approaching':
+        return 'text-orange-600';
+      case 'outside':
+        return 'text-red-600';
+    }
+  };
+
+  const zoneTextClass = (zone: ProximityZone): string => {
+    switch (zone) {
+      case 'inside':
+        return 'text-emerald-700';
+      case 'approaching':
+        return 'text-orange-700';
+      case 'outside':
+        return 'text-red-700';
+    }
+  };
+
+  const zoneDotClass = (zone: ProximityZone): string => {
+    switch (zone) {
+      case 'inside':
+        return 'bg-emerald-500';
+      case 'approaching':
+        return 'bg-orange-400';
+      case 'outside':
+        return 'bg-red-500';
+    }
+  };
+
+  const zoneDistanceTextClass = (zone: ProximityZone): string => {
+    switch (zone) {
+      case 'inside':
+        return 'text-emerald-700';
+      case 'approaching':
+        return 'text-orange-600';
+      case 'outside':
+        return 'text-red-600';
+    }
+  };
+
+  const zoneRowClass = (zone: ProximityZone): string => {
+    switch (zone) {
+      case 'inside':
+        return 'border-emerald-200 bg-emerald-50/50';
+      case 'approaching':
+        return 'border-orange-200 bg-orange-50/50';
+      case 'outside':
+        return 'border-red-200 bg-red-50/50';
+    }
+  };
 
   // ── Loading state ──
   if (loading) {
@@ -307,27 +391,11 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
             </div>
           )}
 
-          {/* Distance to closest geofence */}
+          {/* Distance to closest geofence — 3-tier zone colours */}
           {closestResult && (
-            <div
-              className={`rounded-lg p-3 border ${
-                distanceStatus === 'excellent'
-                  ? 'bg-emerald-50 border-emerald-200'
-                  : distanceStatus === 'inside'
-                    ? 'bg-blue-50 border-blue-200'
-                    : 'bg-orange-50 border-orange-200'
-              }`}
-            >
+            <div className={`rounded-lg p-3 border ${zoneCardClass(closestResult.zone)}`}>
               <div className="flex items-center gap-2 mb-1">
-                <Navigation
-                  className={`w-4 h-4 ${
-                    distanceStatus === 'excellent'
-                      ? 'text-emerald-600'
-                      : distanceStatus === 'inside'
-                        ? 'text-blue-600'
-                        : 'text-orange-600'
-                  }`}
-                />
+                <Navigation className={`w-4 h-4 ${zoneIconClass(closestResult.zone)}`} />
                 <span className="font-medium text-sm">
                   Distance to {closestResult.geofence.name}
                   {closestResult.isAssigned && (
@@ -337,35 +405,29 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
                   )}
                 </span>
               </div>
-              <p
-                className={`text-2xl font-bold tabular-nums ${
-                  distanceStatus === 'excellent'
-                    ? 'text-emerald-700'
-                    : distanceStatus === 'inside'
-                      ? 'text-blue-700'
-                      : 'text-orange-700'
-                }`}
-              >
+              <p className={`text-2xl font-bold tabular-nums ${zoneTextClass(closestResult.zone)}`}>
                 {formatDistance(closestResult.distanceMeters)}
               </p>
               <div className="flex items-center gap-2 text-xs mt-1">
-                {distanceStatus === 'excellent' && (
+                {closestResult.zone === 'inside' && (
                   <>
-                    <span className="text-emerald-600 font-medium">Excellent position!</span>
-                    <span className="text-slate-400">You're very close to the centre.</span>
-                  </>
-                )}
-                {distanceStatus === 'inside' && (
-                  <>
-                    <span className="text-blue-600 font-medium">Inside geofence</span>
+                    <span className="text-emerald-600 font-medium">Inside geofence</span>
                     <span className="text-slate-400">You're within the allowed area.</span>
                   </>
                 )}
-                {distanceStatus === 'outside' && (
+                {closestResult.zone === 'approaching' && (
                   <>
-                    <span className="text-orange-600 font-medium">Outside geofence</span>
+                    <span className="text-orange-600 font-medium">Approaching boundary</span>
                     <span className="text-slate-400">
-                      Move ~{formatDistance(closestResult.distanceMeters - closestResult.geofence.radiusMeters)} closer.
+                      {formatDistance(closestResult.distanceMeters - closestResult.geofence.radiusMeters)} outside the geofence — auto clock-out at {EXIT_BUFFER_METERS}m.
+                    </span>
+                  </>
+                )}
+                {closestResult.zone === 'outside' && (
+                  <>
+                    <span className="text-red-600 font-medium">Outside geofence — auto clock-out zone</span>
+                    <span className="text-slate-400">
+                      {formatDistance(closestResult.distanceMeters - closestResult.geofence.radiusMeters)} outside the geofence.
                     </span>
                   </>
                 )}
@@ -373,8 +435,14 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
             </div>
           )}
 
-          {/* Allowed geofences with distances */}
-          {distanceResults.length > 0 && (
+          {/*
+            Allowed geofences with distances.
+            - Hidden for admin/master roles (canAddLocation) — they see the
+              GeofenceManager below instead, avoiding a messy full list.
+            - Hidden when there is only a single result, since the distance
+              card above already shows that information (removes duplicate).
+          */}
+          {!canAddLocation && distanceResults.length > 1 && (
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
                 {assignedGeofenceId ? 'Your Assigned Work Location' : `All Company Work Locations (${distanceResults.length})`}
@@ -382,12 +450,10 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
               {distanceResults.map((r) => (
                 <div
                   key={r.geofence.id}
-                  className={`flex items-center justify-between rounded-lg border p-2.5 text-sm ${
-                    r.withinRadius ? 'border-emerald-200 bg-emerald-50/50' : 'border-slate-200 bg-slate-50/50'
-                  }`}
+                  className={`flex items-center justify-between rounded-lg border p-2.5 text-sm ${zoneRowClass(r.zone)}`}
                 >
                   <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${r.withinRadius ? 'bg-emerald-500' : 'bg-orange-400'}`} />
+                    <span className={`w-2 h-2 rounded-full ${zoneDotClass(r.zone)}`} />
                     <div>
                       <span className="font-medium text-slate-700">{r.geofence.name}</span>
                       {r.geofence.address && (
@@ -399,7 +465,7 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
                     )}
                   </div>
                   <div className="text-right shrink-0">
-                    <span className={`font-medium tabular-nums ${r.withinRadius ? 'text-emerald-700' : 'text-orange-600'}`}>
+                    <span className={`font-medium tabular-nums ${zoneDistanceTextClass(r.zone)}`}>
                       {formatDistance(r.distanceMeters)}
                     </span>
                     <span className="text-xs text-slate-400 ml-1">/ {formatRadius(r.geofence.radiusMeters)}</span>
@@ -439,6 +505,19 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
           </Button>
         </CardContent>
       </Card>
+
+      {/*
+        Admin/master view: render the full GeofenceManager component (same as
+        Settings > Geofences) instead of a plain distance list. This keeps the
+        admin experience clean and consistent with the settings page.
+      */}
+      {canAddLocation && (
+        <Card className="border-border/50">
+          <CardContent className="pt-6">
+            <GeofenceManager hideAssignEmployees={false} />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Add Location Modal — only for roles allowed to create geofences */}
       {canAddLocation && (
