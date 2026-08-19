@@ -110,39 +110,7 @@ class AutoGeofenceService {
         );
         this.state.lastDistance = Math.round(distance);
 
-        const wasInside = this.previousState === 'INSIDE';
-        const nowInside = distance <= geofence.radius_meters;
-        const becameInside = !wasInside && nowInside;
-        const becameOutside = wasInside && !nowInside;
-
-        this.state.isInsideGeofence = nowInside;
-
-        // Emit position update
-        this.emit({
-          type: 'POSITION_UPDATE',
-          geofence,
-          distanceMetres: this.state.lastDistance,
-          position,
-        });
-
-        // Detect boundary crossings
-        if (becameInside) {
-          this.previousState = 'INSIDE';
-          this.emit({
-            type: 'ENTERED_GEOFENCE',
-            geofence,
-            distanceMetres: this.state.lastDistance,
-            position,
-          });
-        } else if (becameOutside) {
-          this.previousState = 'OUTSIDE';
-          this.emit({
-            type: 'EXITED_GEOFENCE',
-            geofence,
-            distanceMetres: this.state.lastDistance,
-            position,
-          });
-        }
+        this.processPosition(position, geofence);
       },
       (err) => {
         this.emitError(`GPS error: ${err.message}`);
@@ -150,9 +118,102 @@ class AutoGeofenceService {
       {
         enableHighAccuracy: true,
         timeout: 15000,
-        maximumAge: 10000,
+        maximumAge: 5000,
       },
     );
+
+    // Immediate one-off position check to trigger instant auto-clock on sign-in
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const position = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+        };
+        this.processPosition(position, geofence);
+      },
+      () => {
+        /* Watch position will handle errors if any */
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      },
+    );
+  }
+
+  /**
+   * Process a GPS position update against the active geofence.
+   * Auto clock-in triggers when inside geofence (distance <= radius_meters).
+   * Auto clock-out triggers after reaching 150m outside geofence radius (distance > radius_meters + 150).
+   */
+  private processPosition(
+    position: { latitude: number; longitude: number },
+    geofence: GeofenceDefinition,
+  ): void {
+    this.state.lastPosition = position;
+
+    const distance = haversineDistance(
+      position.latitude,
+      position.longitude,
+      geofence.latitude,
+      geofence.longitude,
+    );
+    this.state.lastDistance = Math.round(distance);
+
+    const EXIT_BUFFER_METERS = 150;
+    const exitThreshold = geofence.radius_meters + EXIT_BUFFER_METERS;
+
+    // Inside geofence: distance is within configured radius
+    const isInside = distance <= geofence.radius_meters;
+    // Exited geofence: distance exceeds radius + 150m exit boundary
+    const isPastExitThreshold = distance > exitThreshold;
+
+    this.state.isInsideGeofence = isInside;
+
+    // Emit live position update
+    this.emit({
+      type: 'POSITION_UPDATE',
+      geofence,
+      distanceMetres: this.state.lastDistance,
+      position,
+    });
+
+    // Detect boundary crossings with hysteresis
+    if (isInside && this.previousState !== 'INSIDE') {
+      this.previousState = 'INSIDE';
+      this.emit({
+        type: 'ENTERED_GEOFENCE',
+        geofence,
+        distanceMetres: this.state.lastDistance,
+        position,
+      });
+    } else if (isPastExitThreshold && this.previousState === 'INSIDE') {
+      this.previousState = 'OUTSIDE';
+      this.emit({
+        type: 'EXITED_GEOFENCE',
+        geofence,
+        distanceMetres: this.state.lastDistance,
+        position,
+      });
+    }
+  }
+
+  /**
+   * Sync active clocked-in state from app to prevent manual clock-in race conditions.
+   * If a user manually clocks in while inside or before exiting, ensure previousState
+   * is set to 'INSIDE' so auto clock-out reliably triggers when crossing > (radius + 150m).
+   */
+  syncClockedIn(isClockedIn: boolean): void {
+    if (isClockedIn) {
+      if (this.previousState !== 'INSIDE' && (this.state.lastDistance == null || (this.state.geofence && this.state.lastDistance <= this.state.geofence.radius_meters + 150))) {
+        this.previousState = 'INSIDE';
+      }
+    } else {
+      if (this.state.lastDistance != null && this.state.geofence && this.state.lastDistance > this.state.geofence.radius_meters) {
+        this.previousState = 'OUTSIDE';
+      }
+    }
   }
 
   /**

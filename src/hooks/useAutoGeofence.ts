@@ -139,6 +139,11 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
   const autoGeofenceEnabledRef = useRef(autoGeofenceEnabled);
   autoGeofenceEnabledRef.current = autoGeofenceEnabled;
 
+  // ── Sync active clocked-in state with background service ──
+  useEffect(() => {
+    autoGeofenceService.syncClockedIn(isClockedIn);
+  }, [isClockedIn]);
+
   // ── Fetch employee's geofence ──
 
   useEffect(() => {
@@ -147,53 +152,66 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
 
     async function fetchGeofence() {
       try {
-        const me = await authApi.me();
+        // Use employee-accessible endpoint /api/settings/geofences/my
+        const myData = await settingsApi.getMyGeofences().catch(() => null);
         let targetGeofence: GeofenceDefinition | null = null;
 
-        if (me.employeeId) {
-          const emp = await employeeApi.get(me.employeeId);
-          if (emp?.geofenceId && emp?.geofence) {
-            targetGeofence = {
-              id: emp.geofence.id,
-              name: emp.geofence.name,
-              address: null,
-              latitude: 0, // will be resolved or used if available
-              longitude: 0,
-              radius_meters: 200,
-              is_active: true,
-            };
+        if (myData && myData.geofences) {
+          const assignedId = myData.employee?.geofenceId;
+          if (assignedId) {
+            const assigned = myData.geofences.find((g) => g.id === assignedId && g.isActive);
+            if (assigned) {
+              targetGeofence = {
+                id: assigned.id,
+                name: assigned.name,
+                address: assigned.address,
+                latitude: assigned.latitude,
+                longitude: assigned.longitude,
+                radius_meters: assigned.radiusMeters,
+                is_active: assigned.isActive,
+              };
+            }
+          }
+
+          // If no assigned geofence or not found, fall back to first active company geofence
+          if (!targetGeofence && myData.geofences.length > 0) {
+            const firstActive = myData.geofences.find((g) => g.isActive);
+            if (firstActive) {
+              targetGeofence = {
+                id: firstActive.id,
+                name: firstActive.name,
+                address: firstActive.address,
+                latitude: firstActive.latitude,
+                longitude: firstActive.longitude,
+                radius_meters: firstActive.radiusMeters,
+                is_active: firstActive.isActive,
+              };
+            }
           }
         }
 
-        // Fetch detailed geofences list from settings/geofences
-        const { geofences } = await settingsApi.listGeofences();
-        if (targetGeofence) {
-          const fullGf = geofences.find((g) => g.id === targetGeofence!.id && g.isActive);
-          if (fullGf) {
-            targetGeofence = {
-              id: fullGf.id,
-              name: fullGf.name,
-              address: fullGf.address,
-              latitude: fullGf.latitude,
-              longitude: fullGf.longitude,
-              radius_meters: fullGf.radiusMeters,
-              is_active: fullGf.isActive,
-            };
-          }
-        } else if (geofences.length > 0) {
-          const active = geofences.find((g) => g.isActive);
-          if (active) {
-            targetGeofence = {
-              id: active.id,
-              name: active.name,
-              address: active.address,
-              latitude: active.latitude,
-              longitude: active.longitude,
-              radius_meters: active.radiusMeters,
-              is_active: active.isActive,
-            };
+        // Fallback for Admin/Manager roles if /geofences/my returned empty
+        if (!targetGeofence) {
+          try {
+            const { geofences } = await settingsApi.listGeofences();
+            const active = geofences.find((g) => g.isActive);
+            if (active) {
+              targetGeofence = {
+                id: active.id,
+                name: active.name,
+                address: active.address,
+                latitude: active.latitude,
+                longitude: active.longitude,
+                radius_meters: active.radiusMeters,
+                is_active: active.isActive,
+              };
+            }
+          } catch {
+            // Ignore error if not permitted
           }
         }
+
+        if (cancelled) return;
 
         if (!targetGeofence) {
           setError('No active work location assigned to your profile.');
@@ -226,6 +244,7 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
       Notification.requestPermission();
     }
     autoGeofenceService.startMonitoring(geofence);
+    autoGeofenceService.syncClockedIn(isClockedInRef.current);
     return () => { autoGeofenceService.stopMonitoring(); };
   }, [enabled, geofence, autoGeofenceEnabled]);
 

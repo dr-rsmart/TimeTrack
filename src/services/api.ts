@@ -447,6 +447,11 @@ export const settingsApi = {
   getSettings: () => api.get<{ settings: CompanySettings | null }>('/settings/settings'),
   updateSettings: (data: Partial<CompanySettings>) => api.put<{ settings: CompanySettings }>('/settings/settings', data),
   listGeofences: () => api.get<{ geofences: Geofence[] }>('/settings/geofences'),
+  getMyGeofences: () =>
+    api.get<{
+      employee: { id: string; branch: string; department: string; geofenceId: string | null } | null;
+      geofences: Geofence[];
+    }>('/settings/geofences/my'),
   createGeofence: (data: Partial<Geofence>) => api.post<{ geofence: Geofence }>('/settings/geofences', data),
   updateGeofence: (id: string, data: Partial<Geofence>) => api.put<{ geofence: Geofence }>(`/settings/geofences/${id}`, data),
   deleteGeofence: (id: string) => api.delete<{ success: boolean }>(`/settings/geofences/${id}`),

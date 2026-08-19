@@ -353,12 +353,107 @@ export async function validateClockInLocation(
 }
 
 /**
- * Validate clock-out location. Functionally identical to clock-in validation.
+ * Validate clock-out location.
+ * Unlike clock-in (which strictly requires being inside the work perimeter),
+ * clock-out is permitted when an employee is exiting or outside the work perimeter
+ * (e.g., auto clock-out triggered when crossing 150m outside the geofence radius).
+ * Location details and distance are captured for audit logging and attendance tracking.
  */
 export async function validateClockOutLocation(
   email: string,
   pos: GeoPosition | null,
   options?: GeoValidationOptions,
 ): Promise<GeoValidationResult> {
-  return validateClockInLocation(email, pos, options);
+  if (
+    options?.isManualOverride &&
+    (options.requesterRole === 'admin' || options.requesterRole === 'master' || options.requesterRole === 'manager')
+  ) {
+    return { passed: true };
+  }
+
+  try {
+    const employee = await prisma.employee.findFirst({
+      where: { email: email.toLowerCase() },
+      select: {
+        id: true,
+        geofenceId: true,
+        companyProfileId: true,
+        geofence: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            latitude: true,
+            longitude: true,
+            radiusMeters: true,
+            isActive: true,
+          },
+        },
+      },
+    }).catch(() => null);
+
+    if (!pos || pos.latitude == null || pos.longitude == null) {
+      return {
+        passed: true,
+        geofenceName: employee?.geofence?.name ?? undefined,
+      };
+    }
+
+    if (
+      pos.latitude < -90 ||
+      pos.latitude > 90 ||
+      pos.longitude < -180 ||
+      pos.longitude > 180
+    ) {
+      return {
+        passed: false,
+        error: 'Invalid GPS coordinates received.',
+        suggestions: ['Ensure your device location services are working properly.'],
+      };
+    }
+
+    let allowedGeofences = employee?.geofence ? [employee.geofence] : [];
+    if (allowedGeofences.length === 0 && employee?.companyProfileId) {
+      allowedGeofences = await prisma.geofence.findMany({
+        where: { companyProfileId: employee.companyProfileId, isActive: true },
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          latitude: true,
+          longitude: true,
+          radiusMeters: true,
+          isActive: true,
+        },
+      }).catch(() => []);
+    }
+
+    if (allowedGeofences.length > 0) {
+      let closestGf = allowedGeofences[0];
+      let minDistance = haversineDistance(pos.latitude, pos.longitude, closestGf.latitude, closestGf.longitude);
+
+      for (let i = 1; i < allowedGeofences.length; i++) {
+        const gf = allowedGeofences[i];
+        const dist = haversineDistance(pos.latitude, pos.longitude, gf.latitude, gf.longitude);
+        if (dist < minDistance) {
+          minDistance = dist;
+          closestGf = gf;
+        }
+      }
+
+      return {
+        passed: true,
+        distanceMetres: Math.round(minDistance),
+        geofenceName: closestGf.name,
+        geofenceAddress: closestGf.address ?? undefined,
+        geofenceLatitude: closestGf.latitude,
+        geofenceLongitude: closestGf.longitude,
+        radiusMetres: closestGf.radiusMeters,
+      };
+    }
+
+    return { passed: true };
+  } catch {
+    return { passed: true };
+  }
 }

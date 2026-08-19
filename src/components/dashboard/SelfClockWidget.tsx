@@ -100,7 +100,7 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
     activeEntry: activeEntry as Record<string, unknown> | null,
     onClockIn: async () => { await loadData(); },
     onClockOut: async () => { await loadData(); },
-    enabled: userRole === 'employee' && gpsAvailable,
+    enabled: gpsAvailable,
   });
 
   const handleClockIn = async () => {
@@ -169,16 +169,33 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
           <CardContent className="p-6">
             <div className="flex flex-col items-center text-center space-y-6">
               {/* Status indicator */}
-              <div className="flex items-center gap-2">
-                <span className="flex h-2.5 w-2.5 relative">
-                  {isClockedIn && (
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                  )}
-                  <span className={cn('relative inline-flex rounded-full h-2.5 w-2.5', isClockedIn ? 'bg-emerald-500' : 'bg-muted-foreground/40')} />
-                </span>
-                <span className="text-xs font-bold tracking-wider uppercase text-muted-foreground">
-                  {isClockedIn ? 'Currently Working' : 'Not Clocked In'}
-                </span>
+              <div className="flex flex-col items-center gap-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-2.5 w-2.5 relative">
+                    {isClockedIn && (
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    )}
+                    <span className={cn('relative inline-flex rounded-full h-2.5 w-2.5', isClockedIn ? 'bg-emerald-500' : 'bg-muted-foreground/40')} />
+                  </span>
+                  <span className="text-xs font-bold tracking-wider uppercase text-muted-foreground">
+                    {isClockedIn ? 'Currently Working' : 'Not Clocked In'}
+                  </span>
+                </div>
+
+                {/* Auto Geofence Status Badge */}
+                {autoGeo.geofence && (
+                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-secondary/40 px-2.5 py-0.5 rounded-full border border-border/30">
+                    <Navigation className={cn('w-3 h-3', autoGeo.isInsideGeofence ? 'text-emerald-500' : 'text-blue-500')} />
+                    <span>
+                      {autoGeo.autoGeofenceEnabled ? 'Auto-Geofence ON' : 'Auto-Geofence OFF'}: {autoGeo.geofence.name} ({autoGeo.geofence.radius_meters}m radius)
+                    </span>
+                    {autoGeo.monitorState?.lastDistance !== undefined && (
+                      <span className={cn('font-semibold', autoGeo.isInsideGeofence ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400')}>
+                        · ~{autoGeo.monitorState.lastDistance}m
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Timer display */}

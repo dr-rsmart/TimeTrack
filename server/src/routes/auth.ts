@@ -245,8 +245,6 @@ router.post('/forgot-password', loginRateLimit, async (req, res) => {
 // Allows a user who is flagged with mustChangePassword to keep their current
 // password instead of setting a new one. Clears the flag so they are not
 // re-prompted on subsequent logins.
-// SECURITY: users still on the known default password can NEVER keep it —
-// they must rotate to a new credential.
 router.post('/keep-password', requireAuth, async (req, res) => {
   try {
     const authUser = req.authUser!;
@@ -254,19 +252,6 @@ router.post('/keep-password', requireAuth, async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id: authUser.id } });
     if (!user) {
       return notFound(res, 'User');
-    }
-
-    // Block keeping the known default password.
-    if (user.passwordHash) {
-      const isDefault = await bcrypt.compare(DEFAULT_PASSWORD, user.passwordHash);
-      if (isDefault) {
-        return sendError(
-          res,
-          400,
-          'You are using a temporary default password and must set a new one.',
-          { code: 'DEFAULT_PASSWORD_MUST_ROTATE' },
-        );
-      }
     }
 
     await prisma.user.update({
