@@ -37,7 +37,7 @@ router.get('/summary', requireAuth, async (req, res) => {
 
     const utcNoonDate = new Date(todayStr + 'T12:00:00Z');
 
-    const [totalEmployees, activeClockIns, todayShifts, todayEntries] = await Promise.all([
+    const [totalEmployees, activeClockIns, todayShifts, todayEntries, presentToday] = await Promise.all([
       prisma.employee.count({ where: employeeWhere }),
       prisma.timeEntry.count({
         where: { ...tenantWhere, status: 'active' },
@@ -50,6 +50,12 @@ router.get('/summary', requireAuth, async (req, res) => {
         where: { ...tenantWhere, status: 'completed', date: { in: [today, utcNoonDate] } },
         select: { totalHours: true },
       }),
+      // Unique employees with any time entry today (active or completed)
+      prisma.timeEntry.findMany({
+        where: { ...tenantWhere, date: { in: [today, utcNoonDate] } },
+        select: { employeeEmail: true },
+        distinct: ['employeeEmail'],
+      }),
     ]);
 
     const shiftCounts = { scheduled: 0, active: 0, completed: 0, cancelled: 0, no_show: 0 };
@@ -59,9 +65,13 @@ router.get('/summary', requireAuth, async (req, res) => {
 
     const totalHoursToday = todayEntries.reduce((sum, e) => sum + (e.totalHours ?? 0), 0);
 
-    // Attendance rate: completed entries / active employees
+    // Attendance rate: unique employees who clocked in today / active employees.
+    // (Raw entry counts would exceed 100% when employees have multiple
+    // completed entries in a day, e.g. from repeated clock-in/out cycles.)
     const attendanceRate =
-      totalEmployees > 0 ? Math.round((todayEntries.length / totalEmployees) * 100) : 0;
+      totalEmployees > 0
+        ? Math.min(100, Math.round((presentToday.length / totalEmployees) * 100))
+        : 0;
 
     res.json({
       totalEmployees,
