@@ -382,6 +382,119 @@ describe('Payroll Engine', () => {
       expect(result.ordinaryHours).toBe(32); // 4 days x 8h
       expect(result.dailyOvertimeHours).toBe(16); // 4 days x 4h
     });
+
+    it('should treat all non-Sunday/non-holiday hours as ordinary at exactly the 195h threshold', () => {
+      const settings: PayrollSettings = {
+        ...defaultSettings(),
+        overtimeThresholdHours: 10,
+        useMonthlyOvertimeThreshold: true,
+        monthlyOvertimeThresholdHours: DEFAULT_MONTHLY_THRESHOLD_HOURS, // 195
+      };
+      // August 2026 weekdays (Sundays: 2, 9, 16, 23, 30 — all excluded below)
+      // 19 weekdays x 10h + 1 weekday x 5h = exactly 195h ordinary
+      const byDate: Record<string, number> = {};
+      const fullDays = [3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 17, 18, 19, 20, 21, 24, 25, 26, 27];
+      for (const d of fullDays) {
+        byDate[`2026-08-${String(d).padStart(2, '0')}`] = 10;
+      }
+      byDate['2026-08-28'] = 5;
+
+      const result = computeOvertime(byDate, undefined, settings);
+
+      expect(result.ordinaryHours).toBe(195);
+      expect(result.monthlyOvertimeHours).toBe(0); // exactly at threshold, no excess
+      expect(result.dailyOvertimeHours).toBe(0);
+      expect(result.sundayOvertimeHours).toBe(0);
+      expect(result.holidayOvertimeHours).toBe(0);
+      expect(result.totalOvertimeHours).toBe(0);
+      expect(result.totalHours).toBe(195);
+    });
+
+    it('should reclassify only the excess above 195h as monthly overtime (196h -> 1h OT)', () => {
+      const settings: PayrollSettings = {
+        ...defaultSettings(),
+        overtimeThresholdHours: 10,
+        useMonthlyOvertimeThreshold: true,
+        monthlyOvertimeThresholdHours: DEFAULT_MONTHLY_THRESHOLD_HOURS, // 195
+      };
+      // Same as above but last day is 6h -> 196h ordinary -> 1h monthly OT
+      const byDate: Record<string, number> = {};
+      const fullDays = [3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 17, 18, 19, 20, 21, 24, 25, 26, 27];
+      for (const d of fullDays) {
+        byDate[`2026-08-${String(d).padStart(2, '0')}`] = 10;
+      }
+      byDate['2026-08-28'] = 6;
+
+      const result = computeOvertime(byDate, undefined, settings);
+
+      expect(result.monthlyOvertimeHours).toBe(1); // 196 - 195
+      expect(result.ordinaryHours).toBe(195);
+      expect(result.dailyOvertimeHours).toBe(0);
+      expect(result.totalOvertimeHours).toBe(1);
+      expect(result.totalHours).toBe(196);
+    });
+
+    it('should exclude Sunday and public holiday hours from the 195h monthly accumulation', () => {
+      const settings: PayrollSettings = {
+        ...defaultSettings(),
+        overtimeThresholdHours: 10,
+        useMonthlyOvertimeThreshold: true,
+        monthlyOvertimeThresholdHours: DEFAULT_MONTHLY_THRESHOLD_HOURS, // 195
+        publicHolidays: ['2026-08-17'], // Monday public holiday
+      };
+      // 19 non-holiday weekdays x 10h = 190h ordinary (below 195 threshold)
+      const byDate: Record<string, number> = {};
+      const weekdays = [3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 18, 19, 20, 21, 24, 25, 26, 27, 28];
+      for (const d of weekdays) {
+        byDate[`2026-08-${String(d).padStart(2, '0')}`] = 10;
+      }
+      byDate['2026-08-16'] = 8; // Sunday -> Sunday OT, NOT added to monthly ordinary
+      byDate['2026-08-17'] = 8; // Public holiday -> Holiday OT, NOT added to monthly ordinary
+
+      const result = computeOvertime(byDate, undefined, settings);
+
+      // Total hours worked = 206, but only 190 count toward the monthly threshold
+      expect(result.ordinaryHours).toBe(190);
+      expect(result.monthlyOvertimeHours).toBe(0); // 190 < 195 despite 206h total
+      expect(result.sundayOvertimeHours).toBe(8);
+      expect(result.sundayWeightedOvertime).toBe(12); // 8 x 1.5
+      expect(result.holidayOvertimeHours).toBe(8);
+      expect(result.holidayWeightedOvertime).toBe(16); // 8 x 2.0
+      expect(result.dailyOvertimeHours).toBe(0);
+      expect(result.totalOvertimeHours).toBe(16); // 8 Sunday + 8 holiday
+      expect(result.totalHours).toBe(206);
+    });
+
+    it('should apply 195h monthly cap to weekday hours only while leaving Sunday/holiday buckets untouched', () => {
+      const settings: PayrollSettings = {
+        ...defaultSettings(),
+        overtimeThresholdHours: 10,
+        useMonthlyOvertimeThreshold: true,
+        monthlyOvertimeThresholdHours: DEFAULT_MONTHLY_THRESHOLD_HOURS, // 195
+        publicHolidays: ['2026-08-17'], // Monday public holiday
+      };
+      // 20 non-holiday weekdays x 10h = 200h ordinary -> 5h monthly OT
+      const byDate: Record<string, number> = {};
+      const weekdays = [3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 18, 19, 20, 21, 24, 25, 26, 27, 28, 31];
+      for (const d of weekdays) {
+        byDate[`2026-08-${String(d).padStart(2, '0')}`] = 10;
+      }
+      byDate['2026-08-16'] = 6; // Sunday
+      byDate['2026-08-17'] = 8; // Public holiday
+
+      const result = computeOvertime(byDate, undefined, settings);
+
+      expect(result.monthlyOvertimeHours).toBe(5); // 200 - 195
+      expect(result.ordinaryHours).toBe(195);
+      expect(result.sundayOvertimeHours).toBe(6); // untouched by monthly cap
+      expect(result.sundayWeightedOvertime).toBe(9); // 6 x 1.5
+      expect(result.holidayOvertimeHours).toBe(8); // untouched by monthly cap
+      expect(result.holidayWeightedOvertime).toBe(16); // 8 x 2.0
+      expect(result.dailyOvertimeHours).toBe(0);
+      expect(result.totalOvertimeHours).toBe(19); // 5 monthly + 6 Sunday + 8 holiday
+      expect(result.totalWeightedOvertime).toBe(30); // 5 + 9 + 16
+      expect(result.totalHours).toBe(214); // 195 + 19
+    });
   });
 
   describe('computeOvertime — Decimal Precision', () => {

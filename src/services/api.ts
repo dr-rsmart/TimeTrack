@@ -345,6 +345,9 @@ export interface TimeEntry {
   status: string;
   breakMinutes: number | null;
   isManualOverride: boolean;
+  isManuallyAdjusted: boolean;
+  adjustedByName: string | null;
+  adjustmentReason: string | null;
   geofenceName: string | null;
 }
 
@@ -378,7 +381,22 @@ export const timeEntryApi = {
       employee_email: employeeEmail,
     }),
   manual: (data: Record<string, unknown>) => api.post<TimeEntry>('/time-entries/manual', data),
+  bulkClockIn: (employeeEmails: string[], justification?: string) =>
+    api.post<{
+      success: boolean;
+      clockedIn: Array<{ email: string; id: string; employeeName: string | null }>;
+      skipped: Array<{ email: string; reason: string }>;
+    }>('/time-entries/bulk-clock-in', { employeeEmails, justification }),
+  bulkClockOut: (employeeEmails: string[], breakMinutes?: number) =>
+    api.post<{
+      success: boolean;
+      clockedOut: Array<{ email: string; id: string; employeeName: string | null; totalHours: number | null }>;
+      skipped: Array<{ email: string; reason: string }>;
+    }>('/time-entries/bulk-clock-out', { employeeEmails, breakMinutes }),
   remove: (id: string) => api.delete<{ success: boolean }>(`/time-entries/${id}`),
+  /** Admin/Manager: edit an existing time entry (manual adjustment). */
+  update: (id: string, data: { date?: string; clockIn?: string; clockOut?: string; breakMinutes?: number | null; reason: string }) =>
+    api.put<TimeEntry>(`/time-entries/${id}`, data),
 };
 
 // ── Reports ──

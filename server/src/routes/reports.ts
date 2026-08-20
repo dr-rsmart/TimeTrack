@@ -92,8 +92,13 @@ router.get('/payroll', requireAuth, async (req, res) => {
       orderBy: [{ branch: 'asc' }, { surname: 'asc' }],
     });
 
-    const fromDate = new Date(from + 'T00:00:00');
-    const toDate = new Date(to + 'T00:00:00');
+    // Inclusive, timezone-safe range boundaries (UTC start-of-day → end-of-day)
+    // so the payroll window always covers exactly the same dates as the
+    // Time Entries list endpoint. Local-midnight boundaries previously shifted
+    // the window by the server's UTC offset, dropping the "to" date entirely on
+    // UTC+ servers and making the two tabs disagree after manual edits.
+    const fromDate = new Date(from + 'T00:00:00Z');
+    const toDate = new Date(to + 'T23:59:59.999Z');
 
     // Fetch all completed time entries in range for these employees
     const emails = employees.map((e) => e.email);
@@ -182,7 +187,7 @@ router.get('/attendance', requireAuth, async (req, res) => {
       where: {
         ...tenantWhere,
         ...emailFilter,
-        date: { gte: new Date(from + 'T00:00:00'), lte: new Date(to + 'T00:00:00') },
+        date: { gte: new Date(from + 'T00:00:00Z'), lte: new Date(to + 'T23:59:59.999Z') },
       },
       orderBy: { clockIn: 'desc' },
       include: { employee: { select: { firstName: true, surname: true } } },

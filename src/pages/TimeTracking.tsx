@@ -8,13 +8,14 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { LogIn, LogOut, MapPin, Clock, Coffee, History, UserRound } from 'lucide-react';
+import { LogIn, LogOut, MapPin, Clock, Coffee, History, UserRound, CalendarPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { timeEntryApi, type TimeEntry, ApiError } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useSSE } from '../hooks/useSSE';
 import { MyWorkLocation } from '../components/location/MyWorkLocation';
 import StaffClockModal from '../components/time/StaffClockModal';
+import ManualTimeEntryModal from '../components/time/ManualTimeEntryModal';
 import {
   Badge, Button, Card, CardContent, CardHeader, CardTitle, EmptyState,
   Input, Label, Modal,
@@ -37,6 +38,10 @@ export default function TimeTracking() {
   // ── Proxy clock modal (admin/manager clock on behalf of staff) ──
   const [showStaffClockModal, setShowStaffClockModal] = useState(false);
   const canClockOnBehalf = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'master';
+
+  // ── Manual time entry modal (backdated hours for a previous date) ──
+  const [showManualEntryModal, setShowManualEntryModal] = useState(false);
+
 
   const load = useCallback(async () => {
     try {
@@ -140,13 +145,22 @@ export default function TimeTracking() {
           <p className="text-sm text-muted-foreground">Clock in and out of your work sessions</p>
         </div>
         {canClockOnBehalf && (
-          <Button
-            onClick={() => setShowStaffClockModal(true)}
-            variant="outline"
-            className="border-brand/30 text-brand hover:bg-brand/10 rounded-xl"
-          >
-            <UserRound className="h-4 w-4" /> Clock On Behalf of Staff
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={() => setShowStaffClockModal(true)}
+              variant="outline"
+              className="border-brand/30 text-brand hover:bg-brand/10 rounded-xl"
+            >
+              <UserRound className="h-4 w-4" /> Clock On Behalf of Staff
+            </Button>
+            <Button
+              onClick={() => setShowManualEntryModal(true)}
+              variant="outline"
+              className="border-brand/30 text-brand hover:bg-brand/10 rounded-xl"
+            >
+              <CalendarPlus className="h-4 w-4" /> Add Manual Time Entry
+            </Button>
+          </div>
         )}
       </div>
 
@@ -256,7 +270,12 @@ export default function TimeTracking() {
                     <TableCell className="font-medium">{formatHours(e.totalHours)}</TableCell>
                     <TableCell>{e.geofenceName || '—'}</TableCell>
                     <TableCell>
-                      <Badge variant={e.status === 'active' ? 'success' : 'secondary'}>{e.status}</Badge>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant={e.status === 'active' ? 'success' : 'secondary'}>{e.status}</Badge>
+                        {e.isManuallyAdjusted && (
+                          <Badge variant="warning" title={e.adjustmentReason ?? undefined}>manual</Badge>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -274,6 +293,16 @@ export default function TimeTracking() {
           onDone={load}
         />
       )}
+
+      {/* Manual time entry modal — backdated hours for a previous date */}
+      {canClockOnBehalf && (
+        <ManualTimeEntryModal
+          open={showManualEntryModal}
+          onClose={() => setShowManualEntryModal(false)}
+          onDone={load}
+        />
+      )}
+
 
       {/* Clock-out modal — break minutes input (replaces browser prompt) */}
       <Modal open={showClockOutModal} onClose={() => !busy && setShowClockOutModal(false)} title="Clock Out">

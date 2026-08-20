@@ -139,9 +139,9 @@ const badgeVariants: Record<BadgeVariant, string> = {
   outline: 'border border-input text-foreground',
 };
 
-export function Badge({ className, variant = 'default', children }: { className?: string; variant?: BadgeVariant; children: ReactNode }) {
+export function Badge({ className, variant = 'default', children, title }: { className?: string; variant?: BadgeVariant; children: ReactNode; title?: string }) {
   return (
-    <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', badgeVariants[variant], className)}>
+    <span title={title} className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', badgeVariants[variant], className)}>
       {children}
     </span>
   );

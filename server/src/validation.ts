@@ -103,6 +103,29 @@ export const manualTimeEntrySchema = z.object({
   notes: z.string().max(2000).nullish(),
 });
 
+export const bulkClockInSchema = z.object({
+  employeeEmails: z.array(emailSchema).min(1).max(100),
+  justification: z.string().max(500).optional(),
+});
+
+export const bulkClockOutSchema = z.object({
+  employeeEmails: z.array(emailSchema).min(1).max(100),
+  breakMinutes: z.number().int().min(0).max(720).nullish(),
+});
+
+/**
+ * Admin/Manager edit of an existing time entry.
+ * All fields are optional — only supplied values are updated.
+ * `reason` is required so every manual adjustment is auditable.
+ */
+export const updateTimeEntrySchema = z.object({
+  date: dateStrSchema.optional(),
+  clockIn: timeStrSchema.optional(),
+  clockOut: timeStrSchema.optional(),
+  breakMinutes: z.number().int().min(0).max(720).nullish(),
+  reason: z.string().min(1, 'A reason is required for manual adjustments.').max(2000),
+});
+
 // ── Geofences ──
 export const createGeofenceSchema = z.object({
   name: z.string().min(1).max(100),

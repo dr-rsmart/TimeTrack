@@ -10,7 +10,15 @@ import prisma from '../prisma.js';
 import { requireAuth, requireAdminOrManager } from '../middleware/auth.js';
 import { getManagerScopeFilter, isEmployeeInManagerScope } from '../middleware/scope.js';
 import { clockRateLimit } from '../middleware/rateLimit.js';
-import { validate, clockInSchema, clockOutSchema, manualTimeEntrySchema } from '../validation.js';
+import {
+  validate,
+  clockInSchema,
+  clockOutSchema,
+  manualTimeEntrySchema,
+  bulkClockInSchema,
+  bulkClockOutSchema,
+  updateTimeEntrySchema,
+} from '../validation.js';
 import { checkGeofence } from '../geofence.js';
 import { logAudit, getClientIp, computeChanges } from '../audit.js';
 import { broadcastScoped } from '../sse.js';
@@ -92,9 +100,20 @@ router.get('/', requireAuth, async (req, res) => {
       else where.employeeEmail = '__none__';
     }
 
-    if (date) where.date = parseDate(date);
+    // Inclusive, timezone-safe day boundaries (UTC start-of-day → end-of-day)
+    // so list results always cover exactly the same dates as the payroll
+    // report endpoint, keeping the two views in balance after manual edits.
+    if (date) {
+      where.date = {
+        gte: new Date(date + 'T00:00:00Z'),
+        lte: new Date(date + 'T23:59:59.999Z'),
+      };
+    }
     if (fromDate && toDate) {
-      where.date = { gte: parseDate(fromDate), lte: parseDate(toDate) };
+      where.date = {
+        gte: new Date(fromDate + 'T00:00:00Z'),
+        lte: new Date(toDate + 'T23:59:59.999Z'),
+      };
     }
     if (employeeEmail && authUser.role !== 'employee') where.employeeEmail = employeeEmail;
     if (status) where.status = status;
@@ -461,7 +480,7 @@ router.post('/clock-out', requireAuth, clockRateLimit, validate(clockOutSchema),
 router.post('/manual', requireAdminOrManager, validate(manualTimeEntrySchema), async (req, res) => {
   try {
     const authUser = req.authUser!;
-    const { employeeId, date, clockIn, clockOut, breakMinutes } = req.body;
+    const { employeeId, date, clockIn, clockOut, breakMinutes, notes } = req.body;
 
     const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
     if (!employee) return notFound(res, 'Employee');
@@ -519,6 +538,7 @@ router.post('/manual', requireAdminOrManager, validate(manualTimeEntrySchema), a
       created_by: { before: null, after: `${authUser.fullName} (${authUser.email})` },
     };
 
+    const trimmedNotes = typeof notes === 'string' ? notes.trim().slice(0, 2000) : '';
     logAudit({
       entity: 'TimeEntry',
       entityId: entry.id,
@@ -526,7 +546,9 @@ router.post('/manual', requireAdminOrManager, validate(manualTimeEntrySchema), a
       actorId: authUser.id,
       actorEmail: authUser.email,
       actorRole: authUser.role,
-      justification: `Manual time entry for ${employee.firstName} ${employee.surname} on ${date}`,
+      justification: trimmedNotes
+        ? `Manual time entry for ${employee.firstName} ${employee.surname} on ${date}: ${trimmedNotes}`
+        : `Manual time entry for ${employee.firstName} ${employee.surname} on ${date}`,
       ipAddress: getClientIp(req),
       branch: entry.branch,
       department: entry.department,
@@ -543,6 +565,310 @@ router.post('/manual', requireAdminOrManager, validate(manualTimeEntrySchema), a
   } catch (err) {
     console.error('[timeEntries] Manual error:', err);
     internalError(res, 'creating manual time entry');
+  }
+});
+
+// ── POST /bulk-clock-in (Manager/Admin bulk proxy clock-in) ──
+// One request clocks in many staff (e.g. a whole shift that forgot to punch).
+// Each created entry is flagged as a manual override and audit-logged.
+router.post('/bulk-clock-in', requireAdminOrManager, clockRateLimit, validate(bulkClockInSchema), async (req, res) => {
+  try {
+    const authUser = req.authUser!;
+    const { employeeEmails, justification } = req.body as {
+      employeeEmails: string[];
+      justification?: string;
+    };
+
+    const now = new Date();
+    const clientIp = getClientIp(req);
+    const clockedIn: Array<{ email: string; id: string; employeeName: string | null }> = [];
+    const skipped: Array<{ email: string; reason: string }> = [];
+
+    for (const email of employeeEmails) {
+      const employee = await prisma.employee.findFirst({
+        where: { email, companyProfileId: authUser.companyProfileId ?? undefined },
+      });
+      if (!employee) {
+        skipped.push({ email, reason: 'Employee not found in your company' });
+        continue;
+      }
+
+      if (authUser.role === 'manager') {
+        const inScope = await isEmployeeInManagerScope(authUser, email);
+        if (!inScope) {
+          skipped.push({ email, reason: 'Outside your management scope' });
+          continue;
+        }
+      }
+
+      const existingActive = await prisma.timeEntry.findFirst({
+        where: { employeeEmail: email, status: 'active' },
+        select: { id: true },
+      });
+      if (existingActive) {
+        skipped.push({ email, reason: 'Already clocked in' });
+        continue;
+      }
+
+      const entry = await prisma.timeEntry.create({
+        data: {
+          employeeId: employee.id,
+          employeeEmail: email,
+          employeeName: `${employee.firstName} ${employee.surname}`,
+          branch: employee.branch,
+          department: employee.department,
+          clockIn: now,
+          date: parseDate(toDateStr(now)),
+          status: 'active',
+          isManualOverride: true,
+          clockedById: authUser.id,
+          clockedByName: authUser.fullName,
+          companyProfileId: employee.companyProfileId,
+          createdBy: authUser.id,
+          updatedBy: authUser.id,
+        },
+      });
+      clockedIn.push({ email, id: entry.id, employeeName: entry.employeeName });
+
+      logAudit({
+        entity: 'TimeEntry',
+        entityId: entry.id,
+        action: 'bulk_clock_in',
+        actorId: authUser.id,
+        actorEmail: authUser.email,
+        actorRole: authUser.role,
+        justification:
+          (typeof justification === 'string' && justification.trim().length > 0
+            ? justification.trim().slice(0, 500)
+            : `Bulk proxy clock-in for ${employee.firstName} ${employee.surname}`),
+        ipAddress: clientIp,
+        branch: entry.branch,
+        department: entry.department,
+        changes: {
+          employee_email: { before: null, after: email },
+          employee_name: { before: null, after: entry.employeeName },
+          clock_in: { before: null, after: entry.clockIn.toISOString() },
+          is_manual_override: { before: false, after: true },
+          clocked_by: { before: null, after: `${authUser.fullName} (${authUser.email})` },
+        } as any,
+      }).catch((err) => console.error('[audit] Bulk clock-in log failed:', err));
+
+      broadcastScoped('timeEntry', 'clockIn', entry, {
+        companyProfileId: entry.companyProfileId,
+        branch: entry.branch,
+        department: entry.department,
+      });
+    }
+
+    res.status(201).json({ success: true, clockedIn, skipped });
+  } catch (err) {
+    console.error('[timeEntries] Bulk clock-in error:', err);
+    internalError(res, 'bulk clock-in');
+  }
+});
+
+// ── POST /bulk-clock-out (Manager/Admin bulk force clock-out) ──
+// One request closes the active sessions of many staff members.
+router.post('/bulk-clock-out', requireAdminOrManager, clockRateLimit, validate(bulkClockOutSchema), async (req, res) => {
+  try {
+    const authUser = req.authUser!;
+    const { employeeEmails, breakMinutes } = req.body as {
+      employeeEmails: string[];
+      breakMinutes?: number | null;
+    };
+    const breakMins = breakMinutes ?? 0;
+
+    const now = new Date();
+    const clientIp = getClientIp(req);
+    const clockedOut: Array<{ email: string; id: string; employeeName: string | null; totalHours: number | null }> = [];
+    const skipped: Array<{ email: string; reason: string }> = [];
+
+    for (const email of employeeEmails) {
+      if (authUser.role === 'manager') {
+        const inScope = await isEmployeeInManagerScope(authUser, email);
+        if (!inScope) {
+          skipped.push({ email, reason: 'Outside your management scope' });
+          continue;
+        }
+      }
+
+      const active = await prisma.timeEntry.findFirst({
+        where: {
+          employeeEmail: email,
+          status: 'active',
+          ...(authUser.role !== 'master'
+            ? { companyProfileId: authUser.companyProfileId ?? '__none__' }
+            : {}),
+        },
+        orderBy: { clockIn: 'desc' },
+      });
+      if (!active) {
+        skipped.push({ email, reason: 'No active session' });
+        continue;
+      }
+
+      const rawHours = (now.getTime() - active.clockIn.getTime()) / 3_600_000;
+      const breakHrs = breakMins / 60;
+      const totalHours = Math.max(0, Math.round((rawHours - breakHrs) * 100) / 100);
+
+      const entry = await prisma.timeEntry.update({
+        where: { id: active.id },
+        data: {
+          clockOut: now,
+          status: 'completed',
+          breakMinutes: breakMins,
+          totalHours,
+          updatedBy: authUser.id,
+        },
+      });
+      clockedOut.push({ email, id: entry.id, employeeName: entry.employeeName, totalHours });
+
+      logAudit({
+        entity: 'TimeEntry',
+        entityId: entry.id,
+        action: 'bulk_clock_out',
+        actorId: authUser.id,
+        actorEmail: authUser.email,
+        actorRole: authUser.role,
+        justification: `Bulk force clock-out for ${email}`,
+        ipAddress: clientIp,
+        branch: entry.branch,
+        department: entry.department,
+        changes: {
+          clock_out: { before: null, after: entry.clockOut?.toISOString() },
+          status: { before: 'active', after: 'completed' },
+          total_hours: { before: null, after: entry.totalHours },
+          forced_by: { before: null, after: `${authUser.fullName} (${authUser.email})` },
+        } as any,
+      }).catch((err) => console.error('[audit] Bulk clock-out log failed:', err));
+
+      broadcastScoped('timeEntry', 'clockOut', entry, {
+        companyProfileId: entry.companyProfileId,
+        branch: entry.branch,
+        department: entry.department,
+      });
+    }
+
+    res.json({ success: true, clockedOut, skipped });
+  } catch (err) {
+    console.error('[timeEntries] Bulk clock-out error:', err);
+    internalError(res, 'bulk clock-out');
+  }
+});
+
+// ── PUT /:id (Admin/Manager edit existing time entry) ──
+// Allows admins/managers to correct clock-in/out times, break minutes, or the
+// date of an existing entry (e.g. forgotten clock-out, incorrect auto-clock-out,
+// business-rule corrections). Every adjustment is flagged and audit-logged.
+router.put('/:id', requireAdminOrManager, validate(updateTimeEntrySchema), async (req, res) => {
+  try {
+    const authUser = req.authUser!;
+    const id = req.params.id as string;
+    const { date, clockIn, clockOut, breakMinutes, reason } = req.body as {
+      date?: string;
+      clockIn?: string;
+      clockOut?: string;
+      breakMinutes?: number | null;
+      reason: string;
+    };
+
+    const existing = await prisma.timeEntry.findUnique({ where: { id } });
+    if (!existing) return notFound(res, 'Time entry');
+
+    assertTenantMatch(existing);
+
+    if (authUser.role !== 'master' && existing.companyProfileId !== authUser.companyProfileId) {
+      return accessDenied(res);
+    }
+    if (authUser.role === 'manager' && existing.employeeEmail) {
+      const inScope = await isEmployeeInManagerScope(authUser, existing.employeeEmail);
+      if (!inScope) return outsideScope(res, 'Employee');
+    }
+
+    // ── Resolve effective values (merge existing with supplied changes) ──
+    const entryDateStr = date ?? toDateStr(existing.date);
+    const existingClockInStr = `${String(existing.clockIn.getHours()).padStart(2, '0')}:${String(existing.clockIn.getMinutes()).padStart(2, '0')}`;
+    const existingClockOutStr = existing.clockOut
+      ? `${String(existing.clockOut.getHours()).padStart(2, '0')}:${String(existing.clockOut.getMinutes()).padStart(2, '0')}`
+      : null;
+
+    const effectiveClockInStr = clockIn ?? existingClockInStr;
+    const effectiveClockOutStr = clockOut ?? existingClockOutStr;
+    const effectiveBreakMinutes = breakMinutes !== undefined ? (breakMinutes ?? 0) : (existing.breakMinutes ?? 0);
+
+    const clockInDate = new Date(`${entryDateStr}T${effectiveClockInStr}:00`);
+    // If no clock-out is available (entry still active), keep it null
+    const clockOutDate = effectiveClockOutStr ? new Date(`${entryDateStr}T${effectiveClockOutStr}:00`) : null;
+
+    if (clockOutDate && clockOutDate <= clockInDate) {
+      return badRequest(res, 'Clock-out must be after clock-in.');
+    }
+
+    // Recalculate total hours when clock-out exists
+    let totalHours = existing.totalHours;
+    let newStatus = existing.status;
+    if (clockOutDate) {
+      const rawHours = (clockOutDate.getTime() - clockInDate.getTime()) / 3_600_000;
+      const breakHrs = effectiveBreakMinutes / 60;
+      totalHours = Math.max(0, Math.round((rawHours - breakHrs) * 100) / 100);
+      newStatus = 'completed';
+    }
+
+    const trimmedReason = reason.trim().slice(0, 2000);
+
+    const entry = await prisma.timeEntry.update({
+      where: { id },
+      data: {
+        date: parseDate(entryDateStr),
+        clockIn: clockInDate,
+        clockOut: clockOutDate,
+        breakMinutes: effectiveBreakMinutes,
+        totalHours,
+        status: newStatus,
+        isManuallyAdjusted: true,
+        adjustedById: authUser.id,
+        adjustedByName: authUser.fullName,
+        adjustmentReason: trimmedReason,
+        updatedBy: authUser.id,
+      },
+    });
+
+    // ── Audit logging with full before/after state ──
+    const changes = {
+      date: { before: toDateStr(existing.date), after: entryDateStr },
+      clock_in: { before: existing.clockIn.toISOString(), after: entry.clockIn.toISOString() },
+      clock_out: { before: existing.clockOut?.toISOString() ?? null, after: entry.clockOut?.toISOString() ?? null },
+      break_minutes: { before: existing.breakMinutes, after: entry.breakMinutes },
+      total_hours: { before: existing.totalHours, after: entry.totalHours },
+      status: { before: existing.status, after: entry.status },
+      is_manually_adjusted: { before: existing.isManuallyAdjusted, after: true },
+      adjusted_by: { before: null, after: `${authUser.fullName} (${authUser.email})` },
+    };
+
+    await logAudit({
+      entity: 'TimeEntry',
+      entityId: entry.id,
+      action: 'manual_adjust',
+      actorId: authUser.id,
+      actorEmail: authUser.email,
+      actorRole: authUser.role,
+      justification: `Manual adjustment for ${existing.employeeName ?? existing.employeeEmail}: ${trimmedReason}`,
+      ipAddress: getClientIp(req),
+      branch: entry.branch,
+      department: entry.department,
+      changes: changes as any,
+    });
+
+    broadcastScoped('timeEntry', 'update', entry, {
+      companyProfileId: entry.companyProfileId,
+      branch: entry.branch,
+      department: entry.department,
+    });
+
+    res.json(entry);
+  } catch (err) {
+    console.error('[timeEntries] Update error:', err);
+    internalError(res, 'updating time entry');
   }
 });
 

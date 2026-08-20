@@ -190,6 +190,10 @@ model TimeEntry {
   isManualOverride   Boolean         @default(false)
   clockedById        String?
   clockedByName      String?
+  isManuallyAdjusted Boolean         @default(false)
+  adjustedById       String?
+  adjustedByName     String?
+  adjustmentReason   String?
   geofenceName       String?
   geofenceAddress    String?
   geofenceLatitude   Float?
