@@ -19,6 +19,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.timetrack.workforce",
       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
           "location",
           "fetch",

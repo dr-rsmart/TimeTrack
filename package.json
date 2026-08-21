@@ -36,6 +36,8 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
+    "expo": "^57.0.15",
+    "expo-modules-autolinking": "^57.0.10",
     "framer-motion": "^13.1.0",
     "ioredis": "^5.4.1",
     "lucide-react": "^0.475.0",
