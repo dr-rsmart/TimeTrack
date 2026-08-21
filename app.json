@@ -4,6 +4,7 @@
     "slug": "timetrack",
     "owner": "smart-patel-tech-solutions",
     "version": "1.0.0",
+    "main": "index.js",
     "orientation": "portrait",
     "icon": "./store-assets/graphics/app-icon-512x512.png",
     "userInterfaceStyle": "automatic",
@@ -48,6 +49,22 @@
         "WAKE_LOCK"
       ]
     },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "TimeTrack requires background location access to automatically clock you in when entering your assigned work location geofence and clock you out when leaving, even when the app is closed or running in the background.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isIosBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "geofence-events"
+        }
+      ]
+    ],
     "extra": {
       "eas": {
         "projectId": "5e549d1f-9f6c-4f8f-bffe-ff18a20c366d"
