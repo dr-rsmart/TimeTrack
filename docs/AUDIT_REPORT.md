@@ -32,7 +32,7 @@
 
 | # | Severity | Issue | Evidence | Impact |
 |---|---|---|---|---|
-| B1 | 🔴 CRITICAL | **Default JWT secret shipped in `.env` and hardcoded as code fallback** (`tt-workforce-dev-secret-change-in-production`) | `server/.env:4`, `middleware/auth.ts:13` | Anyone who reads the repo can forge tokens for *any* user — including `role: master` with `originalRole: master`, which bypasses tenant-suspension checks. Full platform takeover. |
+| B1 | 🔴 CRITICAL | **Default JWT secret shipped in `.env` and hardcoded as code fallback** (`TimeTrack-dev-secret-change-in-production`) | `server/.env:4`, `middleware/auth.ts:13` | Anyone who reads the repo can forge tokens for *any* user — including `role: master` with `originalRole: master`, which bypasses tenant-suspension checks. Full platform takeover. |
 | B2 | 🔴 CRITICAL | **Rate-limit bypass backdoor with hardcoded default secret** via `x-perf-bypass` header | `index.ts:43-46`, `middleware/rateLimit.ts:38-41`, `server/.env:8` | Brute-force, credential-stuffing and punch-spam protection can be switched off with one header. |
 | B3 | 🔴 CRITICAL | **No `.gitignore`** — `.env` files containing the DB password (`RicJer24`) and secrets are untracked and un-ignored | repo root (verified: `NO_GITIGNORE_FILE`) | First `git add .` commits credentials to history. |
 | B4 | 🟠 HIGH | **Auto-provisioned logins with `Password123` and `mustChangePassword` left `false`** at startup sync | `index.ts:147-158` (createMany omits the flag) | Every seeded/unsynced employee has a known, never-forced-to-rotate credential. |

@@ -1,5 +1,5 @@
 {
-  "name": "tt-workforce",
+  "name": "TimeTrack",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -10,13 +10,18 @@
     "dev:server": "cd server && npm run dev",
     "setup": "npm install && cd server && npm install && npm run db:setup",
     "seed": "cd server && npm run seed",
+    "db:sync:prod": "node scripts/sync-prod-to-local.mjs",
+    "db:sync:preprod": "node scripts/sync-prod-to-preprod.mjs",
+    "db:verify:prod": "node scripts/verify-prod-timetrack.mjs",
     "postinstall": "cd server && npm install",
     "build": "vite build && cd server && npm run build",
     "start": "node scripts/production-start.mjs",
     "start:dev-db": "cd server && npx prisma db push --schema=prisma/schema.prisma && cd .. && node server/dist/index.js",
     "typecheck": "tsc -p ./tsconfig.json --noEmit && cd server && npx tsc --noEmit",
     "test": "vitest run",
+    "test:sanity": "node scripts/predeploy-check.mjs",
     "test:e2e": "playwright test",
+    "screenshots:store": "node scripts/capture-store-screenshots.mjs",
     "predeploy": "node scripts/predeploy-check.mjs"
   },
   "dependencies": {

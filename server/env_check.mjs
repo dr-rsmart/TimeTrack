@@ -29,7 +29,7 @@ console.log('TimeTrack Pre-Deployment Environment Check');
 console.log('='.repeat(60));
 
 const INSECURE_DEFAULTS = [
-  'tt-workforce-dev-secret-change-in-production',
+  'TimeTrack-dev-secret-change-in-production',
   'change-me-in-production',
   'tt_perf_bench_2026',
   'Password123',

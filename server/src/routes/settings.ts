@@ -546,7 +546,7 @@ router.get('/geocode', requireAuth, async (req, res) => {
         const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`;
         response = await fetch(url, {
           headers: {
-            'User-Agent': 'TT-Workforce-App/1.0 (contact@ttworkforce.co)',
+            'User-Agent': 'TimeTrack-App/1.0 (contact@timetrack.co)',
             'Accept-Language': 'en',
           },
         });

@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "TimeTrack",
+    "slug": "timetrack",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./store-assets/graphics/app-icon-512x512.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./public/TimeTrack Icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.timetrack.workforce",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "location",
+          "fetch",
+          "processing"
+        ],
+        "NSLocationWhenInUseUsageDescription": "TimeTrack uses your location to verify your presence at designated workplace geofence perimeters for clock-in and clock-out operations.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "TimeTrack requires background location access to automatically clock you in when entering your assigned work location geofence and clock you out when leaving, even when the app is closed or running in the background.",
+        "NSLocationAlwaysUsageDescription": "TimeTrack requires continuous background location monitoring to provide automated hands-free attendance recording when you cross designated workplace geofence boundaries."
+      }
+    },
+    "android": {
+      "package": "com.timetrack.workforce",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./store-assets/graphics/app-icon-512x512.png",
+        "backgroundColor": "#ffffff"
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "WAKE_LOCK"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "TimeTrack requires background location access to automatically clock you in when entering your assigned work location geofence and clock you out when leaving, even when the app is closed or running in the background."
+        }
+      ]
+    ]
+  }
+}

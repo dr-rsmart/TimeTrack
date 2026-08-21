@@ -94,7 +94,9 @@ Open **http://localhost:5173** and use a quick-login button, or:
 Edit `server/.env` (see `server/.env.example` for the full template):
 
 ```env
-DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/tt_workforce"
+DATABASE_URL="postgresql://USER:PASSWORD@localhost:5433/timetrack_pre-prod"
+# or for production snapshot clone:
+# DATABASE_URL="postgresql://USER:PASSWORD@localhost:5433/timetrack_prod"
 JWT_SECRET="<generate a 48-byte hex secret>"
 PORT=4000
 CORS_ORIGIN="http://localhost:5173"

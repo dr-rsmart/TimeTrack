@@ -1,5 +1,5 @@
 {
-  "name": "tt-workforce-server",
+  "name": "TimeTrack-server",
   "private": true,
   "version": "1.0.0",
   "type": "module",

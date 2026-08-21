@@ -5,7 +5,7 @@
  * required secret is missing or still set to a known-insecure default.
  *
  * This eliminates the previous pattern of hardcoded fallback secrets
- * (e.g. `process.env.JWT_SECRET || 'tt-workforce-dev-secret...'`), which
+ * (e.g. `process.env.JWT_SECRET || 'TimeTrack-dev-secret...'`), which
  * allowed the app to silently run with a publicly-known signing key.
  */
 
@@ -13,7 +13,7 @@ import 'dotenv/config';
 
 /** Known-insecure values that must never reach production. */
 const INSECURE_DEFAULTS = [
-  'tt-workforce-dev-secret-change-in-production',
+  'TimeTrack-dev-secret-change-in-production',
   'change-me-in-production',
   'tt_perf_bench_2026',
 ];
