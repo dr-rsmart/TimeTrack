@@ -2,6 +2,7 @@
   "expo": {
     "name": "TimeTrack",
     "slug": "timetrack",
+    "owner": "dr_rsmart",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./store-assets/graphics/app-icon-512x512.png",
@@ -46,13 +47,10 @@
         "WAKE_LOCK"
       ]
     },
-    "plugins": [
-      [
-        "expo-location",
-        {
-          "locationAlwaysAndWhenInUsePermission": "TimeTrack requires background location access to automatically clock you in when entering your assigned work location geofence and clock you out when leaving, even when the app is closed or running in the background."
-        }
-      ]
-    ]
+    "extra": {
+      "eas": {
+        "projectId": "5e549d1f-9f6c-4f8f-bffe-ff18a20c366d"
+      }
+    }
   }
 }
