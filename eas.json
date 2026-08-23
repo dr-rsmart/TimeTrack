@@ -32,7 +32,10 @@
       },
       "ios": {
         "appleId": "ricardovsmart@gmail.com",
-        "ascAppId": "6803827296"
+        "ascAppId": "6803827296",
+        "ascApiKeyId": "T7F5PP484B",
+        "ascApiKeyIssuerId": "910ea587-6238-4237-892d-8b8adf531d71",
+        "ascApiKeyPath": "./asc-api-key.p8"
       }
     }
   }

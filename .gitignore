@@ -9,7 +9,10 @@ server/dist/
 # Environment & secrets — NEVER commit
 .env
 .env.*
+# App Store Connect API key — NEVER commit
+*.p8
 asc-api-key.json
+asc-api-key.p8
 google-service-account.json
 !.env.example
 server/.env

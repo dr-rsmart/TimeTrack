@@ -8,11 +8,6 @@
     "orientation": "portrait",
     "icon": "./store-assets/graphics/app-icon-512x512.png",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./public/TimeTrack Icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -25,6 +20,10 @@
           "location",
           "fetch",
           "processing"
+        ],
+        "BGTaskSchedulerPermittedIdentifiers": [
+          "com.timetrack.workforce.background-sync",
+          "com.timetrack.workforce.geofence-update"
         ],
         "NSLocationWhenInUseUsageDescription": "TimeTrack uses your location to verify your presence at designated workplace geofence perimeters for clock-in and clock-out operations.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "TimeTrack requires background location access to automatically clock you in when entering your assigned work location geofence and clock you out when leaving, even when the app is closed or running in the background.",
@@ -50,6 +49,21 @@
       ]
     },
     "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./public/TimeTrack Icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff",
+          "ios": {
+            "image": "./TimeTrack Banner.png",
+            "imageWidth": 320,
+            "resizeMode": "contain",
+            "backgroundColor": "#ffffff"
+          }
+        }
+      ],
       [
         "expo-location",
         {

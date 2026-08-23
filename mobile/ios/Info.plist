@@ -41,6 +41,12 @@
 		<string>processing</string>
 	</array>
 
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.timetrack.workforce.background-sync</string>
+		<string>com.timetrack.workforce.geofence-update</string>
+	</array>
+
 	<!-- ── Push Notifications ── -->
 	<key>NSUserNotificationsUsageDescription</key>
 	<string>TimeTrack sends real-time notifications to confirm automatic clock-in and clock-out events as you enter or exit workplace geofences.</string>
