@@ -1,18 +1,14 @@
 {
-  "cli": {
-    "version": ">= 12.0.0",
-    "appVersionSource": "remote"
-  },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal",
       "android": {
         "buildType": "apk"
       },
+      "distribution": "internal",
       "ios": {
         "simulator": false
       }
@@ -21,8 +17,14 @@
       "android": {
         "buildType": "app-bundle"
       },
-      "ios": {}
+      "ios": {
+        "autoIncrement": true
+      }
     }
+  },
+  "cli": {
+    "appVersionSource": "remote",
+    "version": ">= 12.0.0"
   },
   "submit": {
     "production": {
@@ -32,10 +34,10 @@
       },
       "ios": {
         "appleId": "ricardovsmart@gmail.com",
-        "ascAppId": "6803827296",
         "ascApiKeyId": "T7F5PP484B",
         "ascApiKeyIssuerId": "910ea587-6238-4237-892d-8b8adf531d71",
-        "ascApiKeyPath": "./asc-api-key.p8"
+        "ascApiKeyPath": "./asc-api-key.p8",
+        "ascAppId": "6803827296"
       }
     }
   }
