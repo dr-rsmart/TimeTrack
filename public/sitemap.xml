@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- TimeTrack sitemap. Canonical origin is the HTTPS apex domain only
+     (www 301-redirects to the apex). This is an authenticated SPA, so only
+     the public entry route is listed — never list auth-gated app routes. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://time-track.tech/</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

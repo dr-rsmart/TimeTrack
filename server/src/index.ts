@@ -41,6 +41,11 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 
 const app = express();
+// Railway's edge terminates TLS and proxies to this container. Trust exactly
+// one hop so req.secure / req.protocol / req.ip reflect the real client
+// instead of the edge proxy (required for HTTPS enforcement below and for
+// correct per-client rate limiting).
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 server.keepAliveTimeout = 65000;
 server.headersTimeout = 66000;
@@ -61,6 +66,29 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── HTTPS Enforcement ──
+// Defense-in-depth on top of Railway's edge "Force HTTPS" setting: any request
+// that traversed the public edge with X-Forwarded-Proto: http (i.e. the client
+// used plain HTTP) is permanently redirected to HTTPS. 301 for GET/HEAD, 308
+// for all other methods so POST bodies/method are preserved on upgrade.
+// Requests WITHOUT X-Forwarded-Proto never passed through the public edge
+// (Railway healthchecks, localhost dev, internal probes) and are left alone.
+app.use((req, res, next) => {
+  if (req.secure) return next();
+  if (!req.headers['x-forwarded-proto']) return next();
+
+  // Open-redirect guard: never echo an arbitrary Host header back as a
+  // redirect target. Only redirect hosts we serve publicly. The www variant
+  // is already canonicalized to the apex above and never reaches here.
+  const host = req.hostname;
+  if (host !== 'time-track.tech' && !host.endsWith('.up.railway.app')) {
+    return next();
+  }
+
+  const status = req.method === 'GET' || req.method === 'HEAD' ? 301 : 308;
+  return res.redirect(status, `https://${host}${req.originalUrl}`);
+});
+
 app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
@@ -75,6 +103,13 @@ app.use((_req, res, next) => {
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), payment=()');
   if (config.isProduction) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    // Mixed-content safety net: over an HTTPS page the browser silently
+    // upgrades any stray http:// subresource URL. Deliberately minimal — the
+    // SPA and API are same-origin, so no source restrictions are needed yet.
+    // Extend this policy explicitly before adding any third-party asset.
+    // Not sent in dev: on a http://localhost page it would try to upgrade
+    // same-origin requests to https and break local development.
+    res.setHeader('Content-Security-Policy', 'upgrade-insecure-requests');
   }
   next();
 });

@@ -1,0 +1,6 @@
+# TimeTrack — https://time-track.tech
+# All routes are part of the authenticated app shell served by the SPA.
+User-agent: *
+Allow: /
+
+Sitemap: https://time-track.tech/sitemap.xml

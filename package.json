@@ -13,6 +13,8 @@
     "db:sync:prod": "node scripts/sync-prod-to-local.mjs",
     "db:sync:preprod": "node scripts/sync-prod-to-preprod.mjs",
     "db:verify:prod": "node scripts/verify-prod-timetrack.mjs",
+    "dns:update": "node scripts/update-namecheap-dns.mjs",
+    "dns:watch": "node scripts/dns-watchdog.mjs",
     "postinstall": "cd server && npm install",
     "build": "vite build && cd server && npm run build",
     "start": "node scripts/production-start.mjs",

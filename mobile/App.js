@@ -101,6 +101,7 @@ export default function App() {
   const [appReady, setAppReady] = useState(false);
   const [permissionsReady, setPermissionsReady] = useState(false);
   const [webviewKey, setWebviewKey] = useState(0);
+  const [webError, setWebError] = useState(null);
 
   const renderWebViewError = (errorName, errorCode, errorDesc) => {
     return (
@@ -116,6 +117,7 @@ export default function App() {
           <TouchableOpacity
             style={styles.retryButton}
             onPress={() => {
+              setWebError(null);
               setAppReady(false);
               setWebviewKey((k) => k + 1);
             }}
@@ -187,33 +189,52 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-      {!appReady && (
+      {!appReady && !webError && (
         <View style={styles.loader}>
           <ActivityIndicator size="large" color="#2563eb" />
           <Text style={styles.loaderText}>Loading TimeTrack…</Text>
         </View>
       )}
-      <WebView
-        key={webviewKey}
-        ref={webviewRef}
-        source={{ uri: TIMETRACK_URL }}
-        style={styles.webview}
-        onLoadEnd={() => setAppReady(true)}
-        onMessage={onWebViewMessage}
-        javaScriptEnabled
-        domStorageEnabled
-        allowsBackForwardNavigationGestures
-        geolocationEnabled
-        mediaPlaybackRequiresUserAction={false}
-        allowsInlineMediaPlayback
-        startInLoadingState={false}
-        renderError={renderWebViewError}
-        onOpenWindow={(e) => {
-          // Open external links in the system browser
-          const url = e?.nativeEvent?.targetUrl;
-          if (url && !url.startsWith(TIMETRACK_URL)) Linking.openURL(url);
-        }}
-      />
+      {webError ? (
+        renderWebViewError(webError.title, webError.code, webError.description)
+      ) : (
+        <WebView
+          key={webviewKey}
+          ref={webviewRef}
+          source={{ uri: TIMETRACK_URL }}
+          style={styles.webview}
+          onLoadStart={() => {
+            setWebError(null);
+            setAppReady(false);
+          }}
+          onLoadEnd={() => {
+            if (!webError) {
+              setAppReady(true);
+            }
+          }}
+          onMessage={onWebViewMessage}
+          javaScriptEnabled
+          domStorageEnabled
+          allowsBackForwardNavigationGestures
+          geolocationEnabled
+          mediaPlaybackRequiresUserAction={false}
+          allowsInlineMediaPlayback
+          startInLoadingState={false}
+          onError={(syntheticEvent) => {
+            const { nativeEvent } = syntheticEvent;
+            setWebError({
+              title: nativeEvent.title || 'Network Error',
+              code: nativeEvent.code || -2,
+              description: nativeEvent.description || 'net::ERR_NAME_NOT_RESOLVED',
+            });
+          }}
+          onOpenWindow={(e) => {
+            // Open external links in the system browser
+            const url = e?.nativeEvent?.targetUrl;
+            if (url && !url.startsWith(TIMETRACK_URL)) Linking.openURL(url);
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }
