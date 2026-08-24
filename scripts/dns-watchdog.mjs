@@ -16,7 +16,7 @@ const APEX_DOMAIN = 'time-track.tech';
 const WWW_DOMAIN = 'www.time-track.tech';
 
 // Expected targets from Railway
-const EXPECTED_APEX = 'fuk131ck.up.railway.app';
+const EXPECTED_APEX = 't92g18g8.up.railway.app';
 const EXPECTED_WWW = '5os7w7zf.up.railway.app';
 
 const POLL_INTERVAL_MS = 15000; // Poll every 15 seconds
@@ -79,7 +79,7 @@ async function checkDns() {
   console.log(`[${timestamp}]`);
   
   if (currentApex) {
-    const isMatch = currentApex.includes('fuk131ck');
+    const isMatch = currentApex.includes('t92g18g8');
     if (isMatch) {
       if (!apexMatched) {
         console.log(`  🟢 ${APEX_DOMAIN} HAS PROPAGATED! Pointing to correct target: ${currentApex}`);

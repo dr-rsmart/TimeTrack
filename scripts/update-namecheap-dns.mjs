@@ -83,7 +83,7 @@ async function run() {
   const apiKey = env.NAMECHEAP_API_KEY;
 
   // The live target values retrieved from the production Railway project CLI:
-  const apexTarget = env.NAMECHEAP_RECORD_APEX_CNAME || 'fuk131ck.up.railway.app';
+  const apexTarget = env.NAMECHEAP_RECORD_APEX_CNAME || 't92g18g8.up.railway.app';
   const wwwTarget = env.NAMECHEAP_RECORD_WWW_CNAME || '5os7w7zf.up.railway.app';
 
   console.log(`📡 Current Public IP Address: ${publicIp || 'Undetected (Offline?)'}`);
@@ -113,7 +113,7 @@ async function run() {
   console.log(`      TTL: Automatic (or 30 min / 1799)`);
   console.log(``);
   console.log(`4. Remove any older ALIAS, CNAME, or A records pointing to old Railway addresses`);
-  console.log(`   (such as 't92g18g8.up.railway.app').`);
+  console.log(`   (such as 'fuk131ck.up.railway.app').`);
   console.log(`5. Click 'Save All Changes'. DNS changes will propagate in 5 to 30 minutes.`);
   console.log(`   Once propagated, Railway will automatically issue a valid SSL certificate.`);
   console.log(``);

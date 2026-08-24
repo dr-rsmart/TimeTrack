@@ -11,9 +11,15 @@
  *  - expo-location foreground + background location (startLocationUpdatesAsync)
  *  - expo-task-manager background task processes location fixes while suspended
  *  - Local notifications confirm auto clock-in / clock-out events
+ *
+ * Network resilience (added after closed-test net::ERR_NAME_NOT_RESOLVED reports):
+ *  - NetInfo connectivity tracking with a dedicated offline screen
+ *  - Automatic reload the moment the device reconnects
+ *  - Exponential backoff auto-retry (2s -> 5s -> 10s -> 30s) on WebView load errors
+ *  - Strict validation of TIMETRACK_URL so it can never navigate to undefined
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   SafeAreaView,
   StatusBar,
@@ -31,9 +37,23 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 
 // Production TimeTrack web app URL
 const TIMETRACK_URL = 'https://time-track.tech';
+
+// Fail fast on a malformed/missing URL — a bad value would otherwise surface
+// inside the WebView as a confusing net::ERR_* load failure.
+if (
+  typeof TIMETRACK_URL !== 'string' ||
+  !/^https:\/\/[a-z0-9.-]+(:\d+)?(\/|$)/i.test(TIMETRACK_URL)
+) {
+  throw new Error(`TIMETRACK_URL is invalid: ${String(TIMETRACK_URL)}`);
+}
+
+// Auto-retry schedule (ms) applied when the WebView fails to load:
+// 2s -> 5s -> 10s -> 30s (capped). Manual retry resets the schedule.
+const RETRY_DELAYS_MS = [2000, 5000, 10000, 30000];
 
 // Background task identifier
 const BACKGROUND_LOCATION_TASK = 'timetrack-background-location-task';
@@ -102,31 +122,98 @@ export default function App() {
   const [permissionsReady, setPermissionsReady] = useState(false);
   const [webviewKey, setWebviewKey] = useState(0);
   const [webError, setWebError] = useState(null);
+  const [netInfo, setNetInfo] = useState({ connected: null });
+  const isConnected = netInfo.connected;
 
-  const renderWebViewError = (errorName, errorCode, errorDesc) => {
+  // Mirrors of component state for use inside event callbacks
+  const webErrorRef = useRef(null);
+  const prevConnectedRef = useRef(null);
+  const retryTimerRef = useRef(null);
+  const retryAttemptRef = useRef(0);
+
+  // True when NetInfo has reported the device is offline
+  const isAppOffline = isConnected === false;
+
+  useEffect(() => {
+    webErrorRef.current = webError;
+  }, [webError]);
+
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
+
+  // Full WebView reload — resets the backoff schedule and any pending retry
+  const reloadWebView = useCallback(() => {
+    clearRetryTimer();
+    retryAttemptRef.current = 0;
+    setWebError(null);
+    setAppReady(false);
+    setWebviewKey((k) => k + 1);
+  }, [clearRetryTimer]);
+
+  // Exponential backoff auto-retry: 2s -> 5s -> 10s -> 30s (capped)
+  const scheduleRetry = useCallback(() => {
+    clearRetryTimer();
+    const attempt = Math.min(retryAttemptRef.current, RETRY_DELAYS_MS.length - 1);
+    retryAttemptRef.current = attempt + 1;
+    retryTimerRef.current = setTimeout(reloadWebView, RETRY_DELAYS_MS[attempt]);
+  }, [clearRetryTimer, reloadWebView]);
+
+  // Cancel any pending retry timer on unmount
+  useEffect(() => () => clearRetryTimer(), [clearRetryTimer]);
+
+  // ── Connectivity awareness: offline screen + auto-reload on reconnect ──
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      const connected = !!(state.isConnected && state.isInternetReachable !== false);
+      const wasConnected = prevConnectedRef.current;
+      prevConnectedRef.current = connected;
+      setNetInfo({ connected });
+
+      // Device just came back online while an error screen is up -> reload now
+      if (connected && wasConnected === false && webErrorRef.current) {
+        reloadWebView();
+      }
+    });
+    return () => unsubscribe();
+  }, [reloadWebView]);
+
+  const renderErrorScreen = ({ heading, message, detailLine, hintText }) => {
     return (
       <View style={styles.errorContainer}>
-        <Text style={styles.errorTitle}>Unable to Connect</Text>
-        <Text style={styles.errorText}>
-          We couldn't connect to the TimeTrack server. Please check your internet connection or verify the server is online.
-        </Text>
-        <Text style={styles.errorDetail}>
-          Error: {errorDesc || errorName || 'Unknown Network Error'} ({errorCode || 'N/A'})
-        </Text>
+        <Text style={styles.errorTitle}>{heading}</Text>
+        <Text style={styles.errorText}>{message}</Text>
+        {detailLine ? <Text style={styles.errorDetail}>{detailLine}</Text> : null}
+        {hintText ? <Text style={styles.errorHint}>{hintText}</Text> : null}
         <View style={styles.buttonContainer}>
-          <TouchableOpacity
-            style={styles.retryButton}
-            onPress={() => {
-              setWebError(null);
-              setAppReady(false);
-              setWebviewKey((k) => k + 1);
-            }}
-          >
-            <Text style={styles.retryButtonText}>Retry</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={reloadWebView}>
+            <Text style={styles.retryButtonText}>Retry Now</Text>
           </TouchableOpacity>
         </View>
       </View>
     );
+  };
+
+  const renderWebViewError = () => {
+    if (isAppOffline) {
+      return renderErrorScreen({
+        heading: "You're Offline",
+        message:
+          'No internet connection was detected. TimeTrack will load automatically as soon as your device is back online.',
+      });
+    }
+    const code = webError && webError.code != null ? webError.code : 'N/A';
+    const desc =
+      (webError && (webError.description || webError.title)) || 'Unknown network error';
+    return renderErrorScreen({
+      heading: 'Unable to Connect',
+      message:
+        "We couldn't reach the TimeTrack server. The app will keep retrying automatically, or you can retry now.",
+      detailLine: `${desc} (code ${code})\nURL: ${(webError && webError.url) || TIMETRACK_URL}`,
+    });
   };
 
   // ── Request location (incl. background) + notification permissions ──
@@ -196,7 +283,7 @@ export default function App() {
         </View>
       )}
       {webError ? (
-        renderWebViewError(webError.title, webError.code, webError.description)
+        renderWebViewError()
       ) : (
         <WebView
           key={webviewKey}
@@ -204,6 +291,8 @@ export default function App() {
           source={{ uri: TIMETRACK_URL }}
           style={styles.webview}
           onLoadStart={() => {
+            clearRetryTimer();
+            retryAttemptRef.current = 0;
             setWebError(null);
             setAppReady(false);
           }}
@@ -224,9 +313,26 @@ export default function App() {
             const { nativeEvent } = syntheticEvent;
             setWebError({
               title: nativeEvent.title || 'Network Error',
-              code: nativeEvent.code || -2,
-              description: nativeEvent.description || 'net::ERR_NAME_NOT_RESOLVED',
+              // Surface the REAL code/description/URL from the WebView.
+              // Never fabricate a fallback description — a hardcoded string
+              // previously masked the true cause of connection failures.
+              code: nativeEvent.code != null ? nativeEvent.code : undefined,
+              description: nativeEvent.description,
+              url: nativeEvent.url || TIMETRACK_URL,
             });
+            if (!isAppOffline) scheduleRetry();
+          }}
+          onHttpError={(syntheticEvent) => {
+            const { nativeEvent } = syntheticEvent;
+            if (nativeEvent.statusCode >= 500) {
+              setWebError({
+                title: `Server Error (${nativeEvent.statusCode})`,
+                code: nativeEvent.statusCode,
+                description: nativeEvent.description || `HTTP ${nativeEvent.statusCode}`,
+                url: nativeEvent.url || TIMETRACK_URL,
+              });
+              scheduleRetry();
+            }
           }}
           onOpenWindow={(e) => {
             // Open external links in the system browser
@@ -291,6 +397,13 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     textAlign: 'center',
     marginBottom: 24,
+    width: '100%',
+  },
+  errorHint: {
+    fontSize: 12,
+    color: '#94a3b8',
+    textAlign: 'center',
+    marginBottom: 16,
     width: '100%',
   },
   buttonContainer: {
