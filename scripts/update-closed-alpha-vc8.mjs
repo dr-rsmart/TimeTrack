@@ -80,6 +80,27 @@ async function isVisible(page, rx, timeout = 8000) {
 
 // ── Review + rollout (shared by draft submission and fresh releases) ──
 async function submitRelease(page) {
+  // Current Play Console flow: the prepare page ends with a "Next" button
+  // that leads to the review page where the rollout button lives. Wait
+  // generously — "Next" stays disabled while the bundle is still processing.
+  await clickVisible(
+    page,
+    '"Next" (prepare -> review)',
+    [
+      (p) => p.getByRole('button', { name: /^next$/i }),
+      (p) => p.getByText('Next', { exact: true }),
+    ],
+    60000
+  );
+  await wait(5000);
+  // A second "Next" may appear (release notes / country selection pages).
+  await clickVisible(
+    page,
+    'second "Next" (if present)',
+    [(p) => p.getByRole('button', { name: /^next$/i })],
+    8000
+  );
+  await wait(3000);
   await clickVisible(
     page,
     '"Review release"',
