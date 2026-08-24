@@ -28,6 +28,9 @@ test-results/
 playwright-report/
 coverage/
 
+# Headed-browser helper profiles (store automation)
+.playwright-google-profile/
+
 # Logs
 *.log
 npm-debug.log*
@@ -43,3 +46,25 @@ Thumbs.db
 
 # Prisma generated
 server/prisma/generated/
+
+# Local release / store-automation artifacts (never part of the app bundle;
+# keeps the EAS upload archive small and `git status` clean)
+*.aab
+*.ipa
+*.apk
+application-*
+apk-download.done
+app-icon-512.png
+resize.ps1
+play-console-*.png
+probe-*
+publishing-tester-probe.json
+verify-closed-alpha-final.png
+eas-*.pid
+scripts/*watch*.ps1
+scripts/probe-release-page.mjs
+scripts/check-publishing-and-tester-link.mjs
+scripts/qa-verify-live.mjs
+scripts/upload-play-console.mjs
+scripts/update-closed-alpha-vc7.mjs
+scripts/verify-closed-alpha-release.mjs
