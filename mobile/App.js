@@ -16,10 +16,14 @@
  *  - NetInfo connectivity tracking with a dedicated offline screen
  *  - Automatic reload the moment the device reconnects
  *  - Exponential backoff auto-retry (2s -> 5s -> 10s -> 30s) on WebView load errors
- *  - Load failsafe: progress / navigation-state / 6s timer reveal the WebView
- *    even when Android stalls onLoadEnd (e.g. the SPA keeps a live SSE stream
- *    open), so the native splash can never trap the user forever
  *  - Strict validation of TIMETRACK_URL so it can never navigate to undefined
+ *
+ * Rendering philosophy (added after closed-test "stuck on Loading TimeTrack…"
+ * reports): the WebView is mounted VISIBLE from the first frame and no native
+ * view ever covers it. The web app renders its own UI (login page, spinners);
+ * the shell only draws a thin, non-interactive top progress bar while the
+ * document loads. Error/offline screens replace the WebView only on genuine,
+ * confirmed load failures — so the web page can never be hidden by the shell.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -28,7 +32,6 @@ import {
   StatusBar,
   StyleSheet,
   View,
-  ActivityIndicator,
   Text,
   Platform,
   Linking,
@@ -57,12 +60,6 @@ if (
 // Auto-retry schedule (ms) applied when the WebView fails to load:
 // 2s -> 5s -> 10s -> 30s (capped). Manual retry resets the schedule.
 const RETRY_DELAYS_MS = [2000, 5000, 10000, 30000];
-
-// Maximum time (ms) the opaque native splash may cover the WebView. Android
-// WebView can delay (or never fire) onLoadEnd while the SPA holds a live SSE
-// stream open; after this window we reveal the WebView anyway so testers and
-// users always reach the actual web page.
-const LOAD_FAILSAFE_MS = 6000;
 
 // Background task identifier
 const BACKGROUND_LOCATION_TASK = 'timetrack-background-location-task';
@@ -127,8 +124,8 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
 
 export default function App() {
   const webviewRef = useRef(null);
-  const [appReady, setAppReady] = useState(false);
   const [permissionsReady, setPermissionsReady] = useState(false);
+  const [loadProgress, setLoadProgress] = useState(0);
   const [webviewKey, setWebviewKey] = useState(0);
   const [webError, setWebError] = useState(null);
   const [netInfo, setNetInfo] = useState({ connected: null });
@@ -139,7 +136,6 @@ export default function App() {
   const prevConnectedRef = useRef(null);
   const retryTimerRef = useRef(null);
   const retryAttemptRef = useRef(0);
-  const loadFailsafeRef = useRef(null);
 
   // True when NetInfo has reported the device is offline
   const isAppOffline = isConnected === false;
@@ -155,41 +151,14 @@ export default function App() {
     }
   }, []);
 
-  const clearLoadFailsafe = useCallback(() => {
-    if (loadFailsafeRef.current) {
-      clearTimeout(loadFailsafeRef.current);
-      loadFailsafeRef.current = null;
-    }
-  }, []);
-
-  // Reveal the WebView (dismiss the native splash overlay).
-  const markAppReady = useCallback(() => {
-    clearLoadFailsafe();
-    setAppReady(true);
-  }, [clearLoadFailsafe]);
-
-  // Failsafe: if neither a load success nor a load error is reported within
-  // LOAD_FAILSAFE_MS, reveal the WebView anyway. Android WebView can stall
-  // onLoadEnd while the SPA holds a live SSE stream open — without this the
-  // opaque splash would trap the user on "Loading TimeTrack…" forever.
-  const scheduleLoadFailsafe = useCallback(() => {
-    clearLoadFailsafe();
-    loadFailsafeRef.current = setTimeout(() => {
-      loadFailsafeRef.current = null;
-      if (!webErrorRef.current) setAppReady(true);
-    }, LOAD_FAILSAFE_MS);
-  }, [clearLoadFailsafe]);
-
   // Full WebView reload — resets the backoff schedule and any pending retry
   const reloadWebView = useCallback(() => {
     clearRetryTimer();
-    clearLoadFailsafe();
     retryAttemptRef.current = 0;
     setWebError(null);
-    setAppReady(false);
+    setLoadProgress(0);
     setWebviewKey((k) => k + 1);
-    scheduleLoadFailsafe();
-  }, [clearRetryTimer, clearLoadFailsafe, scheduleLoadFailsafe]);
+  }, [clearRetryTimer]);
 
   // Exponential backoff auto-retry: 2s -> 5s -> 10s -> 30s (capped)
   const scheduleRetry = useCallback(() => {
@@ -199,14 +168,8 @@ export default function App() {
     retryTimerRef.current = setTimeout(reloadWebView, RETRY_DELAYS_MS[attempt]);
   }, [clearRetryTimer, reloadWebView]);
 
-  // Cancel any pending retry / failsafe timers on unmount
-  useEffect(
-    () => () => {
-      clearRetryTimer();
-      clearLoadFailsafe();
-    },
-    [clearRetryTimer, clearLoadFailsafe]
-  );
+  // Cancel any pending retry timer on unmount
+  useEffect(() => () => clearRetryTimer(), [clearRetryTimer]);
 
   // ── Connectivity awareness: offline screen + auto-reload on reconnect ──
   useEffect(() => {
@@ -319,10 +282,16 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-      {!appReady && !webError && (
-        <View style={styles.loader}>
-          <ActivityIndicator size="large" color="#2563eb" />
-          <Text style={styles.loaderText}>Loading TimeTrack…</Text>
+      {/* Thin, non-interactive load indicator. It never covers or blocks the
+          WebView — the web app's own UI is visible from the first frame. */}
+      {!webError && loadProgress > 0 && loadProgress < 1 && (
+        <View style={styles.progressTrack} pointerEvents="none">
+          <View
+            style={[
+              styles.progressBar,
+              { width: `${Math.max(4, Math.round(loadProgress * 100))}%` },
+            ]}
+          />
         </View>
       )}
       {webError ? (
@@ -337,26 +306,13 @@ export default function App() {
             clearRetryTimer();
             retryAttemptRef.current = 0;
             setWebError(null);
-            setAppReady(false);
-            scheduleLoadFailsafe();
-          }}
-          onLoad={() => {
-            if (!webErrorRef.current) markAppReady();
+            setLoadProgress(0.08);
           }}
           onLoadProgress={({ nativeEvent }) => {
-            // Reveal the page as soon as the main document is mostly
-            // received — never wait for subresources or the live SSE
-            // stream to settle before showing the WebView.
-            if (nativeEvent.progress >= 0.75 && !webErrorRef.current) {
-              markAppReady();
-            }
+            setLoadProgress(nativeEvent.progress);
           }}
-          onNavigationStateChange={(navState) => {
-            if (!navState.loading && !webErrorRef.current) markAppReady();
-          }}
-          onLoadEnd={() => {
-            if (!webErrorRef.current) markAppReady();
-          }}
+          onLoad={() => setLoadProgress(1)}
+          onLoadEnd={() => setLoadProgress(0)}
           onMessage={onWebViewMessage}
           javaScriptEnabled
           domStorageEnabled
@@ -373,7 +329,7 @@ export default function App() {
           mixedContentMode="always"
           onError={(syntheticEvent) => {
             const { nativeEvent } = syntheticEvent;
-            clearLoadFailsafe();
+            setLoadProgress(0);
             setWebError({
               title: nativeEvent.title || 'Network Error',
               // Surface the REAL code/description/URL from the WebView.
@@ -387,8 +343,8 @@ export default function App() {
           }}
           onHttpError={(syntheticEvent) => {
             const { nativeEvent } = syntheticEvent;
-            clearLoadFailsafe();
             if (nativeEvent.statusCode >= 500) {
+              setLoadProgress(0);
               setWebError({
                 title: `Server Error (${nativeEvent.statusCode})`,
                 code: nativeEvent.statusCode,
@@ -417,18 +373,17 @@ const styles = StyleSheet.create({
   webview: {
     flex: 1,
   },
-  loader: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#ffffff',
-    zIndex: 10,
+  progressTrack: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    zIndex: 5,
   },
-  loaderText: {
-    marginTop: 12,
-    color: '#475569',
-    fontSize: 14,
-    fontWeight: '600',
+  progressBar: {
+    height: 3,
+    backgroundColor: '#2563eb',
   },
   errorContainer: {
     ...StyleSheet.absoluteFillObject,
