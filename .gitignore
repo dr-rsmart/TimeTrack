@@ -61,6 +61,7 @@ probe-*
 publishing-tester-probe.json
 verify-closed-alpha-final.png
 eas-*.pid
+*.pid
 scripts/*watch*.ps1
 scripts/probe-release-page.mjs
 scripts/check-publishing-and-tester-link.mjs
