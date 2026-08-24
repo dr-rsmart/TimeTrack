@@ -16,6 +16,9 @@
  *  - NetInfo connectivity tracking with a dedicated offline screen
  *  - Automatic reload the moment the device reconnects
  *  - Exponential backoff auto-retry (2s -> 5s -> 10s -> 30s) on WebView load errors
+ *  - Load failsafe: progress / navigation-state / 6s timer reveal the WebView
+ *    even when Android stalls onLoadEnd (e.g. the SPA keeps a live SSE stream
+ *    open), so the native splash can never trap the user forever
  *  - Strict validation of TIMETRACK_URL so it can never navigate to undefined
  */
 
@@ -54,6 +57,12 @@ if (
 // Auto-retry schedule (ms) applied when the WebView fails to load:
 // 2s -> 5s -> 10s -> 30s (capped). Manual retry resets the schedule.
 const RETRY_DELAYS_MS = [2000, 5000, 10000, 30000];
+
+// Maximum time (ms) the opaque native splash may cover the WebView. Android
+// WebView can delay (or never fire) onLoadEnd while the SPA holds a live SSE
+// stream open; after this window we reveal the WebView anyway so testers and
+// users always reach the actual web page.
+const LOAD_FAILSAFE_MS = 6000;
 
 // Background task identifier
 const BACKGROUND_LOCATION_TASK = 'timetrack-background-location-task';
@@ -130,6 +139,7 @@ export default function App() {
   const prevConnectedRef = useRef(null);
   const retryTimerRef = useRef(null);
   const retryAttemptRef = useRef(0);
+  const loadFailsafeRef = useRef(null);
 
   // True when NetInfo has reported the device is offline
   const isAppOffline = isConnected === false;
@@ -145,14 +155,41 @@ export default function App() {
     }
   }, []);
 
+  const clearLoadFailsafe = useCallback(() => {
+    if (loadFailsafeRef.current) {
+      clearTimeout(loadFailsafeRef.current);
+      loadFailsafeRef.current = null;
+    }
+  }, []);
+
+  // Reveal the WebView (dismiss the native splash overlay).
+  const markAppReady = useCallback(() => {
+    clearLoadFailsafe();
+    setAppReady(true);
+  }, [clearLoadFailsafe]);
+
+  // Failsafe: if neither a load success nor a load error is reported within
+  // LOAD_FAILSAFE_MS, reveal the WebView anyway. Android WebView can stall
+  // onLoadEnd while the SPA holds a live SSE stream open — without this the
+  // opaque splash would trap the user on "Loading TimeTrack…" forever.
+  const scheduleLoadFailsafe = useCallback(() => {
+    clearLoadFailsafe();
+    loadFailsafeRef.current = setTimeout(() => {
+      loadFailsafeRef.current = null;
+      if (!webErrorRef.current) setAppReady(true);
+    }, LOAD_FAILSAFE_MS);
+  }, [clearLoadFailsafe]);
+
   // Full WebView reload — resets the backoff schedule and any pending retry
   const reloadWebView = useCallback(() => {
     clearRetryTimer();
+    clearLoadFailsafe();
     retryAttemptRef.current = 0;
     setWebError(null);
     setAppReady(false);
     setWebviewKey((k) => k + 1);
-  }, [clearRetryTimer]);
+    scheduleLoadFailsafe();
+  }, [clearRetryTimer, clearLoadFailsafe, scheduleLoadFailsafe]);
 
   // Exponential backoff auto-retry: 2s -> 5s -> 10s -> 30s (capped)
   const scheduleRetry = useCallback(() => {
@@ -162,8 +199,14 @@ export default function App() {
     retryTimerRef.current = setTimeout(reloadWebView, RETRY_DELAYS_MS[attempt]);
   }, [clearRetryTimer, reloadWebView]);
 
-  // Cancel any pending retry timer on unmount
-  useEffect(() => () => clearRetryTimer(), [clearRetryTimer]);
+  // Cancel any pending retry / failsafe timers on unmount
+  useEffect(
+    () => () => {
+      clearRetryTimer();
+      clearLoadFailsafe();
+    },
+    [clearRetryTimer, clearLoadFailsafe]
+  );
 
   // ── Connectivity awareness: offline screen + auto-reload on reconnect ──
   useEffect(() => {
@@ -295,11 +338,24 @@ export default function App() {
             retryAttemptRef.current = 0;
             setWebError(null);
             setAppReady(false);
+            scheduleLoadFailsafe();
+          }}
+          onLoad={() => {
+            if (!webErrorRef.current) markAppReady();
+          }}
+          onLoadProgress={({ nativeEvent }) => {
+            // Reveal the page as soon as the main document is mostly
+            // received — never wait for subresources or the live SSE
+            // stream to settle before showing the WebView.
+            if (nativeEvent.progress >= 0.75 && !webErrorRef.current) {
+              markAppReady();
+            }
+          }}
+          onNavigationStateChange={(navState) => {
+            if (!navState.loading && !webErrorRef.current) markAppReady();
           }}
           onLoadEnd={() => {
-            if (!webError) {
-              setAppReady(true);
-            }
+            if (!webErrorRef.current) markAppReady();
           }}
           onMessage={onWebViewMessage}
           javaScriptEnabled
@@ -309,8 +365,15 @@ export default function App() {
           mediaPlaybackRequiresUserAction={false}
           allowsInlineMediaPlayback
           startInLoadingState={false}
+          originWhitelist={['*']}
+          setSupportMultipleWindows={false}
+          thirdPartyCookiesEnabled
+          sharedCookiesEnabled
+          cacheEnabled
+          mixedContentMode="always"
           onError={(syntheticEvent) => {
             const { nativeEvent } = syntheticEvent;
+            clearLoadFailsafe();
             setWebError({
               title: nativeEvent.title || 'Network Error',
               // Surface the REAL code/description/URL from the WebView.
@@ -324,6 +387,7 @@ export default function App() {
           }}
           onHttpError={(syntheticEvent) => {
             const { nativeEvent } = syntheticEvent;
+            clearLoadFailsafe();
             if (nativeEvent.statusCode >= 500) {
               setWebError({
                 title: `Server Error (${nativeEvent.statusCode})`,
