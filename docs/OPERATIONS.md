@@ -42,7 +42,7 @@ node server/db_check.mjs
 | `PORT` | e.g. `4000` | Port for the HTTP server to bind. |
 | `DATABASE_URL` | `postgresql://...` | Connection URI with TLS (`sslmode=require` in production). |
 | `JWT_SECRET` | 48+ char random | Secret for signing session JWTs. **Refuses to boot with dev defaults.** |
-| `CORS_ORIGIN` | e.g. `https://app.timetrack.co` | Explicit frontend origin (wildcards disallowed). |
+| `CORS_ORIGIN` | e.g. `https://time-track.tech` | Explicit frontend origin (wildcards disallowed). |
 | `REDIS_URL` | `redis://...` | Connection URI for Redis. Required for multi-instance deployments. |
 
 ---

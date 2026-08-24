@@ -24,6 +24,7 @@ import {
   Platform,
   Linking,
   Alert,
+  TouchableOpacity,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
@@ -32,7 +33,7 @@ import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Production TimeTrack web app URL
-const TIMETRACK_URL = 'https://timetrack.smartpatel.co.za';
+const TIMETRACK_URL = 'https://time-track.tech';
 
 // Background task identifier
 const BACKGROUND_LOCATION_TASK = 'timetrack-background-location-task';
@@ -99,6 +100,32 @@ export default function App() {
   const webviewRef = useRef(null);
   const [appReady, setAppReady] = useState(false);
   const [permissionsReady, setPermissionsReady] = useState(false);
+  const [webviewKey, setWebviewKey] = useState(0);
+
+  const renderWebViewError = (errorName, errorCode, errorDesc) => {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorTitle}>Unable to Connect</Text>
+        <Text style={styles.errorText}>
+          We couldn't connect to the TimeTrack server. Please check your internet connection or verify the server is online.
+        </Text>
+        <Text style={styles.errorDetail}>
+          Error: {errorDesc || errorName || 'Unknown Network Error'} ({errorCode || 'N/A'})
+        </Text>
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={() => {
+              setAppReady(false);
+              setWebviewKey((k) => k + 1);
+            }}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
 
   // ── Request location (incl. background) + notification permissions ──
   useEffect(() => {
@@ -167,6 +194,7 @@ export default function App() {
         </View>
       )}
       <WebView
+        key={webviewKey}
         ref={webviewRef}
         source={{ uri: TIMETRACK_URL }}
         style={styles.webview}
@@ -179,6 +207,7 @@ export default function App() {
         mediaPlaybackRequiresUserAction={false}
         allowsInlineMediaPlayback
         startInLoadingState={false}
+        renderError={renderWebViewError}
         onOpenWindow={(e) => {
           // Open external links in the system browser
           const url = e?.nativeEvent?.targetUrl;
@@ -208,6 +237,59 @@ const styles = StyleSheet.create({
     marginTop: 12,
     color: '#475569',
     fontSize: 14,
+    fontWeight: '600',
+  },
+  errorContainer: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    zIndex: 20,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#475569',
+    textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  errorDetail: {
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    color: '#94a3b8',
+    backgroundColor: '#f1f5f9',
+    padding: 8,
+    borderRadius: 4,
+    textAlign: 'center',
+    marginBottom: 24,
+    width: '100%',
+  },
+  buttonContainer: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#2563eb',
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontSize: 15,
     fontWeight: '600',
   },
 });

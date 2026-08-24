@@ -49,6 +49,18 @@ const CORS_ORIGIN = config.corsOrigin;
 
 // ── Middleware ──
 app.use(requestIdMiddleware);
+
+// ── Canonical Domain Redirect (www → apex) ──
+// Both time-track.tech and www.time-track.tech are attached to this service
+// in Railway. Redirect www to the apex so session cookies and CORS stay
+// bound to a single canonical origin.
+app.use((req, res, next) => {
+  if (req.hostname === 'www.time-track.tech') {
+    return res.redirect(301, `https://time-track.tech${req.originalUrl}`);
+  }
+  next();
+});
+
 app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());

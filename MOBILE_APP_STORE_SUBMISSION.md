@@ -57,10 +57,10 @@ All screenshot assets have been generated via Playwright directly from the produ
 | **SKU** | — | `TIMETRACK-PROD-001` |
 | **Keywords** | 100 | `time tracking,timesheet,clock in,geofence,attendance,payroll,roster,overtime,workforce,shifts,gps` |
 | **Promotional Text** | 170 | `Effortless workforce attendance with automated GPS geofence clock-in/out, live shift rosters, overtime calculation, and compliance-ready timesheets.` |
-| **Privacy Policy URL** | — | `https://timetrack.smartpatel.co.za/privacy` |
-| **Terms of Service URL** | — | `https://timetrack.smartpatel.co.za/terms` |
-| **Support URL** | — | `https://timetrack.smartpatel.co.za/support` |
-| **Marketing URL** | — | `https://timetrack.smartpatel.co.za` |
+| **Privacy Policy URL** | — | `https://time-track.tech/privacy` |
+| **Terms of Service URL** | — | `https://time-track.tech/terms` |
+| **Support URL** | — | `https://time-track.tech/support` |
+| **Marketing URL** | — | `https://time-track.tech` |
 
 ### 2.2 Google Play Console
 

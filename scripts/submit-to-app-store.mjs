@@ -15,9 +15,9 @@ const METADATA = {
   appName: 'TimeTrack: Workforce & Payroll',
   subtitle: 'Geofence Clock In & Payroll',
   promotionalText: 'Effortless workforce attendance with automated GPS geofence clock-in/out, live shift rosters, overtime calculation, and compliance-ready timesheets.',
-  supportUrl: 'https://timetrack.smartpatel.co.za/support',
-  marketingUrl: 'https://timetrack.smartpatel.co.za',
-  privacyUrl: 'https://timetrack.smartpatel.co.za/privacy',
+  supportUrl: 'https://time-track.tech/support',
+  marketingUrl: 'https://time-track.tech',
+  privacyUrl: 'https://time-track.tech/privacy',
   keywords: 'time tracking,timesheet,clock in,geofence,attendance,payroll,roster,overtime,workforce,shifts,gps',
   description: `TimeTrack is an enterprise-grade time tracking, shift scheduling, and payroll attendance platform engineered for modern workforces. With automated GPS geofencing, TimeTrack ensures accurate, hands-free clock-in and clock-out when employees enter or leave designated workplace perimeters.
 

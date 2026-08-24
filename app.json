@@ -6,15 +6,16 @@
     "version": "1.0.0",
     "main": "index.js",
     "orientation": "portrait",
-    "icon": "./store-assets/graphics/app-icon-512x512.png",
+    "icon": "./TimeTrack Icon.png",
     "userInterfaceStyle": "automatic",
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
+      "icon": "./TimeTrack Icon.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.timetrack.workforce",
-      "buildNumber": "3",
+      "buildNumber": "4",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
@@ -33,9 +34,9 @@
     },
     "android": {
       "package": "com.timetrack.workforce",
-      "versionCode": 1,
+      "versionCode": 2,
       "adaptiveIcon": {
-        "foregroundImage": "./store-assets/graphics/app-icon-512x512.png",
+        "foregroundImage": "./TimeTrack Icon.png",
         "backgroundColor": "#ffffff"
       },
       "permissions": [
@@ -77,6 +78,15 @@
         "expo-notifications",
         {
           "defaultChannel": "geofence-events"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35
+          }
         }
       ]
     ],
