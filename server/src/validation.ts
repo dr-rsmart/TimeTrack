@@ -61,6 +61,39 @@ export const updateEmployeeSchema = createEmployeeSchema
   .partial()
   .extend({ version: z.number().int().optional() });
 
+// ── Bulk Employee Import (CSV bulk onboarding) ──
+/**
+ * Per-row schema for bulk onboarding. Derived from the single-create schema
+ * so field rules stay in one place; payroll-only and ID-reference fields
+ * (salaryInfo, taxId, managerId, geofenceId, …) are intentionally excluded —
+ * those stay manage-once-imported.
+ */
+export const bulkEmployeeRowSchema = createEmployeeSchema.omit({
+  salaryInfo: true,
+  jurisdiction: true,
+  taxId: true,
+  employmentType: true,
+  managerId: true,
+  geofenceId: true,
+});
+
+/** Hard cap on rows per import request (keeps payloads well under the 1MB body limit). */
+export const BULK_IMPORT_MAX_ROWS = 500;
+
+/**
+ * Outer envelope for POST /employees/bulk. Rows are typed loosely here: their
+ * shape is validated INDIVIDUALLY inside the import handler so one bad row is
+ * reported per-row (partial success) instead of rejecting the whole request.
+ * `companyProfileId` is master-only: it selects the target company.
+ */
+export const bulkCreateEmployeesSchema = z.object({
+  rows: z
+    .array(z.record(z.string(), z.unknown()))
+    .min(1)
+    .max(BULK_IMPORT_MAX_ROWS),
+  companyProfileId: z.string().max(50).optional(),
+});
+
 // ── Shifts ──
 export const createShiftSchema = z.object({
   date: dateStrSchema,
@@ -72,12 +105,58 @@ export const createShiftSchema = z.object({
   employeeId: z.string().nullish(),
   location: z.string().max(255).nullish(),
   notes: z.string().max(2000).nullish(),
+  /**
+   * Explicit store/branch for the shift. Used for unassigned shifts (which
+   * have no employee to derive a branch from); when an employee IS assigned,
+   * the route prefers the employee's own branch.
+   */
+  branch: z.string().max(100).nullish(),
 });
 
 export const updateShiftSchema = createShiftSchema.partial().extend({
   status: z.enum(['scheduled', 'active', 'completed', 'cancelled', 'no_show']).optional(),
   version: z.number().int().optional(),
 });
+
+/** Maximum number of days a bulk shift assignment (POST /shifts/bulk) may span. */
+export const BULK_SHIFT_MAX_DAYS = 366;
+
+/**
+ * Expand a bulk-shift date range into an inclusive list of YYYY-MM-DD days.
+ * `endDate` omitted (or falsy) → single-day range. Malformed dates, an end
+ * before the start, or a range exceeding BULK_SHIFT_MAX_DAYS → error object.
+ * Pure function (unit-tested) — uses UTC noon to avoid timezone drift.
+ */
+export function expandShiftDateRange(
+  date: string,
+  endDate?: string,
+): { ok: true; days: string[] } | { ok: false; error: string; field: string } {
+  const from = new Date(date + 'T12:00:00Z');
+  const to = new Date((endDate ?? date) + 'T12:00:00Z');
+  if (Number.isNaN(from.getTime())) {
+    return { ok: false, error: 'A valid start date (YYYY-MM-DD) is required.', field: 'date' };
+  }
+  if (Number.isNaN(to.getTime())) {
+    return { ok: false, error: 'A valid end date (YYYY-MM-DD) is required.', field: 'endDate' };
+  }
+  if (to.getTime() < from.getTime()) {
+    return { ok: false, error: 'End date must be on or after the start date.', field: 'endDate' };
+  }
+  const dayCount = Math.round((to.getTime() - from.getTime()) / 86400000) + 1;
+  if (dayCount > BULK_SHIFT_MAX_DAYS) {
+    return {
+      ok: false,
+      error: `Date range is too long: ${dayCount} days. Maximum is ${BULK_SHIFT_MAX_DAYS} days.`,
+      field: 'endDate',
+    };
+  }
+  const days: string[] = [];
+  for (let i = 0; i < dayCount; i++) {
+    const d = new Date(from.getTime() + i * 86400000);
+    days.push(d.toISOString().slice(0, 10));
+  }
+  return { ok: true, days };
+}
 
 // ── Time Entries ──
 export const clockInSchema = z.object({

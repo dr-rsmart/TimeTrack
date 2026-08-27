@@ -230,8 +230,27 @@ export default function Login() {
             </>
           ) : (
             <>
+              {/* Friendly notice after a successful password rotation */}
+              {sessionError && sessionError.code === 'PASSWORD_CHANGED' && (
+                <div className="mb-6 rounded-xl border p-4 flex items-start gap-3 bg-emerald-50 border-emerald-200">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  <div className="text-sm text-emerald-900 font-medium leading-relaxed flex-1">
+                    <p className="font-bold mb-0.5">Password updated</p>
+                    <p>{sessionError.message}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearSessionError}
+                    className="text-emerald-400 hover:text-emerald-600 transition-colors text-lg leading-none"
+                    aria-label="Dismiss"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+
               {/* Session-ended banner (suspension / termination / role revocation / expiry) */}
-              {sessionError && (
+              {sessionError && sessionError.code !== 'PASSWORD_CHANGED' && (
                 <div className="mb-6 rounded-xl border p-4 flex items-start gap-3 bg-red-50 border-red-200">
                   {sessionError.code === 'COMPANY_SUSPENDED' ? (
                     <Ban className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />

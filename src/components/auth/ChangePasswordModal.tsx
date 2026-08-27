@@ -9,8 +9,9 @@
 import { useState, type FormEvent } from 'react';
 import { ShieldAlert, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
-import { authApi, ApiError } from '../../services/api';
+import { authApi, ApiError, suppressUnauthenticatedErrors } from '../../services/api';
 import { Button, Input, Label } from '../ui';
+import { useAuth } from '../../context/AuthContext';
 
 interface ChangePasswordModalProps {
   /** When true, the modal is mandatory (mustChangePassword flag). */
@@ -35,6 +36,7 @@ const COMPLEXITY_RULES = [
 ];
 
 export default function ChangePasswordModal({ forced = false, allowKeep = true, onSuccess, onCancel }: ChangePasswordModalProps) {
+  const { endSessionAfterPasswordChange } = useAuth();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -73,9 +75,16 @@ export default function ChangePasswordModal({ forced = false, allowKeep = true, 
     }
 
     setSaving(true);
+    // Suppress 401 session banners around the rotation: on success the epoch
+    // bump makes this session's cookie stale (expected), and on failure the
+    // wrong-current-password reply must stay an inline modal error.
+    const restore = suppressUnauthenticatedErrors();
     try {
       await authApi.changePassword(currentPassword, newPassword);
       toast.success('Password updated successfully');
+      // End the revoked session voluntarily so the user lands on a friendly
+      // "sign in with your new password" notice instead of a raw kick-out.
+      await endSessionAfterPasswordChange();
       onSuccess();
     } catch (err) {
       if (err instanceof ApiError && err.details?.length) {
@@ -85,6 +94,7 @@ export default function ChangePasswordModal({ forced = false, allowKeep = true, 
       }
     } finally {
       setSaving(false);
+      restore();
     }
   };
 

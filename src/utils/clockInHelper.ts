@@ -14,6 +14,11 @@ export interface GpsPosition {
   longitude: number;
   accuracy: number; // in metres
   timestamp: number;
+  /**
+   * True when this position was supplied from the last-reliable-position
+   * cache because no stable fix could be acquired live (poor GPS signal).
+   */
+  isCached: boolean;
 }
 
 export interface GpsStatus {
@@ -101,46 +106,134 @@ export async function queryLocationPermissions(): Promise<{
 }
 
 // ─────────────────────────────────────────────────────────────
-// Current Position Retrieval
+// Current Position Retrieval (GPS Stabilization)
 // ─────────────────────────────────────────────────────────────
+//
+// Poor GPS signal: mobile browsers fuse A-GPS, Wi-Fi and cell-tower
+// positioning, and a weak fix can jump hundreds of metres. Unstable
+// readings (coords.accuracy worse than GPS_ACCURACY_THRESHOLD_METERS)
+// are IGNORED here — the same accuracy gate used by AutoGeofenceService.
+// When no reliable fix arrives within the acquisition budget we fall
+// back to the LAST RELIABLE POSITION seen this session (if fresh
+// enough), flagged with `isCached: true`, so callers never receive a
+// glitch jump and the UI can show "your last reliable position".
 
 const GPS_ACCURACY_THRESHOLD_METERS = 100;
 
+/** Overall acquisition budget (ms) when waiting for a reliable fix. */
+const GPS_ACQUISITION_TIMEOUT_MS = 15_000;
+
+/** Maximum age (ms) of a cached reliable position usable as a fallback. */
+const GPS_MAX_CACHED_AGE_MS = 5 * 60_000; // 5 minutes
+
+/** Last fix that passed the accuracy gate (session-wide in-memory cache). */
+let lastReliablePosition: GpsPosition | null = null;
+
+/** True when a fix's reported accuracy passes the reliability gate. */
+function isReliableAccuracy(accuracy: number): boolean {
+  return !(
+    typeof accuracy === 'number' &&
+    Number.isFinite(accuracy) &&
+    accuracy > GPS_ACCURACY_THRESHOLD_METERS
+  );
+}
+
+/**
+ * Returns the last accepted reliable GPS fix of this session,
+ * or null if none has been acquired yet.
+ */
+export function getLastReliablePosition(): GpsPosition | null {
+  return lastReliablePosition ? { ...lastReliablePosition } : null;
+}
+
+export interface GetCurrentPositionOptions {
+  /** Overall acquisition budget override in milliseconds. */
+  timeoutMs?: number;
+}
+
 /**
  * Fetches the current GPS position with high accuracy.
- * Returns null if GPS cannot be acquired within the timeout.
+ *
+ * Unstable readings (accuracy > 100m) are ignored — they never reach the
+ * caller. If no reliable fix arrives within the timeout, the last reliable
+ * position is returned instead when it is at most 5 minutes old
+ * (with `isCached: true` — "showing your last reliable position").
+ *
+ * Returns null if GPS cannot be acquired and no fresh cached position is
+ * available (caller may then clock without coordinates).
  */
-export async function getCurrentPosition(): Promise<GpsPosition | null> {
+export async function getCurrentPosition(
+  options: GetCurrentPositionOptions = {},
+): Promise<GpsPosition | null> {
   if (!navigator.geolocation) return null;
 
-  return new Promise((resolve) => {
-    const timeoutId = setTimeout(() => {
-      console.warn('[gps] Timeout acquiring GPS position.');
-      resolve(null);
-    }, 15000);
+  const timeoutMs = options.timeoutMs ?? GPS_ACQUISITION_TIMEOUT_MS;
 
-    navigator.geolocation.getCurrentPosition(
+  return new Promise((resolve) => {
+    let watchId: number | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let settled = false;
+
+    const cleanup = () => {
+      if (timer !== null) clearTimeout(timer);
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    };
+
+    const settle = (result: GpsPosition | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+
+    /** Poor signal — show the last reliable position if it is fresh enough. */
+    const fallback = () => {
+      if (lastReliablePosition && Date.now() - lastReliablePosition.timestamp <= GPS_MAX_CACHED_AGE_MS) {
+        settle({ ...lastReliablePosition, isCached: true });
+      } else {
+        settle(null);
+      }
+    };
+
+    timer = setTimeout(() => {
+      console.warn('[gps] Timeout acquiring a reliable GPS position — using last reliable position.');
+      fallback();
+    }, timeoutMs);
+
+    // Stream fixes and accept the first one that passes the accuracy gate.
+    watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        clearTimeout(timeoutId);
-        if (pos.coords.accuracy > GPS_ACCURACY_THRESHOLD_METERS) {
-          console.warn(`[gps] Low accuracy: ${pos.coords.accuracy.toFixed(1)}m`);
+        const { accuracy } = pos.coords;
+
+        // Accuracy gate — unstable readings are ignored; keep watching.
+        if (!isReliableAccuracy(accuracy)) {
+          console.warn(
+            `[gps] Ignoring unstable fix: accuracy ${(accuracy ?? 0).toFixed(1)}m ` +
+              `(threshold ${GPS_ACCURACY_THRESHOLD_METERS}m)`,
+          );
+          return;
         }
-        resolve({
+
+        const reliable: GpsPosition = {
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
           accuracy: pos.coords.accuracy,
-          timestamp: pos.timestamp,
-        });
+          timestamp: pos.timestamp || Date.now(),
+          isCached: false,
+        };
+        lastReliablePosition = reliable;
+        settle({ ...reliable });
       },
       (err) => {
-        clearTimeout(timeoutId);
-        // Caller can check the server's geo_validation.suggestions instead.
+        // Permission denied / position unavailable / provider timeout —
+        // fall back to the cached position when possible. Caller can check
+        // the server's geo_validation.suggestions otherwise.
         console.warn('[gps] Geolocation error:', err.code, err.message);
-        resolve(null);
+        fallback();
       },
       {
         enableHighAccuracy: true,
-        timeout: 15000,
+        timeout: timeoutMs,
         maximumAge: 10000,
       },
     );

@@ -108,7 +108,11 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
     try {
       const pos = await getCurrentPosition();
       await timeEntryApi.clockIn(pos?.latitude, pos?.longitude);
-      toast.success('Clocked in successfully!', { description: 'Have a productive shift.' });
+      toast.success('Clocked in successfully!', {
+        description: pos?.isCached
+          ? 'Poor GPS signal — clocked in using your last reliable position.'
+          : 'Have a productive shift.',
+      });
       await loadData();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Please try again.';
@@ -129,8 +133,11 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
     try {
       const pos = await getCurrentPosition();
       await timeEntryApi.clockOut(breakMinutes > 0 ? breakMinutes : undefined, pos?.latitude, pos?.longitude);
+      const baseDescription = breakMinutes > 0 ? `Break: ${breakMinutes} minutes recorded.` : 'See you next time!';
       toast.success('Clocked out successfully!', {
-        description: breakMinutes > 0 ? `Break: ${breakMinutes} minutes recorded.` : 'See you next time!',
+        description: pos?.isCached
+          ? `${baseDescription} (logged using your last reliable position)`
+          : baseDescription,
       });
       setBreakMinutes(0);
       await loadData();

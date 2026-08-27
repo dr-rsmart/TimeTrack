@@ -3,7 +3,7 @@
  * Kept intentionally small and dependency-light.
  */
 
-import { forwardRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../lib/utils';
 
@@ -48,9 +48,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 Button.displayName = 'Button';
 
 // ── Card ──
-export function Card({ className, children }: { className?: string; children: ReactNode }) {
+export function Card({ className, children, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn('rounded-lg border bg-card text-card-foreground shadow-sm', className)}>
+    <div className={cn('rounded-lg border bg-card text-card-foreground shadow-sm', className)} {...rest}>
       {children}
     </div>
   );
@@ -248,6 +248,7 @@ export function StatCard({
   icon,
   trend,
   trendUp,
+  onClick,
 }: {
   label: string;
   value: string | number;
@@ -255,9 +256,32 @@ export function StatCard({
   icon?: ReactNode;
   trend?: string;
   trendUp?: boolean;
+  /** When provided the card becomes a clickable drill-down trigger. */
+  onClick?: () => void;
 }) {
+  const clickable = Boolean(onClick);
   return (
-    <Card className="relative overflow-hidden border-border/50 shadow-card hover:shadow-glass transition-all duration-300 group">
+    <Card
+      onClick={onClick}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick?.();
+              }
+            }
+          : undefined
+      }
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      aria-label={clickable ? `${label} — view details` : undefined}
+      className={cn(
+        'relative overflow-hidden border-border/50 shadow-card hover:shadow-glass transition-all duration-300 group',
+        clickable &&
+          'cursor-pointer hover:border-brand/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+      )}
+    >
       <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-brand to-brand-light opacity-0 group-hover:opacity-100 transition-opacity" />
       <CardContent className="flex items-center gap-4 p-5">
         {icon && (
@@ -278,6 +302,11 @@ export function StatCard({
           </div>
         </div>
       </CardContent>
+      {clickable && (
+        <span className="pointer-events-none absolute bottom-2 right-3 text-[10px] font-semibold text-brand opacity-0 transition-opacity group-hover:opacity-100">
+          View details →
+        </span>
+      )}
     </Card>
   );
 }

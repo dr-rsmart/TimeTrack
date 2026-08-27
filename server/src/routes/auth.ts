@@ -345,7 +345,11 @@ router.post('/change-password', requireAuth, validate(changePasswordSchema), asy
 
     const valid = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!valid) {
-      return unauthorized(res, 'Current password is incorrect.');
+      // HTTP 400, not 401: requireAuth already proved the *session* is valid —
+      // only the typed confirmation is wrong. A 401 here would be misread by
+      // the client's global session handler as session death and log the user
+      // out instead of letting the modal show an inline error.
+      return sendError(res, 400, 'Current password is incorrect.', { code: 'CURRENT_PASSWORD_INCORRECT' });
     }
 
     if (newPassword === DEFAULT_PASSWORD) {

@@ -6,6 +6,9 @@ import {
   createShiftSchema,
   clockInSchema,
   clockOutSchema,
+  bulkCreateEmployeesSchema,
+  bulkEmployeeRowSchema,
+  BULK_IMPORT_MAX_ROWS,
 } from '../../server/src/validation.js';
 
 describe('Validation Schema Negative & Edge Case Tests', () => {
@@ -108,6 +111,76 @@ describe('Validation Schema Negative & Edge Case Tests', () => {
       const result = clockOutSchema.safeParse({
         breakMinutes: 2000,
       });
+
+  describe('bulkEmployeeRowSchema (CSV bulk onboarding)', () => {
+    it('accepts a minimal valid row and applies defaults', () => {
+      const result = bulkEmployeeRowSchema.safeParse({
+        firstName: 'Jane',
+        surname: 'Doe',
+        email: ' Jane.Doe@Company.com ',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.role).toBe('employee');
+        expect(result.data.branch).toBe('Unassigned');
+        expect(result.data.department).toBe('General');
+        expect(result.data.email).toBe('jane.doe@company.com');
+      }
+    });
+
+    it('rejects missing required fields', () => {
+      const result = bulkEmployeeRowSchema.safeParse({ firstName: 'Jane' });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects invalid email and invalid role', () => {
+      expect(
+        bulkEmployeeRowSchema.safeParse({ firstName: 'Jane', surname: 'Doe', email: 'not-an-email' }).success,
+      ).toBe(false);
+      expect(
+        bulkEmployeeRowSchema.safeParse({ firstName: 'Jane', surname: 'Doe', email: 'j@x.com', role: 'master' }).success,
+      ).toBe(false);
+    });
+
+    it('rejects hireDate outside YYYY-MM-DD', () => {
+      const result = bulkEmployeeRowSchema.safeParse({
+        firstName: 'Jane',
+        surname: 'Doe',
+        email: 'j@x.com',
+        hireDate: '15/01/2024',
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('bulkCreateEmployeesSchema (outer envelope)', () => {
+    it('rejects an empty rows array', () => {
+      const result = bulkCreateEmployeesSchema.safeParse({ rows: [] });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects more rows than the hard cap', () => {
+      const rows = Array.from({ length: BULK_IMPORT_MAX_ROWS + 1 }, (_, i) => ({
+        firstName: `E${i}`,
+        surname: 'Employee',
+        email: `e${i}@x.com`,
+      }));
+      const result = bulkCreateEmployeesSchema.safeParse({ rows });
+      expect(result.success).toBe(false);
+    });
+
+    it('accepts rows up to the hard cap with loose row typing', () => {
+      const rows = Array.from({ length: 3 }, (_, i) => ({
+        firstName: `E${i}`,
+        surname: 'Employee',
+        email: `e${i}@x.com`,
+        unknownColumn: 'ignored by envelope (validated per-row later)',
+      }));
+      const result = bulkCreateEmployeesSchema.safeParse({ rows });
+      expect(result.success).toBe(true);
+    });
+  });
+
       expect(result.success).toBe(false);
     });
   });

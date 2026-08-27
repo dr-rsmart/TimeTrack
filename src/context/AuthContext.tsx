@@ -15,6 +15,13 @@ interface AuthContextValue {
   clearSessionError: () => void;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /**
+   * End the session after a successful password rotation. The rotation bumps
+   * pwdEpoch, revoking the current cookie on the next request; instead of
+   * letting that surface as a red "Session ended" banner, sign out voluntarily
+   * and show a friendly "password updated — sign in again" notice.
+   */
+  endSessionAfterPasswordChange: () => Promise<void>;
   refresh: () => Promise<void>;
   isAdmin: boolean;
   isManager: boolean;
@@ -97,6 +104,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const endSessionAfterPasswordChange = useCallback(async () => {
+    // Same suppression choreography as a voluntary logout: the just-rotated
+    // session's cookie is epoch-stale, so in-flight requests / SSE reconnects
+    // will 401 SESSION_REVOKED — expected, not a "session ended" event.
+    loggingOutRef.current = true;
+    const restore = suppressUnauthenticatedErrors();
+    try {
+      await authApi.logout();
+    } catch {
+      // Logout endpoint failure is non-fatal — the client session ends anyway.
+    } finally {
+      hadSessionRef.current = false;
+      setSessionError({
+        code: 'PASSWORD_CHANGED',
+        message: 'Your password was updated. Please sign in with your new password.',
+      });
+      setUser(null);
+      restore();
+      // Allow in-flight requests to settle before re-arming the 401 handler.
+      setTimeout(() => {
+        loggingOutRef.current = false;
+      }, 1500);
+    }
+  }, []);
+
   const clearSessionError = useCallback(() => setSessionError(null), []);
 
   const value: AuthContextValue = {
@@ -106,6 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearSessionError,
     login,
     logout,
+    endSessionAfterPasswordChange,
     refresh,
     isAdmin: user?.role === 'admin' || user?.role === 'master',
     isManager: user?.role === 'manager',

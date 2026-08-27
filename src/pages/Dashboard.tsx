@@ -71,6 +71,7 @@ import { useAuth } from '../context/AuthContext';
 import { formatTime, formatDate } from '../lib/utils';
 import SelfClockWidget from '../components/dashboard/SelfClockWidget';
 import MasterDashboardView from '../components/dashboard/MasterDashboardView';
+import AttendanceDetailModal from '../components/dashboard/AttendanceDetailModal';
 
 const PIE_COLORS = ['#005DEC', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
 
@@ -94,6 +95,8 @@ export default function Dashboard() {
   const [overtimeForecast, setOvertimeForecast] = useState<OvertimeForecastPoint[]>([]);
   const [overtimeSummary, setOvertimeSummary] = useState<OvertimeForecastSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  // KPI drill-down modal: shows who is clocked in vs not.
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (isMaster) {
@@ -239,7 +242,7 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* KPI cards */}
+      {/* KPI cards — Clocked In Now drills down into per-employee details */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
           <StatCard label="Total Employees" value={summary?.totalEmployees ?? 0} icon={<Users className="h-6 w-6" />} />
@@ -250,6 +253,7 @@ export default function Dashboard() {
             value={summary?.activeClockIns ?? 0}
             sub={`of ${summary?.totalEmployees ?? 0} expected`}
             icon={<Clock className="h-6 w-6" />}
+            onClick={() => setDetailOpen(true)}
           />
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
@@ -583,6 +587,9 @@ export default function Dashboard() {
           )}
         </CardContent>
       </Card>
+
+      {/* KPI drill-down modal */}
+      <AttendanceDetailModal open={detailOpen} onClose={() => setDetailOpen(false)} />
     </div>
   );
 }

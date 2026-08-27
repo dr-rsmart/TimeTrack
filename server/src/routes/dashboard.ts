@@ -54,22 +54,39 @@ router.get('/summary', requireAuth, async (req, res) => {
       employeeWhere = { ...employeeWhere, email: authUser.email };
     }
 
+    // CONSISTENCY + SCOPE ENFORCEMENT: non-full-tenant roles must only see
+    // metrics derived from employees inside their scope. Previously the
+    // time-entry/shift aggregates below ignored the manager/employee scope
+    // (they counted the whole tenant), so a manager's KPIs could disagree
+    // with totalEmployees. Resolve the scoped email list once and apply it
+    // to every time-entry/shift query so the KPIs match the
+    // /attendance-detail drill-down exactly.
+    let emailFilter: Record<string, unknown> = {};
+    if (authUser.role === 'manager' || authUser.role === 'employee') {
+      const scopedEmployees = await prisma.employee.findMany({
+        where: employeeWhere,
+        select: { email: true },
+      });
+      const emails = scopedEmployees.map((e) => e.email);
+      emailFilter = emails.length > 0 ? { employeeEmail: { in: emails } } : { employeeEmail: '__none__' };
+    }
+
     const [totalEmployees, activeClockIns, todayShifts, todayEntries, presentToday] = await Promise.all([
       prisma.employee.count({ where: employeeWhere }),
       prisma.timeEntry.count({
-        where: { ...tenantWhere, status: 'active' },
+        where: { ...tenantWhere, ...emailFilter, status: 'active' },
       }),
       prisma.shift.findMany({
-        where: { ...tenantWhere, date: { in: dateValues } },
+        where: { ...tenantWhere, ...emailFilter, date: { in: dateValues } },
         select: { status: true },
       }),
       prisma.timeEntry.findMany({
-        where: { ...tenantWhere, status: 'completed', date: { in: dateValues } },
+        where: { ...tenantWhere, ...emailFilter, status: 'completed', date: { in: dateValues } },
         select: { totalHours: true },
       }),
       // Unique employees with any time entry today (active or completed)
       prisma.timeEntry.findMany({
-        where: { ...tenantWhere, date: { in: dateValues } },
+        where: { ...tenantWhere, ...emailFilter, date: { in: dateValues } },
         select: { employeeEmail: true },
         distinct: ['employeeEmail'],
       }),
@@ -101,6 +118,151 @@ router.get('/summary', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('[dashboard] Summary error:', err);
     internalError(res, 'loading dashboard summary');
+  }
+});
+
+// ── GET /attendance-detail (per-employee clock-in drill-down) ──
+// Backs the dashboard KPI drill-down: one request returns every active
+// employee in scope together with their clock status — who is clocked in
+// right now, who hasn't, and per-employee hours today — so the dashboard
+// stat cards can expand into a detailed view. Same tenant + manager-scope
+// + business-timezone conventions as /summary so the numbers always match.
+router.get('/attendance-detail', requireAuth, async (req, res) => {
+  try {
+    const authUser = req.authUser!;
+    if (authUser.role === 'employee') {
+      return res.json({
+        summary: {
+          totalEmployees: 0,
+          clockedInNow: 0,
+          presentTodayCount: 0,
+          notClockedInCount: 0,
+          attendanceRate: 0,
+          totalHoursToday: 0,
+          date: businessNow(getBusinessTimezone()).dateStr,
+        },
+        employees: [],
+      });
+    }
+
+    const { todayStr, dateValues } = todayDateValues();
+
+    const tenantWhere =
+      authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+
+    // Scoped active employee roster (same convention as /summary)
+    let employeeWhere: Record<string, unknown> = { ...tenantWhere, status: 'active' };
+    if (authUser.role === 'manager') {
+      const scopeFilter = await getManagerScopeFilter(authUser);
+      employeeWhere = { ...employeeWhere, ...scopeFilter };
+    }
+
+    const employees = await prisma.employee.findMany({
+      where: employeeWhere,
+      orderBy: [{ firstName: 'asc' }, { surname: 'asc' }],
+      select: {
+        id: true,
+        firstName: true,
+        surname: true,
+        email: true,
+        position: true,
+        branch: true,
+        department: true,
+      },
+    });
+
+    const emails = employees.map((e) => e.email);
+    const entryEmailFilter =
+      emails.length > 0 ? { employeeEmail: { in: emails } } : { employeeEmail: '__none__' };
+
+    // Today's entries (active + completed) for the scoped roster
+    const entries = await prisma.timeEntry.findMany({
+      where: { ...tenantWhere, ...entryEmailFilter, date: { in: dateValues } },
+      select: { employeeEmail: true, clockIn: true, clockOut: true, status: true, totalHours: true },
+      orderBy: { clockIn: 'asc' },
+    });
+
+    // Aggregate per employee: current active session, first clock-in today,
+    // latest clock-out today, completed hours and presence flag.
+    interface Agg {
+      currentClockIn: Date | null;
+      firstClockIn: Date | null;
+      lastClockOut: Date | null;
+      hoursToday: number;
+      presentToday: boolean;
+    }
+    const aggMap: Record<string, Agg> = {};
+    for (const e of entries) {
+      if (!aggMap[e.employeeEmail]) {
+        aggMap[e.employeeEmail] = {
+          currentClockIn: null,
+          firstClockIn: e.clockIn,
+          lastClockOut: null,
+          hoursToday: 0,
+          presentToday: true,
+        };
+      }
+      const agg = aggMap[e.employeeEmail];
+      if (e.status === 'active') {
+        agg.currentClockIn = e.clockIn;
+      } else {
+        agg.hoursToday += e.totalHours ?? 0;
+        // Entries are ordered by clockIn ascending, so the last clockOut seen
+        // is the most recent one of the day.
+        if (e.clockOut) agg.lastClockOut = e.clockOut;
+      }
+    }
+
+    let clockedInNow = 0;
+    let presentTodayCount = 0;
+    let totalHoursToday = 0;
+
+    const employeeRows = employees.map((emp) => {
+      const agg = aggMap[emp.email];
+      const clockedIn = agg?.currentClockIn != null;
+      const presentToday = agg?.presentToday ?? false;
+      const hoursToday = agg?.hoursToday ?? 0;
+
+      if (clockedIn) clockedInNow++;
+      if (presentToday) presentTodayCount++;
+      totalHoursToday += hoursToday;
+
+      return {
+        employeeId: emp.id,
+        name: `${emp.firstName} ${emp.surname}`,
+        email: emp.email,
+        position: emp.position,
+        branch: emp.branch,
+        department: emp.department,
+        status: clockedIn ? 'clocked_in' : 'not_clocked_in',
+        presentToday,
+        clockIn: agg?.currentClockIn ?? null,
+        firstClockIn: agg?.firstClockIn ?? null,
+        clockOut: agg?.lastClockOut ?? null,
+        hoursToday: Math.round(hoursToday * 100) / 100,
+      };
+    });
+
+    const totalEmployees = employees.length;
+
+    res.json({
+      summary: {
+        totalEmployees,
+        clockedInNow,
+        presentTodayCount,
+        notClockedInCount: totalEmployees - presentTodayCount,
+        attendanceRate:
+          totalEmployees > 0
+            ? Math.min(100, Math.round((presentTodayCount / totalEmployees) * 100))
+            : 0,
+        totalHoursToday: Math.round(totalHoursToday * 100) / 100,
+        date: todayStr,
+      },
+      employees: employeeRows,
+    });
+  } catch (err) {
+    console.error('[dashboard] Attendance detail error:', err);
+    internalError(res, 'loading attendance detail');
   }
 });
 

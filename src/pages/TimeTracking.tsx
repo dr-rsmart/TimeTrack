@@ -22,6 +22,7 @@ import {
   Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '../components/ui';
 import { formatDate, formatTime, formatHours } from '../lib/utils';
+import { getCurrentPosition } from '../utils/clockInHelper';
 
 export default function TimeTracking() {
   const { user } = useAuth();
@@ -80,19 +81,11 @@ export default function TimeTracking() {
   const handleClockIn = async () => {
     setBusy(true);
     try {
-      // Try to get browser geolocation (optional — falls back to no coords)
-      let latitude: number | undefined;
-      let longitude: number | undefined;
-      try {
-        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
-        });
-        latitude = pos.coords.latitude;
-        longitude = pos.coords.longitude;
-      } catch {
-        // geolocation unavailable — clock in without coords
-      }
-      await timeEntryApi.clockIn(latitude, longitude);
+      // GPS-stabilized geolocation: unstable readings are ignored and, on
+      // poor signal, the last reliable position is used (optional — falls
+      // back to clocking in without coordinates when nothing is available).
+      const pos = await getCurrentPosition({ timeoutMs: 5000 });
+      await timeEntryApi.clockIn(pos?.latitude, pos?.longitude);
       toast.success('Clocked in successfully');
       load();
     } catch (err) {

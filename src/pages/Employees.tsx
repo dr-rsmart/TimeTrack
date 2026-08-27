@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Search, Pencil, Trash2, Users, ShieldCheck, MapPin, UserCog, KeyRound, RotateCcw } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Users, ShieldCheck, MapPin, UserCog, KeyRound, RotateCcw, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { employeeApi, type Employee, type ManagerOption } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -19,6 +19,7 @@ import {
   Badge, Button, Card, CardContent, EmptyState, Input, Label, Modal, Select,
   Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Avatar,
 } from '../components/ui';
+import ImportEmployeesModal from '../components/employees/ImportEmployeesModal';
 import { formatDate } from '../lib/utils';
 import { ApiError } from '../services/api';
 
@@ -72,6 +73,9 @@ export default function Employees() {
   const [assignManagerTarget, setAssignManagerTarget] = useState<Employee | null>(null);
   const [assignManagerValue, setAssignManagerValue] = useState('');
   const [assigningManager, setAssigningManager] = useState(false);
+
+  // Bulk import (CSV onboarding) modal — admin only, like Add Employee
+  const [importModalOpen, setImportModalOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -313,12 +317,22 @@ export default function Employees() {
           </p>
         </div>
         {canAddEmployee && (
-          <Button
-            onClick={openCreate}
-            className="bg-brand hover:bg-brand-dark text-white shadow-lg shadow-brand/20 rounded-xl"
-          >
-            <Plus className="h-4 w-4" /> Add Employee
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setImportModalOpen(true)}
+              className="rounded-xl"
+              title="Bulk onboard employees from a CSV file"
+            >
+              <Upload className="h-4 w-4" /> Import Employees
+            </Button>
+            <Button
+              onClick={openCreate}
+              className="bg-brand hover:bg-brand-dark text-white shadow-lg shadow-brand/20 rounded-xl"
+            >
+              <Plus className="h-4 w-4" /> Add Employee
+            </Button>
+          </div>
         )}
       </div>
 
@@ -662,6 +676,12 @@ export default function Employees() {
           </div>
         )}
       </Modal>
+      {/* Bulk Import (CSV onboarding) modal — Admin only */}
+      <ImportEmployeesModal
+        open={importModalOpen}
+        onClose={() => setImportModalOpen(false)}
+        onDone={load}
+      />
     </div>
   );
 }

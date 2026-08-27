@@ -139,4 +139,30 @@ test.describe.serial('Session revocation on password rotation (pwdEpoch)', () =>
     });
     expect(meAgain.status()).toBe(200);
   });
+
+  test('step 4: wrong current password is a 400 payload error and does NOT end the session', async ({ request }) => {
+    // Regression: /change-password used to answer a wrong "current password"
+    // with 401, which the SPA's global session handler misread as session
+    // death — logging the user out with a scary "Session ended" banner
+    // instead of showing the error inside the modal.
+    const loginRes = await request.post(`${API_BASE}/api/auth/login`, {
+      headers: PERF_BYPASS,
+      data: { email: ADMIN_EMAIL, password: NEW_PASSWORD },
+    });
+    expect(loginRes.status()).toBe(200);
+    const token = (await loginRes.json()).token;
+
+    const badRes = await request.post(`${API_BASE}/api/auth/change-password`, {
+      headers: { ...PERF_BYPASS, Authorization: `Bearer ${token}` },
+      data: { currentPassword: 'Wrong-Current1', newPassword: 'Rotated-Pass10!' },
+    });
+    expect(badRes.status()).toBe(400);
+    expect((await badRes.json()).code).toBe('CURRENT_PASSWORD_INCORRECT');
+
+    // The pre-existing session must survive the failed attempt.
+    const meRes = await request.get(`${API_BASE}/api/auth/me`, {
+      headers: { ...PERF_BYPASS, Authorization: `Bearer ${token}` },
+    });
+    expect(meRes.status()).toBe(200);
+  });
 });

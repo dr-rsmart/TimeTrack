@@ -25,7 +25,13 @@ export class ApiError extends Error {
 // longer viable. We notify a registered handler (AuthContext) so the UI can
 // force logout and show the appropriate screen instead of leaving the user
 // stranded with failing widgets.
-export type SessionErrorCode = 'COMPANY_SUSPENDED' | 'EMPLOYEE_TERMINATED' | 'ROLE_REVOKED' | 'UNAUTHENTICATED';
+export type SessionErrorCode =
+  | 'COMPANY_SUSPENDED'
+  | 'EMPLOYEE_TERMINATED'
+  | 'ROLE_REVOKED'
+  | 'UNAUTHENTICATED'
+  /** Voluntary session end after a successful password rotation (friendly re-login notice). */
+  | 'PASSWORD_CHANGED';
 type SessionHandler = (code: SessionErrorCode, message: string) => void;
 let sessionHandler: SessionHandler | null = null;
 
@@ -79,7 +85,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const code = body.code as string | undefined;
     const errorMsg = (body.error as string) || `Request failed (${res.status})`;
     if (res.status === 401) {
-      notifySessionError('UNAUTHENTICATED', errorMsg);
+      // Credential-verification endpoints reject bad input with 401-style
+      // payloads (login: wrong email/password; change-password: wrong current
+      // password). Those are form errors rendered inline by their screens —
+      // NOT session events. Surfacing them as "Session ended" would kill a
+      // perfectly valid session on a simple typo.
+      const isCredentialCheck = path.startsWith('/auth/login') || path.startsWith('/auth/change-password');
+      if (!isCredentialCheck) {
+        notifySessionError('UNAUTHENTICATED', errorMsg);
+      }
     } else if (res.status === 403 && code === 'COMPANY_SUSPENDED') {
       notifySessionError('COMPANY_SUSPENDED', errorMsg);
     } else if (res.status === 403 && code === 'EMPLOYEE_TERMINATED') {
@@ -203,8 +217,47 @@ export interface OvertimeForecastSummary {
   dailyThreshold: number;
 }
 
+/** Per-employee row returned by GET /dashboard/attendance-detail (KPI drill-down). */
+export interface AttendanceDetailEmployee {
+  employeeId: string;
+  name: string;
+  email: string;
+  position: string | null;
+  branch: string;
+  department: string;
+  /** Right now: active session vs none. */
+  status: 'clocked_in' | 'not_clocked_in';
+  /** Has any time entry today (active or completed). */
+  presentToday: boolean;
+  /** Start of the current active session (ISO), null when not clocked in now. */
+  clockIn: string | null;
+  /** Earliest clock-in today regardless of status (ISO), null when absent. */
+  firstClockIn: string | null;
+  /** Latest clock-out today (ISO), null when still clocked in or absent. */
+  clockOut: string | null;
+  /** Sum of completed hours today. */
+  hoursToday: number;
+}
+
+export interface AttendanceDetailSummary {
+  totalEmployees: number;
+  clockedInNow: number;
+  presentTodayCount: number;
+  notClockedInCount: number;
+  attendanceRate: number;
+  totalHoursToday: number;
+  date: string;
+}
+
+export interface AttendanceDetailResponse {
+  summary: AttendanceDetailSummary;
+  employees: AttendanceDetailEmployee[];
+}
+
 export const dashboardApi = {
   summary: () => api.get<DashboardSummary>('/dashboard/summary'),
+  /** Per-employee clock-in drill-down backing the dashboard KPI detail modal. */
+  attendanceDetail: () => api.get<AttendanceDetailResponse>('/dashboard/attendance-detail'),
   hoursTrend: (days = 14) => api.get<{ trend: { date: string; hours: number }[] }>(`/dashboard/hours-trend?days=${days}`),
   branchDistribution: () => api.get<{ distribution: { branch: string; count: number }[] }>('/dashboard/branch-distribution'),
   departmentDistribution: () => api.get<{ distribution: { department: string; count: number }[] }>('/dashboard/department-distribution'),
@@ -259,6 +312,20 @@ export interface ManagerOption {
   position: string | null;
 }
 
+/** Per-row error returned by the bulk import endpoint. `row` is the 1-based position in the submitted rows array. */
+export interface BulkImportError {
+  row: number;
+  message: string;
+}
+
+/** Response payload for POST /employees/bulk. */
+export interface BulkImportResult {
+  success: boolean;
+  imported: number;
+  skipped: number;
+  errors: BulkImportError[];
+}
+
 export const employeeApi = {
   list: (params: { search?: string; branch?: string; department?: string; limit?: number; offset?: number } = {}) => {
     const qs = new URLSearchParams();
@@ -280,6 +347,9 @@ export const employeeApi = {
     api.post<{ success: boolean; message: string; employee: Employee }>(`/employees/${id}/reactivate`),
   /** Admin only: list all active manager/admin employees available for assignment. */
   listManagers: () => api.get<{ managers: ManagerOption[] }>('/employees/managers'),
+  /** Bulk onboarding: import many employees at once (CSV-parsed on the client). */
+  bulkCreate: (rows: Record<string, unknown>[], companyProfileId?: string) =>
+    api.post<BulkImportResult>('/employees/bulk', { rows, ...(companyProfileId ? { companyProfileId } : {}) }),
 };
 
 // ── Shifts ──
@@ -304,18 +374,19 @@ export interface BulkShiftResult {
   success: boolean;
   created: number;
   skipped: number;
-  skippedDetails: Array<{ employeeId: string; employeeName: string; reason: string }>;
+  skippedDetails: Array<{ employeeId: string; employeeName: string; date?: string; reason: string }>;
   shiftIds: string[];
 }
 
 export const shiftApi = {
-  list: (params: { date?: string; from?: string; to?: string; employeeId?: string; status?: string; limit?: number } = {}) => {
+  list: (params: { date?: string; from?: string; to?: string; employeeId?: string; status?: string; branch?: string; limit?: number } = {}) => {
     const qs = new URLSearchParams();
     if (params.date) qs.set('date', params.date);
     if (params.from) qs.set('from', params.from);
     if (params.to) qs.set('to', params.to);
     if (params.employeeId) qs.set('employeeId', params.employeeId);
     if (params.status) qs.set('status', params.status);
+    if (params.branch) qs.set('branch', params.branch);
     if (params.limit) qs.set('limit', String(params.limit));
     return api.get<{ items: Shift[]; total: number }>(`/shifts?${qs.toString()}`);
   },
@@ -325,6 +396,8 @@ export const shiftApi = {
   bulkCreate: (data: {
     employeeIds: string[];
     date: string;
+    /** Optional end date (YYYY-MM-DD): creates one shift per employee for every day in [date, endDate]. */
+    endDate?: string;
     startTime?: string;
     endTime?: string;
     shiftType?: string;

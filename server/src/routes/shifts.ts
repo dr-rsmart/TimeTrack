@@ -9,7 +9,7 @@ import { Router } from 'express';
 import prisma from '../prisma.js';
 import { requireAuth, requireAdminOrManager } from '../middleware/auth.js';
 import { getManagerScopeFilter, isEmployeeInManagerScope } from '../middleware/scope.js';
-import { validate, createShiftSchema, updateShiftSchema } from '../validation.js';
+import { validate, createShiftSchema, updateShiftSchema, expandShiftDateRange } from '../validation.js';
 import { logAudit, getClientIp, computeChanges } from '../audit.js';
 import { broadcastScoped } from '../sse.js';
 import {
@@ -21,7 +21,7 @@ import {
   shiftOverlap,
   sendError,
 } from '../errorResponse.js';
-import { countOverlaps, parseDate } from '../overlap.js';
+import { countOverlaps, parseDate, type ShiftTimeWindow } from '../overlap.js';
 
 const router = Router();
 
@@ -65,6 +65,7 @@ router.get('/', requireAuth, async (req, res) => {
     const toDate = req.query.to as string;
     const employeeId = req.query.employeeId as string;
     const status = req.query.status as string;
+    const branch = req.query.branch as string;
     const limit = Math.min(parseInt(req.query.limit as string, 10) || 500, 500);
     const offset = parseInt(req.query.offset as string, 10) || 0;
 
@@ -85,6 +86,7 @@ router.get('/', requireAuth, async (req, res) => {
     }
     if (employeeId) where.employeeId = employeeId;
     if (status) where.status = status;
+    if (branch) where.branch = branch;
 
     const [items, total] = await Promise.all([
       prisma.shift.findMany({
@@ -144,7 +146,7 @@ router.post('/', requireAdminOrManager, validate(createShiftSchema), async (req,
         employeeId: data.employeeId ?? null,
         location: data.location ?? null,
         notes: data.notes ?? null,
-        branch: employee?.branch ?? null,
+        branch: employee?.branch ?? data.branch ?? null,
         department: employee?.department ?? null,
         employeeEmail: employee?.email ?? null,
         employeeName: employee ? `${employee.firstName} ${employee.surname}` : null,
@@ -298,15 +300,18 @@ router.delete('/:id', requireAdminOrManager, async (req, res) => {
 });
 
 // ── POST /bulk (Bulk shift assignment) ──
-// Assign the same shift template to multiple employees at once.
-// Body: { employeeIds: string[], date: string, startTime?: string, endTime?: string,
-//         shiftType?: string, location?: string, notes?: string, skipOverlaps?: boolean }
+// Assign the same shift template to multiple employees at once. When `endDate`
+// is provided, the template is applied to EVERY day in [date, endDate] —
+// one shift per employee per day (bulk schedule generation).
+// Body: { employeeIds: string[], date: string, endDate?: string, startTime?: string,
+//         endTime?: string, shiftType?: string, location?: string, notes?: string, skipOverlaps?: boolean }
 router.post('/bulk', requireAdminOrManager, async (req, res) => {
   try {
     const authUser = req.authUser!;
     const {
       employeeIds,
       date,
+      endDate,
       startTime,
       endTime,
       shiftType,
@@ -316,6 +321,7 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
     } = req.body as {
       employeeIds?: string[];
       date?: string;
+      endDate?: string;
       startTime?: string;
       endTime?: string;
       shiftType?: string;
@@ -334,6 +340,16 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return badRequest(res, 'A valid date (YYYY-MM-DD) is required.', { field: 'date' });
     }
+    if (endDate != null && !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      return badRequest(res, 'A valid end date (YYYY-MM-DD) is required.', { field: 'endDate' });
+    }
+
+    // Expand the date range (single day when endDate is omitted)
+    const range = expandShiftDateRange(date, endDate ?? undefined);
+    if (!range.ok) {
+      return badRequest(res, range.error, { field: range.field });
+    }
+    const dates = range.days;
 
     // Fetch and validate employees
     const employees = await prisma.employee.findMany({
@@ -357,23 +373,49 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
       }
     }
 
-    // Overlap detection (unless skipOverlaps is true)
-    const skipped: Array<{ employeeId: string; employeeName: string; reason: string }> = [];
-    const toCreate: typeof employees = [];
-
-    for (const employee of employees) {
-      if (!skipOverlaps && startTime && endTime) {
-        const overlaps = await findOverlaps(employee.id, date, startTime, endTime);
-        if (overlaps > 0) {
-          skipped.push({
-            employeeId: employee.id,
-            employeeName: `${employee.firstName} ${employee.surname}`,
-            reason: 'Shift overlaps with an existing shift',
-          });
-          continue;
-        }
+    // Overlap detection per employee × day (unless skipOverlaps is true).
+    // All conflicting shifts across the whole range are fetched in ONE query
+    // and indexed by "employeeId|YYYY-MM-DD" for fast lookups.
+    const skipped: Array<{ employeeId: string; employeeName: string; date?: string; reason: string }> = [];
+    let overlapWindows: Map<string, ShiftTimeWindow[]> | null = null;
+    if (!skipOverlaps && startTime && endTime) {
+      overlapWindows = new Map();
+      const existing = await prisma.shift.findMany({
+        where: {
+          employeeId: { in: employees.map((e) => e.id) },
+          date: { gte: parseDate(dates[0]), lte: parseDate(dates[dates.length - 1]) },
+          status: { in: ['scheduled', 'active'] },
+          startTime: { not: null },
+          endTime: { not: null },
+        },
+        select: { employeeId: true, date: true, startTime: true, endTime: true },
+      });
+      for (const s of existing) {
+        // Dates are stored at UTC noon, so slice(0,10) is timezone-safe.
+        const key = `${s.employeeId}|${s.date.toISOString().slice(0, 10)}`;
+        const list = overlapWindows.get(key) ?? [];
+        list.push({ startTime: s.startTime, endTime: s.endTime });
+        overlapWindows.set(key, list);
       }
-      toCreate.push(employee);
+    }
+
+    const toCreate: Array<{ employee: (typeof employees)[number]; date: string }> = [];
+    for (const day of dates) {
+      for (const employee of employees) {
+        if (overlapWindows && startTime && endTime) {
+          const windows = overlapWindows.get(`${employee.id}|${day}`) ?? [];
+          if (countOverlaps(startTime, endTime, windows) > 0) {
+            skipped.push({
+              employeeId: employee.id,
+              employeeName: `${employee.firstName} ${employee.surname}`,
+              date: day,
+              reason: 'Shift overlaps with an existing shift',
+            });
+            continue;
+          }
+        }
+        toCreate.push({ employee, date: day });
+      }
     }
 
     if (toCreate.length === 0) {
@@ -388,12 +430,12 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
       );
     }
 
-    // Create shifts in a transaction
+    // Create shifts (employees × days) in a transaction
     const created = await prisma.$transaction(
-      toCreate.map((employee) =>
+      toCreate.map(({ employee, date: day }) =>
         prisma.shift.create({
           data: {
-            date: parseDate(date),
+            date: parseDate(day),
             startTime: startTime ?? null,
             endTime: endTime ?? null,
             shiftType: (shiftType as 'full_day' | 'half_day' | 'Holiday' | 'Leave' | 'Sick' | 'PTO' | 'Unpaid') ?? 'full_day',
@@ -413,6 +455,7 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
     );
 
     // Audit log for bulk operation
+    const rangeLabel = dates.length > 1 ? `${dates[0]} to ${dates[dates.length - 1]}` : dates[0];
     logAudit({
       entity: 'Shift',
       entityId: created[0]?.id ?? 'bulk',
@@ -420,10 +463,12 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
       actorId: authUser.id,
       actorEmail: authUser.email,
       actorRole: authUser.role,
-      justification: `Bulk assigned ${created.length} shift(s) for ${date}${skipped.length > 0 ? ` (${skipped.length} skipped due to conflicts)` : ''}`,
+      justification: `Bulk assigned ${created.length} shift(s) for ${rangeLabel}${skipped.length > 0 ? ` (${skipped.length} skipped due to conflicts)` : ''}`,
       ipAddress: getClientIp(req),
       changes: {
-        date: { before: null, after: date },
+        date: { before: null, after: dates[0] },
+        endDate: { before: null, after: dates.length > 1 ? dates[dates.length - 1] : null },
+        days: { before: null, after: dates.length },
         employees_assigned: { before: null, after: created.length },
         employees_skipped: { before: null, after: skipped.length },
         shift_type: { before: null, after: shiftType ?? 'full_day' },
@@ -431,7 +476,7 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
     });
 
     // Broadcast SSE event
-    broadcastScoped('shift', 'bulkCreate', { count: created.length, date }, {
+    broadcastScoped('shift', 'bulkCreate', { count: created.length, date: dates[0], endDate: dates[dates.length - 1] }, {
       companyProfileId: authUser.companyProfileId,
     });
 
@@ -441,6 +486,7 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
       skipped: skipped.length,
       skippedDetails: skipped,
       shiftIds: created.map((s) => s.id),
+      days: dates.length,
     });
   } catch (err) {
     console.error('[shifts] Bulk create error:', err);

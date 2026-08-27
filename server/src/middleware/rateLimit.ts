@@ -148,3 +148,6 @@ export const clockRateLimit = rateLimit(10, 60_000, 'Clock-in/out requests are t
 
 /** Login limiter: 10 attempts per 5 minutes per identity (brute-force protection). */
 export const loginRateLimit = rateLimit(10, 5 * 60_000, 'Too many login attempts');
+
+/** Bulk import limiter: 5 bulk imports per minute per identity. */
+export const bulkImportRateLimit = rateLimit(5, 60_000, 'Bulk imports are too frequent');

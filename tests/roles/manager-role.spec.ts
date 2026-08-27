@@ -164,4 +164,48 @@ test.describe.serial('Manager Role (Department / Branch Supervisor) — Process 
       }
     }
   });
+
+  test('Process 8: Dashboard KPI Drill-Down with RBAC Scope (GET /api/dashboard/attendance-detail)', async ({ request }) => {
+    const res = await request.get(`${API_BASE}/api/dashboard/attendance-detail`, {
+      headers: authHeader(),
+    });
+    expect(res.status()).toBe(200);
+    const data = await res.json();
+
+    // Response shape
+    expect(data.summary).toBeDefined();
+    expect(typeof data.summary.totalEmployees).toBe('number');
+    expect(typeof data.summary.clockedInNow).toBe('number');
+    expect(typeof data.summary.presentTodayCount).toBe('number');
+    expect(typeof data.summary.attendanceRate).toBe('number');
+    expect(Array.isArray(data.employees)).toBe(true);
+
+    // Row count must match the summary aggregate
+    expect(data.employees.length).toBe(data.summary.totalEmployees);
+
+    // Per-row contract
+    for (const row of data.employees) {
+      expect(['clocked_in', 'not_clocked_in']).toContain(row.status);
+      expect(typeof row.presentToday).toBe('boolean');
+      expect(typeof row.hoursToday).toBe('number');
+      expect(row).toHaveProperty('clockIn');
+      expect(row).toHaveProperty('clockOut');
+    }
+
+    // Scope enforcement: in-scope employee visible, out-of-scope employee hidden
+    const emails = data.employees.map((e: any) => e.email);
+    if (inScopeEmployeeEmail) {
+      expect(emails).toContain(inScopeEmployeeEmail);
+    }
+    if (outOfScopeEmployeeId) {
+      const adminLookup = await request.get(`${API_BASE}/api/employees`, {
+        headers: { Authorization: `Bearer ${adminToken}`, ...PERF_BYPASS },
+      });
+      const allEmps = (await adminLookup.json()).items;
+      const outScopeEmp = allEmps.find((e: any) => e.id === outOfScopeEmployeeId);
+      if (outScopeEmp) {
+        expect(emails).not.toContain(outScopeEmp.email);
+      }
+    }
+  });
 });

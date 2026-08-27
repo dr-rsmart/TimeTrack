@@ -9,7 +9,14 @@ import bcrypt from 'bcryptjs';
 import prisma from '../prisma.js';
 import { requireAuth, requireAdminOrManager, invalidateLiveRoleCache } from '../middleware/auth.js';
 import { getManagerScopeFilter, isEmployeeInManagerScope } from '../middleware/scope.js';
-import { validate, createEmployeeSchema, updateEmployeeSchema } from '../validation.js';
+import { bulkImportRateLimit } from '../middleware/rateLimit.js';
+import {
+  validate,
+  createEmployeeSchema,
+  updateEmployeeSchema,
+  bulkCreateEmployeesSchema,
+  bulkEmployeeRowSchema,
+} from '../validation.js';
 import { logAudit, getClientIp, computeChanges } from '../audit.js';
 import { invalidateEmployeeStatusCache } from '../middleware/auth.js';
 import { broadcastScoped, disconnectUserClients } from '../sse.js';
@@ -33,6 +40,17 @@ router.use(requireAuth);
 // Helper: tenant where clause
 function tenantWhere(authUser: { role: string; companyProfileId: string | null }) {
   return authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+}
+
+/**
+ * Helper: Prisma DateTime fields require a full ISO-8601 timestamp, but the
+ * API/CSV contract uses date-only `YYYY-MM-DD` strings. Converts such values
+ * to a UTC-midnight Date; anything else passes through as undefined (untouched).
+ */
+function toDateField(v: unknown): Date | undefined {
+  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
+    ? new Date(`${v}T00:00:00.000Z`)
+    : undefined;
 }
 
 // ── GET / (List employees) ──
@@ -186,6 +204,215 @@ router.get('/:id', requireAuth, async (req, res) => {
   }
 });
 
+// ── POST /bulk (Bulk Onboard via CSV Import) ──
+// Onboard many employees at once from a CSV file (parsed by the web client,
+// transported as JSON rows). Row-level validation with PARTIAL SUCCESS:
+// valid rows are imported, invalid rows are skipped and reported individually
+// with their position (1-based) in the submitted rows array. Each imported
+// row creates the Employee + login User atomically — identical guarantees to
+// the single-create path (all-or-nothing per employee, temp default password
+// with forced rotation on first login).
+// NOTE: registered before POST / and before any /:id routes so the literal
+// "bulk" path always wins over parameterized matches.
+router.post(
+  '/bulk',
+  requireAdminOrManager,
+  bulkImportRateLimit,
+  validate(bulkCreateEmployeesSchema),
+  async (req, res) => {
+    try {
+      const authUser = req.authUser!;
+      const body = req.body as { rows: Record<string, unknown>[]; companyProfileId?: string };
+      const rawRows = body.rows;
+
+      // Manager restrictions mirror the single-create handler: managers can
+      // only import plain employees into their own branch/department.
+      let managerDefaults: { branch: string; department: string; managerId: string | null } | null = null;
+      if (authUser.role === 'manager') {
+        const managerEmp = await prisma.employee.findFirst({
+          where: { email: authUser.email, companyProfileId: authUser.companyProfileId ?? undefined },
+          select: { branch: true, department: true, id: true },
+        });
+        managerDefaults = {
+          branch: managerEmp?.branch ?? 'Unassigned',
+          department: managerEmp?.department ?? 'General',
+          managerId: managerEmp?.id ?? null,
+        };
+      }
+
+      const companyProfileId =
+        authUser.role === 'master' ? (body.companyProfileId ?? null) : authUser.companyProfileId;
+
+      // ── Row-level validation (per-row errors, partial success) ──
+      const errors: Array<{ row: number; message: string }> = [];
+      const validRows: Array<{ data: Record<string, unknown>; email: string; idx: number }> = [];
+      const seenEmails = new Map<string, number>(); // normalized email → first submitted row
+
+      rawRows.forEach((raw, i) => {
+        const idx = i + 1; // 1-based position in the submitted rows array
+        const parsed = bulkEmployeeRowSchema.safeParse(raw);
+        if (!parsed.success) {
+          const first = parsed.error.issues[0];
+          errors.push({
+            row: idx,
+            message: first ? `${first.path.join('.') || 'row'}: ${first.message}` : 'Invalid row.',
+          });
+          return;
+        }
+        const data = parsed.data as Record<string, unknown>;
+        const email = String(data.email).toLowerCase().trim();
+        data.email = email;
+
+        const firstSeen = seenEmails.get(email);
+        if (firstSeen) {
+          errors.push({
+            row: idx,
+            message: `Duplicate email in import file: ${email} already appears in row ${firstSeen}.`,
+          });
+          return;
+        }
+        seenEmails.set(email, idx);
+        validRows.push({ data, email, idx });
+      });
+
+      // ── Batched duplicate check against existing employees in this tenant ──
+      // One query for the whole batch, same pattern as the hasLoginAccount
+      // health flag. Falls back to the unique constraint if the pre-check
+      // fails (per-row P2002 handling below) — never blocks the import.
+      const existing = new Set<string>();
+      if (validRows.length > 0 && companyProfileId) {
+        try {
+          const found = await prisma.$queryRawUnsafe<Array<{ email: string }>>(
+            `SELECT lower(trim(email)) AS email FROM "Employee"
+             WHERE "companyProfileId" = $1 AND lower(trim(email)) = ANY($2::text[])`,
+            companyProfileId,
+            validRows.map((v) => v.email),
+          );
+          for (const r of found) existing.add(r.email);
+        } catch (dupErr) {
+          console.warn('[employees] Bulk import duplicate pre-check failed; relying on unique constraint:', dupErr);
+        }
+      }
+
+      const importable: typeof validRows = [];
+      for (const v of validRows) {
+        if (existing.has(v.email)) {
+          errors.push({ row: v.idx, message: `An employee with email ${v.email} already exists in this company.` });
+        } else {
+          importable.push(v);
+        }
+      }
+
+      // ── Provisioning ──
+      // One bcrypt hash shared by the whole batch (bcrypt is deliberately
+      // slow; hashing per row would serialize the import).
+      const defaultPasswordHash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
+      let imported = 0;
+
+      for (const { data, email, idx } of importable) {
+        if (managerDefaults) {
+          data.role = 'employee';
+          data.branch = managerDefaults.branch;
+          data.department = managerDefaults.department;
+          data.managerId = managerDefaults.managerId;
+        }
+        let userRole = (['master', 'admin', 'manager', 'employee'].includes(String(data.role))
+          ? String(data.role)
+          : 'employee') as 'master' | 'admin' | 'manager' | 'employee';
+        // Bulk import can never mint master accounts.
+        if (userRole === 'master') userRole = 'admin';
+
+        // Prisma DateTime needs a full ISO-8601 timestamp; CSV uses YYYY-MM-DD.
+        const hd = toDateField(data.hireDate);
+        if (hd) data.hireDate = hd;
+
+        try {
+          // ATOMIC per-row creation: Employee + login User in ONE transaction
+          // (identical all-or-nothing guarantee to the single-create path).
+          await prisma.$transaction(async (tx) => {
+            const emp = await tx.employee.create({
+              data: {
+                ...data,
+                companyProfileId,
+                createdBy: authUser.id,
+                updatedBy: authUser.id,
+              } as unknown as Parameters<typeof prisma.employee.create>[0]['data'],
+            });
+
+            const emailKey = emp.email.toLowerCase().trim();
+            const existingUser = await tx.user.findUnique({ where: { email: emailKey } });
+            if (!existingUser) {
+              await tx.user.create({
+                data: {
+                  email: emailKey,
+                  fullName: `${emp.firstName} ${emp.surname}`,
+                  role: userRole,
+                  passwordHash: defaultPasswordHash,
+                  mustChangePassword: true,
+                  companyProfileId,
+                },
+              });
+            } else {
+              await tx.user.update({
+                where: { email: emailKey },
+                data: {
+                  fullName: `${emp.firstName} ${emp.surname}`,
+                  role: userRole,
+                  companyProfileId,
+                  passwordHash: existingUser.passwordHash || defaultPasswordHash,
+                },
+              });
+            }
+          });
+          imported++;
+        } catch (rowErr) {
+          const code = (rowErr as { code?: string } | null)?.code;
+          if (code === 'P2002') {
+            errors.push({ row: idx, message: `An employee with email ${email} already exists.` });
+          } else {
+            console.error(`[employees] Bulk import failed for submitted row ${idx} (${email}):`, rowErr);
+            errors.push({ row: idx, message: `Unexpected error creating ${email}.` });
+          }
+        }
+      }
+
+      // ── Audit + realtime (single entry/event — no audit/SSE flood) ──
+      if (imported > 0) {
+        logAudit({
+          entity: 'Employee',
+          entityId: 'bulk-import',
+          action: 'bulk_import',
+          actorId: authUser.id,
+          actorEmail: authUser.email,
+          actorRole: authUser.role,
+          changes: {
+            imported: { before: 0, after: imported },
+            skipped: { before: 0, after: errors.length },
+          },
+          justification: `Bulk onboarded ${imported} employee(s) via CSV import (${errors.length} row(s) skipped).`,
+          ipAddress: getClientIp(req),
+          companyProfileId,
+        });
+
+        // One scoped broadcast refreshes every open Workforce screen.
+        if (companyProfileId) {
+          broadcastScoped('employee', 'create', { bulk: true, imported }, { companyProfileId });
+        }
+      }
+
+      res.json({
+        success: imported > 0,
+        imported,
+        skipped: errors.length,
+        errors,
+      });
+    } catch (err) {
+      console.error('[employees] Bulk import error:', err);
+      internalError(res, 'processing the bulk import');
+    }
+  },
+);
+
 // ── POST / (Create employee) ──
 router.post('/', requireAdminOrManager, validate(createEmployeeSchema), async (req, res) => {
   try {
@@ -209,6 +436,8 @@ router.post('/', requireAdminOrManager, validate(createEmployeeSchema), async (r
     if (typeof data.email === 'string') {
       data.email = data.email.toLowerCase().trim();
     }
+    const hd = toDateField(data.hireDate);
+    if (hd) data.hireDate = hd;
     const normalizedEmail = data.email as string;
 
     // Check duplicate email within tenant case-insensitively
@@ -346,6 +575,8 @@ router.put('/:id', requireAuth, validate(updateEmployeeSchema), async (req, res)
     if (typeof data.email === 'string') {
       data.email = data.email.toLowerCase().trim();
     }
+    const hd = toDateField(data.hireDate);
+    if (hd) data.hireDate = hd;
 
     const item = await prisma.employee.update({
       where: { id },
