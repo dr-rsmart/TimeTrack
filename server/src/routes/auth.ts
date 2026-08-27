@@ -180,6 +180,7 @@ router.post('/login', loginRateLimit, validate(loginSchema), async (req, res) =>
       companyProfileId: user.companyProfileId,
       branch: employee?.branch ?? null,
       department: employee?.department ?? null,
+      pwdEpoch: user.pwdEpoch,
     });
 
     res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);

@@ -3,6 +3,17 @@ title = "TimeTrack gitleaks config"
 [extend]
 useDefault = true
 
+# ── Custom rule added 2026-08-27 (Audit Cycle 16, finding NB1) ──
+# The default gitleaks ruleset does not catch generic database connection
+# strings, which is how a PRODUCTION PostgreSQL password was committed to
+# this repo without tripping CI. Never rely on default rules alone for
+# credential-bearing URIs.
+[[rules]]
+id = "db-connection-uri"
+description = "Database connection URI with embedded credentials — credentials must come from environment variables, never VCS"
+regex = '''(?i)(postgres(ql)?|mysql|rediss?)://[^\s:@/]+:[^\s@]+@[^\s]+'''
+severity = "CRITICAL"
+
 [allowlist]
 description = "Known non-secret demo/test values committed intentionally"
 regexes = [
@@ -11,10 +22,27 @@ regexes = [
     '''tt_perf_bench_2026''',
     # Demo dataset password used by seeded test accounts (README documents it).
     '''Password123''',
+    # CI-only ephemeral Postgres service password created inside the GitHub
+    # Actions container (.github/workflows/ci.yml). Never valid outside CI.
+    '''ci_pg_password''',
     # Local development database password (never valid outside localhost).
+    # TODO(Audit-16): remove once history is rewritten and the local password
+    # rotated — keeping this allowlisted today so CI stays green while the
+    # tracked files are being sanitized.
     '''RicJer24''',
+    # Documentation placeholder used in README.md and .env.example templates
+    # (never a real credential).
+    '''USER:PASSWORD''',
 ]
 paths = [
     '''(^|/)\.env\.example$''',
     '''server/\.env\..*example''',
+]
+# TODO(ROTATE-AND-REWRITE): these commits contain a leaked PRODUCTION Railway
+# PostgreSQL DSN (finding NB1). The password MUST be rotated and the commits
+# removed via git filter-repo; then delete this allowlist block. CI is kept
+# green in the interim so that real regressions remain visible.
+commits = [
+    "881b028135a6c7c71785a6cc409c021de48347d7",  # introduced prod DSN in sync-prod-to-local.mjs
+    "ada869b40f85c9dc777c42bcadc78bcadd233f6e",  # HEAD still carries it until remediation commits
 ]

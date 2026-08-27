@@ -70,7 +70,7 @@ router.get('/', requireAuth, async (req, res) => {
         where,
         take: limit,
         skip: offset,
-        orderBy: { firstName: 'asc', surname: 'asc' },
+        orderBy: [{ firstName: 'asc' }, { surname: 'asc' }],
         include: {
           geofence: { select: { id: true, name: true } },
           manager: { select: { id: true, firstName: true, surname: true, role: true, branch: true } },

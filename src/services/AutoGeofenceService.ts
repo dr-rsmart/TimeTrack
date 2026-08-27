@@ -272,12 +272,16 @@ class AutoGeofenceService {
     });
 
     // ── 3 & 4. Boundary crossings with confirmation samples + cooldown ──
+    // When initial fix is accepted inside geofence, trigger entered event directly if first reading (previousState === null),
+    // otherwise require confirmation samples for boundary transitions.
+    const isInitialFix = this.previousState === null;
+
     if (isInside && this.previousState !== 'INSIDE') {
       this.pendingExit = 0;
       this.pendingEnter += 1;
-      if (this.pendingEnter >= CONSECUTIVE_CONFIRMATIONS) {
+      if (isInitialFix || this.pendingEnter >= CONSECUTIVE_CONFIRMATIONS) {
         this.pendingEnter = 0;
-        if (now - this.lastEventAt >= EVENT_COOLDOWN_MS) {
+        if (now - this.lastEventAt >= EVENT_COOLDOWN_MS || isInitialFix) {
           this.previousState = 'INSIDE';
           this.lastEventAt = now;
           this.emit({

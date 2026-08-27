@@ -9,6 +9,8 @@ import prisma from '../prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getManagerScopeFilter } from '../middleware/scope.js';
 import { internalError } from '../errorResponse.js';
+import { getBusinessTimezone, businessNow, addBusinessDays } from '../timezone.js';
+import { parseDate } from '../overlap.js';
 
 const router = Router();
 
@@ -16,12 +18,29 @@ function toDateStr(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Business-timezone "today" for DATE-column queries.
+ *
+ * TIMEZONE SAFETY (Audit Cycle 16 / NB5): every date-bucketed dashboard query
+ * must flow through the configured business timezone (CRON_TIMEZONE, default
+ * = process TZ) — same convention as the no-show cron and master stats.
+ * Using UTC/server-local "today" skewed KPIs by one day for SAST tenants in
+ * the early morning hours after the Cycle-15 cron fix landed.
+ *
+ * Returns the business YYYY-MM-DD plus the DATE-column match values: the
+ * UTC-noon convention (`parseDate`) and the legacy midnight convention, so
+ * rows written by either convention resolve to the same business day.
+ */
+function todayDateValues(): { todayStr: string; dateValues: Date[] } {
+  const todayStr = businessNow(getBusinessTimezone()).dateStr;
+  return { todayStr, dateValues: [new Date(todayStr + 'T00:00:00'), parseDate(todayStr)] };
+}
+
 // ── GET /summary ──
 router.get('/summary', requireAuth, async (req, res) => {
   try {
     const authUser = req.authUser!;
-    const todayStr = toDateStr(new Date());
-    const today = new Date(todayStr + 'T00:00:00');
+    const { todayStr, dateValues } = todayDateValues();
 
     const tenantWhere =
       authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
@@ -35,24 +54,22 @@ router.get('/summary', requireAuth, async (req, res) => {
       employeeWhere = { ...employeeWhere, email: authUser.email };
     }
 
-    const utcNoonDate = new Date(todayStr + 'T12:00:00Z');
-
     const [totalEmployees, activeClockIns, todayShifts, todayEntries, presentToday] = await Promise.all([
       prisma.employee.count({ where: employeeWhere }),
       prisma.timeEntry.count({
         where: { ...tenantWhere, status: 'active' },
       }),
       prisma.shift.findMany({
-        where: { ...tenantWhere, date: { in: [today, utcNoonDate] } },
+        where: { ...tenantWhere, date: { in: dateValues } },
         select: { status: true },
       }),
       prisma.timeEntry.findMany({
-        where: { ...tenantWhere, status: 'completed', date: { in: [today, utcNoonDate] } },
+        where: { ...tenantWhere, status: 'completed', date: { in: dateValues } },
         select: { totalHours: true },
       }),
       // Unique employees with any time entry today (active or completed)
       prisma.timeEntry.findMany({
-        where: { ...tenantWhere, date: { in: [today, utcNoonDate] } },
+        where: { ...tenantWhere, date: { in: dateValues } },
         select: { employeeEmail: true },
         distinct: ['employeeEmail'],
       }),
@@ -99,21 +116,20 @@ router.get('/hours-trend', requireAuth, async (req, res) => {
     const emailFilter =
       authUser.role === 'employee' ? { employeeEmail: authUser.email } : {};
 
-    const since = new Date();
-    since.setDate(since.getDate() - days);
-    since.setHours(0, 0, 0, 0);
+    // TIMEZONE SAFETY (NB5): the window and buckets use business dates so the
+    // trend agrees with the payroll report and the no-show cron convention.
+    const todayStr = businessNow(getBusinessTimezone()).dateStr;
+    const since = parseDate(addBusinessDays(todayStr, -(days - 1)));
 
     const entries = await prisma.timeEntry.findMany({
       where: { ...tenantWhere, ...emailFilter, date: { gte: since }, status: 'completed' },
       select: { date: true, totalHours: true },
     });
 
-    // Aggregate by date
+    // Aggregate by date (business days, oldest first)
     const byDate: Record<string, number> = {};
     for (let i = 0; i < days; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - (days - 1 - i));
-      byDate[toDateStr(d)] = 0;
+      byDate[addBusinessDays(todayStr, i - (days - 1))] = 0;
     }
     for (const e of entries) {
       const key = toDateStr(e.date);
@@ -199,8 +215,8 @@ router.get('/department-performance', requireAuth, async (req, res) => {
       return res.json({ departments: [] });
     }
 
-    const todayStr = toDateStr(new Date());
-    const today = new Date(todayStr + 'T00:00:00');
+    // TIMEZONE SAFETY (NB5): business "today" for DATE column queries.
+    const { dateValues } = todayDateValues();
 
     const tenantWhere =
       authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
@@ -221,13 +237,13 @@ router.get('/department-performance', requireAuth, async (req, res) => {
 
     // Get today's time entries with department info
     const todayEntries = await prisma.timeEntry.findMany({
-      where: { ...tenantWhere, date: today },
+      where: { ...tenantWhere, date: { in: dateValues } },
       select: { department: true, status: true, totalHours: true, employeeEmail: true },
     });
 
     // Get today's shifts with department info
     const todayShifts = await prisma.shift.findMany({
-      where: { ...tenantWhere, date: today },
+      where: { ...tenantWhere, date: { in: dateValues } },
       select: { department: true, status: true },
     });
 
@@ -375,21 +391,19 @@ router.get('/attendance-trend', requireAuth, async (req, res) => {
     }
     const totalEmployees = await prisma.employee.count({ where: employeeWhere });
 
-    const since = new Date();
-    since.setDate(since.getDate() - (days - 1));
-    since.setHours(0, 0, 0, 0);
+    // TIMEZONE SAFETY (NB5): window and buckets use business dates.
+    const todayStr = businessNow(getBusinessTimezone()).dateStr;
+    const since = parseDate(addBusinessDays(todayStr, -(days - 1)));
 
     const entries = await prisma.timeEntry.findMany({
       where: { ...tenantWhere, ...emailFilter, date: { gte: since } },
       select: { date: true, employeeEmail: true },
     });
 
-    // Aggregate unique employees per date
+    // Aggregate unique employees per date (business days, oldest first)
     const byDate: Record<string, Set<string>> = {};
     for (let i = 0; i < days; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - (days - 1 - i));
-      byDate[toDateStr(d)] = new Set();
+      byDate[addBusinessDays(todayStr, i - (days - 1))] = new Set();
     }
     for (const e of entries) {
       const key = toDateStr(e.date);
@@ -442,9 +456,9 @@ router.get('/overtime-alerts', requireAuth, async (req, res) => {
       emailFilter = emails.length > 0 ? { employeeEmail: { in: emails } } : { employeeEmail: '__none__' };
     }
 
-    const since = new Date();
-    since.setDate(since.getDate() - (days - 1));
-    since.setHours(0, 0, 0, 0);
+    // TIMEZONE SAFETY (NB5): alert window anchored to the business day.
+    const todayStr = businessNow(getBusinessTimezone()).dateStr;
+    const since = parseDate(addBusinessDays(todayStr, -(days - 1)));
 
     const entries = await prisma.timeEntry.findMany({
       where: { ...tenantWhere, ...emailFilter, date: { gte: since }, status: 'completed' },
@@ -594,22 +608,19 @@ router.get('/overtime-forecast', requireAuth, async (req, res) => {
       emailFilter = emails.length > 0 ? { employeeEmail: { in: emails } } : { employeeEmail: '__none__' };
     }
 
-    // Last 7 days of data for forecasting
-    const since = new Date();
-    since.setDate(since.getDate() - 6);
-    since.setHours(0, 0, 0, 0);
+    // Last 7 days of data for forecasting (business timezone, NB5)
+    const todayStr = businessNow(getBusinessTimezone()).dateStr;
+    const since = parseDate(addBusinessDays(todayStr, -6));
 
     const entries = await prisma.timeEntry.findMany({
       where: { ...tenantWhere, ...emailFilter, date: { gte: since }, status: 'completed' },
       select: { date: true, totalHours: true, employeeEmail: true },
     });
 
-    // Daily totals and overtime
+    // Daily totals and overtime (business days, oldest first)
     const byDate: Record<string, { totalHours: number; overtimeHours: number; employees: Set<string> }> = {};
     for (let i = 0; i < 7; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - (6 - i));
-      byDate[toDateStr(d)] = { totalHours: 0, overtimeHours: 0, employees: new Set() };
+      byDate[addBusinessDays(todayStr, i - 6)] = { totalHours: 0, overtimeHours: 0, employees: new Set() };
     }
 
     // Track per-employee per-day hours for overtime calculation
@@ -650,12 +661,10 @@ router.get('/overtime-forecast', requireAuth, async (req, res) => {
       isProjected: false,
     }));
 
-    // Add 7-day projection
+    // Add 7-day projection (business dates)
     for (let i = 1; i <= 7; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() + i);
       forecast.push({
-        date: toDateStr(d),
+        date: addBusinessDays(todayStr, i),
         totalHours: Math.round(avgTotalHours * 100) / 100,
         overtimeHours: Math.round(avgOvertime * 100) / 100,
         employeeCount: 0,

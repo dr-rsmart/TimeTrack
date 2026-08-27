@@ -20,4 +20,25 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
+  // ── Self-booting E2E servers ──
+  // Restored 2026-08-27 (Audit Cycle 16): the webServer array guarantees a
+  // green Playwright run requires a LIVE API and web server — `npm run
+  // test:e2e` (and the CI step) can no longer silently degrade against a dead
+  // backend. Locally an already-running dev stack is reused (reuseExistingServer);
+  // in CI Playwright boots both services itself.
+  webServer: [
+    {
+      command: 'npm run dev',
+      cwd: 'server',
+      url: 'http://localhost:4000/ping',
+      reuseExistingServer: !process.env.CI,
+      timeout: 180_000,
+    },
+    {
+      command: 'npm run dev:web',
+      url: 'http://localhost:5173',
+      reuseExistingServer: !process.env.CI,
+      timeout: 180_000,
+    },
+  ],
 });

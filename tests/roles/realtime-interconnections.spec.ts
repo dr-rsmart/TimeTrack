@@ -11,6 +11,7 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
   let testCompanyId: string;
   let sharedEmployeeId: string;
   let sharedEmployeeEmail: string = 'pieter@timetrack.com';
+  let sharedGeo: { latitude: number; longitude: number } = { latitude: -26.1076, longitude: 28.0567 };
   let createdShiftId: string | null = null;
   let createdTimeEntryId: string | null = null;
 
@@ -57,6 +58,19 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
     });
     const empList = await empLookup.json();
     sharedEmployeeId = empList.items[0].id;
+
+    // Resolve Pieter's active geofence coordinates
+    const geoLookup = await request.get(`${API_BASE}/api/settings/geofences/my`, {
+      headers: getHeader(employeeToken),
+    });
+    if (geoLookup.status() === 200) {
+      const geoBody = await geoLookup.json();
+      const assignedGfId = geoBody.employee?.geofenceId;
+      const targetGf = (geoBody.geofences || []).find((g: any) => g.id === assignedGfId) || geoBody.geofences?.[0];
+      if (targetGf && targetGf.latitude != null && targetGf.longitude != null) {
+        sharedGeo = { latitude: targetGf.latitude, longitude: targetGf.longitude };
+      }
+    }
   });
 
   const getHeader = (token: string) => ({
@@ -75,16 +89,16 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
     if (activeBody.active) {
       await request.post(`${API_BASE}/api/time-entries/clock-out`, {
         headers: getHeader(employeeToken),
-        data: { latitude: -26.1076, longitude: 28.0567 },
+        data: { latitude: sharedGeo.latitude, longitude: sharedGeo.longitude },
       });
     }
 
-    // 1. Employee clocks in at Sandton HQ
+    // 1. Employee clocks in at assigned geofence
     const clockInRes = await request.post(`${API_BASE}/api/time-entries/clock-in`, {
       headers: getHeader(employeeToken),
       data: {
-        latitude: -26.1076,
-        longitude: 28.0567,
+        latitude: sharedGeo.latitude,
+        longitude: sharedGeo.longitude,
       },
     });
     expect(clockInRes.status()).toBe(201);
@@ -112,8 +126,8 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
     const clockOutRes = await request.post(`${API_BASE}/api/time-entries/clock-out`, {
       headers: getHeader(employeeToken),
       data: {
-        latitude: -26.1076,
-        longitude: 28.0567,
+        latitude: sharedGeo.latitude,
+        longitude: sharedGeo.longitude,
         breakMinutes: 0,
       },
     });
