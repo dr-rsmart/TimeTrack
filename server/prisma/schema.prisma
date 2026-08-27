@@ -28,6 +28,10 @@ model User {
   role               Role            @default(employee)
   passwordHash       String?
   mustChangePassword Boolean         @default(false)
+  // Session revocation epoch: bumped on every password change/reset. JWTs
+  // carry the epoch at sign time; requireAuth rejects tokens with an older
+  // epoch (revocation-on-rotation). Migration: 1_session_revocation_and_unique_index
+  pwdEpoch           Int             @default(0)
   companyProfileId   String?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt

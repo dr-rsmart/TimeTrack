@@ -1,6 +1,6 @@
 import { execSync } from 'child_process';
 
-const LOCAL_PROD_URL = "postgresql://postgres:RicJer24@127.0.0.1:5433/timetrack_prod";
+const LOCAL_PROD_URL = "postgresql://postgres:RicJer24@127.0.0.1:5432/timetrack_prod";
 const PSQL = `"C:\\Program Files\\PostgreSQL\\18\\bin\\psql.exe"`;
 
 const tables = [

@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+// B8 remediation: verify the SHIPPED geofence math, not a local copy.
+import { haversineDistance, checkGeofence } from '../../server/src/geofence';
 
 const API_BASE = process.env.API_URL || 'http://localhost:4000';
 const PERF_BYPASS = { 'x-perf-bypass': 'tt_perf_bench_2026' };
@@ -14,27 +16,29 @@ test.describe('Geofence Validation & Clocking Lifecycle', () => {
     await expect(page.locator('body')).toBeVisible();
   });
 
-  test('should simulate geofence boundary calculation accuracy', async () => {
-    // Haversine unit verification
-    const EARTH_RADIUS_M = 6371000;
-    const toRad = (deg: number) => (deg * Math.PI) / 180;
-    const haversine = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-      const dLat = toRad(lat2 - lat1);
-      const dLon = toRad(lon2 - lon1);
-      const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-      return 2 * EARTH_RADIUS_M * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    };
+  test('should simulate geofence boundary calculation accuracy (real engine)', async () => {
+    // Verify the production Haversine implementation (server/src/geofence.ts).
 
     // Exactly same location = 0 distance
-    const zeroDist = haversine(-33.9249, 18.4241, -33.9249, 18.4241);
+    const zeroDist = haversineDistance(-33.9249, 18.4241, -33.9249, 18.4241);
     expect(zeroDist).toBeCloseTo(0, 1);
 
     // Cape Town to Sitari (~35km)
-    const dist = haversine(-33.9249, 18.4241, -34.0754, 18.7903);
+    const dist = haversineDistance(-33.9249, 18.4241, -34.0754, 18.7903);
     expect(dist).toBeGreaterThan(30000);
     expect(dist).toBeLessThan(50000);
+
+    // checkGeofence boundary semantics: inside / outside / edge.
+    const geofence = {
+      name: 'HQ',
+      address: null,
+      latitude: -33.9249,
+      longitude: 18.4241,
+      radiusMeters: 200,
+    };
+    expect(checkGeofence(-33.9249, 18.4241, geofence).within).toBe(true);
+    expect(checkGeofence(-34.0754, 18.7903, geofence).within).toBe(false);
+    expect(checkGeofence(-33.9249, 18.4241, geofence).distanceMeters).toBe(0);
   });
 
   test('should complete full clock-in/out lifecycle via API', async ({ request }) => {

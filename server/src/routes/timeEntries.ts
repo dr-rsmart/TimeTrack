@@ -65,6 +65,23 @@ function parseDate(dateStr: string): Date {
   return new Date(dateStr + 'T12:00:00Z');
 }
 
+/**
+ * True when an insert/update failed because another active punch already
+ * exists for the employee (duplicate-active race, unique-index backstop,
+ * serializable write conflict or deadlock). All such outcomes map to the
+ * same client-visible result: "already clocked in" — never a 500.
+ */
+function isActiveEntryConflict(err: any): boolean {
+  return (
+    err?.code === 'DUPLICATE_ACTIVE' ||
+    err?.code === 'P2002' ||
+    err?.code === 'P2034' ||
+    err?.message?.includes('uniq_active_time_entry') ||
+    err?.message?.includes('write conflict') ||
+    err?.message?.includes('deadlock')
+  );
+}
+
 // ── GET / (List time entries) ──
 router.get('/', requireAuth, async (req, res) => {
   try {
@@ -177,14 +194,37 @@ router.post('/clock-in', requireAuth, clockRateLimit, validate(clockInSchema), a
     // in (e.g. the employee lost or forgot their phone). Self clock-ins by
     // admins/managers still go through normal geofence validation.
     const canProxy = authUser.role === 'admin' || authUser.role === 'master' || authUser.role === 'manager';
-    const targetEmailLower = typeof targetEmail === 'string' ? targetEmail.toLowerCase() : authUser.email;
-    const isManualOverride = canProxy && targetEmailLower !== authUser.email;
+    const authUserEmailLower = authUser.email.toLowerCase().trim();
+    const targetEmailLower = (typeof targetEmail === 'string' ? targetEmail : authUser.email).toLowerCase().trim();
+    const isManualOverride = canProxy && targetEmailLower !== authUserEmailLower;
 
-    // Resolve target employee record
-    const employee = await prisma.employee.findFirst({
-      where: { email: targetEmailLower, companyProfileId: authUser.companyProfileId ?? undefined },
+    // Resolve target employee record case-insensitively
+    let employee = await prisma.employee.findFirst({
+      where: {
+        email: { equals: targetEmailLower, mode: 'insensitive' },
+        companyProfileId: authUser.companyProfileId ?? undefined,
+      },
       include: { geofence: true },
     });
+
+    // Fallback: if employee record exists with null companyProfileId or case difference, auto-heal companyProfileId
+    if (!employee && authUser.companyProfileId) {
+      const orphanEmployee = await prisma.employee.findFirst({
+        where: { email: { equals: targetEmailLower, mode: 'insensitive' } },
+        include: { geofence: true },
+      });
+      if (orphanEmployee) {
+        if (!orphanEmployee.companyProfileId) {
+          await prisma.employee.update({
+            where: { id: orphanEmployee.id },
+            data: { companyProfileId: authUser.companyProfileId },
+          });
+          orphanEmployee.companyProfileId = authUser.companyProfileId;
+        }
+        employee = orphanEmployee;
+      }
+    }
+
     if (!employee) return notFound(res, 'Employee record');
 
     // Manager scope check for manual overrides
@@ -277,14 +317,7 @@ router.post('/clock-in', requireAuth, clockRateLimit, validate(clockInSchema), a
         },
       );
     } catch (createErr: any) {
-      if (
-        createErr?.code === 'DUPLICATE_ACTIVE' ||
-        createErr?.code === 'P2002' ||
-        createErr?.code === 'P2034' ||
-        createErr?.message?.includes('uniq_active_time_entry') ||
-        createErr?.message?.includes('write conflict') ||
-        createErr?.message?.includes('deadlock')
-      ) {
+      if (isActiveEntryConflict(createErr)) {
         return alreadyClockedIn(res);
       }
       throw createErr;
@@ -322,10 +355,11 @@ router.post('/clock-in', requireAuth, clockRateLimit, validate(clockInSchema), a
         branch: entry.branch,
         department: entry.department,
         changes: overrideChanges as any,
-      }).catch((err) => console.error('[audit] Override log failed:', err));
+      });
     } else {
-      // Self-service clock-in
-      logAudit({
+      // Self-service clock-in — audit write is awaited (durability): audit
+      // rows must not be silently dropped under load.
+      await logAudit({
         entity: 'TimeEntry',
         entityId: entry.id,
         action: 'clock_in',
@@ -335,7 +369,7 @@ router.post('/clock-in', requireAuth, clockRateLimit, validate(clockInSchema), a
         ipAddress: clientIp,
         branch: entry.branch,
         department: entry.department,
-      }).catch((err) => console.error('[audit] Clock-in log failed:', err));
+      });
     }
 
     broadcastScoped(
@@ -377,20 +411,24 @@ router.post('/clock-out', requireAuth, clockRateLimit, validate(clockOutSchema),
     // A force clock-out is when an admin/manager/master clocks ANOTHER employee
     // out on their behalf. Passing one's own email is treated as self-service
     // so that personal geofence validation still applies.
+    const authUserEmailLower = authUser.email.toLowerCase().trim();
     const isForceClockOut =
       authUser.role !== 'employee' &&
       typeof targetEmail === 'string' &&
-      targetEmail.toLowerCase() !== authUser.email;
-    const targetEmailLower = isForceClockOut ? targetEmail.toLowerCase() : authUser.email;
+      targetEmail.toLowerCase().trim() !== authUserEmailLower;
+    const targetEmailLower = isForceClockOut ? (targetEmail as string).toLowerCase().trim() : authUserEmailLower;
 
     const active = await prisma.timeEntry.findFirst({
-      where: { employeeEmail: targetEmailLower, status: 'active' },
+      where: {
+        employeeEmail: { equals: targetEmailLower, mode: 'insensitive' },
+        status: 'active',
+      },
       orderBy: { clockIn: 'desc' },
     });
     if (!active) return noActiveSession(res);
 
     // Access control: employees can only clock out themselves
-    if (authUser.role === 'employee' && active.employeeEmail !== authUser.email) {
+    if (authUser.role === 'employee' && active.employeeEmail.toLowerCase().trim() !== authUserEmailLower) {
       return accessDenied(res, 'You can only clock out yourself.');
     }
 
@@ -583,6 +621,9 @@ router.post('/bulk-clock-in', requireAdminOrManager, clockRateLimit, validate(bu
     const clientIp = getClientIp(req);
     const clockedIn: Array<{ email: string; id: string; employeeName: string | null }> = [];
     const skipped: Array<{ email: string; reason: string }> = [];
+    // Audit writes are collected and awaited before responding — manual
+    // override records are compliance-critical and must be durable.
+    const auditWrites: Array<Promise<void>> = [];
 
     for (const email of employeeEmails) {
       const employee = await prisma.employee.findFirst({
@@ -601,36 +642,52 @@ router.post('/bulk-clock-in', requireAdminOrManager, clockRateLimit, validate(bu
         }
       }
 
-      const existingActive = await prisma.timeEntry.findFirst({
-        where: { employeeEmail: email, status: 'active' },
-        select: { id: true },
-      });
-      if (existingActive) {
-        skipped.push({ email, reason: 'Already clocked in' });
-        continue;
+      // ATOMIC check-then-insert inside a serializable transaction — the same
+      // race-safe pattern as self clock-in. A concurrent self-punch can no
+      // longer slip past a non-transactional duplicate check, and unique-index
+      // violations (partial index backstop) map to a clean "Already clocked
+      // in" skip instead of a 500.
+      let entry;
+      try {
+        entry = await prisma.$transaction(async (tx) => {
+          const existingActive = await tx.timeEntry.findFirst({
+            where: { employeeEmail: email, status: 'active' },
+            select: { id: true },
+          });
+          if (existingActive) {
+            const err = new Error('DUPLICATE_ACTIVE_ENTRY');
+            (err as any).code = 'DUPLICATE_ACTIVE';
+            throw err;
+          }
+          return tx.timeEntry.create({
+            data: {
+              employeeId: employee.id,
+              employeeEmail: email,
+              employeeName: `${employee.firstName} ${employee.surname}`,
+              branch: employee.branch,
+              department: employee.department,
+              clockIn: now,
+              date: parseDate(toDateStr(now)),
+              status: 'active',
+              isManualOverride: true,
+              clockedById: authUser.id,
+              clockedByName: authUser.fullName,
+              companyProfileId: employee.companyProfileId,
+              createdBy: authUser.id,
+              updatedBy: authUser.id,
+            },
+          });
+        });
+      } catch (createErr: any) {
+        if (isActiveEntryConflict(createErr)) {
+          skipped.push({ email, reason: 'Already clocked in' });
+          continue;
+        }
+        throw createErr;
       }
-
-      const entry = await prisma.timeEntry.create({
-        data: {
-          employeeId: employee.id,
-          employeeEmail: email,
-          employeeName: `${employee.firstName} ${employee.surname}`,
-          branch: employee.branch,
-          department: employee.department,
-          clockIn: now,
-          date: parseDate(toDateStr(now)),
-          status: 'active',
-          isManualOverride: true,
-          clockedById: authUser.id,
-          clockedByName: authUser.fullName,
-          companyProfileId: employee.companyProfileId,
-          createdBy: authUser.id,
-          updatedBy: authUser.id,
-        },
-      });
       clockedIn.push({ email, id: entry.id, employeeName: entry.employeeName });
 
-      logAudit({
+      auditWrites.push(logAudit({
         entity: 'TimeEntry',
         entityId: entry.id,
         action: 'bulk_clock_in',
@@ -651,7 +708,7 @@ router.post('/bulk-clock-in', requireAdminOrManager, clockRateLimit, validate(bu
           is_manual_override: { before: false, after: true },
           clocked_by: { before: null, after: `${authUser.fullName} (${authUser.email})` },
         } as any,
-      }).catch((err) => console.error('[audit] Bulk clock-in log failed:', err));
+      }));
 
       broadcastScoped('timeEntry', 'clockIn', entry, {
         companyProfileId: entry.companyProfileId,
@@ -659,6 +716,9 @@ router.post('/bulk-clock-in', requireAdminOrManager, clockRateLimit, validate(bu
         department: entry.department,
       });
     }
+
+    // Durability: wait for every bulk-override audit row before responding.
+    await Promise.all(auditWrites);
 
     res.status(201).json({ success: true, clockedIn, skipped });
   } catch (err) {
@@ -682,6 +742,8 @@ router.post('/bulk-clock-out', requireAdminOrManager, clockRateLimit, validate(b
     const clientIp = getClientIp(req);
     const clockedOut: Array<{ email: string; id: string; employeeName: string | null; totalHours: number | null }> = [];
     const skipped: Array<{ email: string; reason: string }> = [];
+    // Audit writes are collected and awaited before responding (durability).
+    const auditWrites: Array<Promise<void>> = [];
 
     for (const email of employeeEmails) {
       if (authUser.role === 'manager') {
@@ -723,7 +785,7 @@ router.post('/bulk-clock-out', requireAdminOrManager, clockRateLimit, validate(b
       });
       clockedOut.push({ email, id: entry.id, employeeName: entry.employeeName, totalHours });
 
-      logAudit({
+      auditWrites.push(logAudit({
         entity: 'TimeEntry',
         entityId: entry.id,
         action: 'bulk_clock_out',
@@ -740,7 +802,7 @@ router.post('/bulk-clock-out', requireAdminOrManager, clockRateLimit, validate(b
           total_hours: { before: null, after: entry.totalHours },
           forced_by: { before: null, after: `${authUser.fullName} (${authUser.email})` },
         } as any,
-      }).catch((err) => console.error('[audit] Bulk clock-out log failed:', err));
+      }));
 
       broadcastScoped('timeEntry', 'clockOut', entry, {
         companyProfileId: entry.companyProfileId,
@@ -748,6 +810,9 @@ router.post('/bulk-clock-out', requireAdminOrManager, clockRateLimit, validate(b
         department: entry.department,
       });
     }
+
+    // Durability: wait for every bulk clock-out audit row before responding.
+    await Promise.all(auditWrites);
 
     res.json({ success: true, clockedOut, skipped });
   } catch (err) {

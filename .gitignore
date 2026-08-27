@@ -22,6 +22,7 @@ server/.env.*
 # Database dumps & snapshots
 *.dump
 *.sql
+backups/
 
 # Test artifacts
 test-results/

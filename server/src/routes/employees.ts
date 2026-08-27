@@ -14,6 +14,8 @@ import { logAudit, getClientIp, computeChanges } from '../audit.js';
 import { invalidateEmployeeStatusCache } from '../middleware/auth.js';
 import { broadcastScoped, disconnectUserClients } from '../sse.js';
 import { assertTenantMatch } from '../tenantContext.js';
+import { DEFAULT_PASSWORD } from '../passwords.js';
+import { disconnectUserClusterWide } from '../invalidation.js';
 import {
   badRequest,
   notFound,
@@ -68,7 +70,7 @@ router.get('/', requireAuth, async (req, res) => {
         where,
         take: limit,
         skip: offset,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { firstName: 'asc', surname: 'asc' },
         include: {
           geofence: { select: { id: true, name: true } },
           manager: { select: { id: true, firstName: true, surname: true, role: true, branch: true } },
@@ -77,7 +79,30 @@ router.get('/', requireAuth, async (req, res) => {
       prisma.employee.count({ where }),
     ]);
 
-    res.json({ items, total });
+    // ── Login-account health flag ──
+    // Attach `hasLoginAccount` to each employee so the Workforce UI can warn
+    // admins about employees who are visible in the roster but cannot log in
+    // (missing User record). One batched lookup — no per-row queries.
+    let enrichedItems: Array<Record<string, unknown>> = items;
+    try {
+      const emails = items.map((i) => i.email.toLowerCase().trim());
+      const accountRows = emails.length > 0
+        ? await prisma.$queryRawUnsafe<Array<{ email: string }>>(
+            `SELECT DISTINCT lower(trim(email)) AS email FROM "User" WHERE lower(trim(email)) = ANY($1::text[])`,
+            emails,
+          )
+        : [];
+      const accountSet = new Set(accountRows.map((r) => r.email));
+      enrichedItems = items.map((i) => ({
+        ...i,
+        hasLoginAccount: accountSet.has(i.email.toLowerCase().trim()),
+      }));
+    } catch (flagErr) {
+      // Non-fatal: if the health check fails, serve the list without the flag.
+      console.warn('[employees] hasLoginAccount flag computation failed:', flagErr);
+    }
+
+    res.json({ items: enrichedItems, total });
   } catch (err) {
     console.error('[employees] List error:', err);
     internalError(res, 'fetching employees');
@@ -181,33 +206,45 @@ router.post('/', requireAdminOrManager, validate(createEmployeeSchema), async (r
 
     const companyProfileId = authUser.role === 'master' ? (data.companyProfileId as string) : authUser.companyProfileId;
 
-    // Check duplicate email within tenant
+    if (typeof data.email === 'string') {
+      data.email = data.email.toLowerCase().trim();
+    }
+    const normalizedEmail = data.email as string;
+
+    // Check duplicate email within tenant case-insensitively
     const existing = await prisma.employee.findFirst({
-      where: { email: data.email as string, companyProfileId: companyProfileId ?? null },
+      where: { email: { equals: normalizedEmail, mode: 'insensitive' }, companyProfileId: companyProfileId ?? null },
     });
     if (existing) return duplicateRecord(res, 'Employee', 'email');
 
-    const item = await prisma.employee.create({
-      data: {
-        ...data,
-        companyProfileId,
-        createdBy: authUser.id,
-        updatedBy: authUser.id,
-      } as unknown as Parameters<typeof prisma.employee.create>[0]['data'],
-    });
+    const defaultPasswordHash = await bcrypt.hash('Password123', 10);
+    const userRole = (data.role as string) || 'employee';
+    const validRole = ['master', 'admin', 'manager', 'employee'].includes(userRole) ? userRole : 'employee';
 
-    // Auto-create login User account for new employee with default password "Password123"
-    try {
-      const defaultPasswordHash = await bcrypt.hash('Password123', 10);
-      const userRole = (data.role as string) || 'employee';
-      const validRole = ['master', 'admin', 'manager', 'employee'].includes(userRole) ? userRole : 'employee';
+    // ── ATOMIC creation: Employee + login User in ONE transaction ──
+    // Previously the Employee was created first and the login User was created
+    // afterwards in a separate try/catch that silently swallowed failures. If the
+    // user-creation step failed (network blip, unique-constraint race, etc.) the
+    // employee was VISIBLE in Workforce but had NO login account — the exact
+    // "I can see them on the system but they can't log in" failure. Wrapping both
+    // writes in a single transaction guarantees all-or-nothing: either the
+    // employee AND their login both exist, or neither does.
+    const item = await prisma.$transaction(async (tx) => {
+      const emp = await tx.employee.create({
+        data: {
+          ...data,
+          companyProfileId,
+          createdBy: authUser.id,
+          updatedBy: authUser.id,
+        } as unknown as Parameters<typeof prisma.employee.create>[0]['data'],
+      });
 
-      const existingUser = await prisma.user.findUnique({ where: { email: item.email.toLowerCase() } });
+      const existingUser = await tx.user.findUnique({ where: { email: emp.email.toLowerCase().trim() } });
       if (!existingUser) {
-        await prisma.user.create({
+        await tx.user.create({
           data: {
-            email: item.email.toLowerCase(),
-            fullName: `${item.firstName} ${item.surname}`,
+            email: emp.email.toLowerCase().trim(),
+            fullName: `${emp.firstName} ${emp.surname}`,
             role: validRole as 'master' | 'admin' | 'manager' | 'employee',
             passwordHash: defaultPasswordHash,
             mustChangePassword: true,
@@ -215,19 +252,18 @@ router.post('/', requireAdminOrManager, validate(createEmployeeSchema), async (r
           },
         });
       } else {
-        await prisma.user.update({
-          where: { email: item.email.toLowerCase() },
+        await tx.user.update({
+          where: { email: emp.email.toLowerCase().trim() },
           data: {
-            fullName: `${item.firstName} ${item.surname}`,
+            fullName: `${emp.firstName} ${emp.surname}`,
             role: validRole as 'master' | 'admin' | 'manager' | 'employee',
             companyProfileId,
             passwordHash: existingUser.passwordHash || defaultPasswordHash,
           },
         });
       }
-    } catch (userErr) {
-      console.error('[employees] Failed to auto-create user login account:', userErr);
-    }
+      return emp;
+    });
 
     logAudit({
       entity: 'Employee',
@@ -306,6 +342,10 @@ router.put('/:id', requireAuth, validate(updateEmployeeSchema), async (req, res)
     const managerChanged = 'managerId' in data && data.managerId !== existing.managerId;
     const oldManagerId = existing.managerId;
     const newManagerId = (data.managerId as string | null) ?? null;
+
+    if (typeof data.email === 'string') {
+      data.email = data.email.toLowerCase().trim();
+    }
 
     const item = await prisma.employee.update({
       where: { id },
@@ -417,11 +457,16 @@ router.post('/:id/reset-password', requireAdminOrManager, async (req, res) => {
 
     const wasTerminated = existing.status === 'terminated';
 
-    const defaultHash = await bcrypt.hash('Password123', 10);
+    const defaultHash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
     await prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash: defaultHash, mustChangePassword: true },
+      // SECURITY: bump pwdEpoch so any pre-existing session (including a
+      // potentially compromised one) is revoked on the next request.
+      data: { passwordHash: defaultHash, mustChangePassword: true, pwdEpoch: { increment: 1 } },
     });
+    // Drop cached session state and close live SSE streams cluster-wide.
+    invalidateLiveRoleCache(user.id);
+    disconnectUserClusterWide(user.id);
 
     // Reactivation: resetting a terminated employee's password restores their
     // account to active status — the same way a suspended tenant is brought
@@ -453,8 +498,8 @@ router.post('/:id/reset-password', requireAdminOrManager, async (req, res) => {
     res.json({
       success: true,
       message: wasTerminated
-        ? `${existing.firstName} ${existing.surname} was terminated and has been reactivated. Temporary password: Password123. They must set a new password on next login.`
-        : `Password reset for ${existing.firstName} ${existing.surname}. Temporary password: Password123. They can set a new password or keep this one on next login.`,
+        ? `${existing.firstName} ${existing.surname} was terminated and has been reactivated. Temporary password: ${DEFAULT_PASSWORD}. They must set a new password on next login.`
+        : `Password reset for ${existing.firstName} ${existing.surname}. Temporary password: ${DEFAULT_PASSWORD}. They must set a new password on next login (the default password cannot be kept).`,
     });
   } catch (err) {
     console.error('[employees] Reset password error:', err);

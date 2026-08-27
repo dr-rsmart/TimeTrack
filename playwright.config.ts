@@ -20,20 +20,4 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  // Self-contained: boot BOTH the API server and the web dev server so a
-  // green test run cannot mask a dead API.
-  webServer: [
-    {
-      command: 'npm run dev:server',
-      url: 'http://localhost:4000/api/health',
-      reuseExistingServer: !process.env.CI,
-      timeout: 60000,
-    },
-    {
-      command: 'npm run dev:web',
-      url: 'http://localhost:5173',
-      reuseExistingServer: !process.env.CI,
-      timeout: 30000,
-    },
-  ],
 });

@@ -2,9 +2,9 @@ import { execSync } from 'child_process';
 
 const PSQL = `"C:\\Program Files\\PostgreSQL\\18\\bin\\psql.exe"`;
 const PG_DUMP = `"C:\\Program Files\\PostgreSQL\\18\\bin\\pg_dump.exe"`;
-const ADMIN_URL = `"postgresql://postgres:RicJer24@127.0.0.1:5433/postgres"`;
-const PROD_URL = `"postgresql://postgres:RicJer24@127.0.0.1:5433/timetrack_prod"`;
-const PREPROD_URL = `"postgresql://postgres:RicJer24@127.0.0.1:5433/timetrack_pre-prod"`;
+const ADMIN_URL = `"postgresql://postgres:RicJer24@127.0.0.1:5432/postgres"`;
+const PROD_URL = `"postgresql://postgres:RicJer24@127.0.0.1:5432/timetrack_prod"`;
+const PREPROD_URL = `"postgresql://postgres:RicJer24@127.0.0.1:5432/timetrack_pre-prod"`;
 
 console.log('1. Terminating active connections to timetrack_pre-prod...');
 try {

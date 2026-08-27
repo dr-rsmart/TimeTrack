@@ -11,6 +11,8 @@ import jwt from 'jsonwebtoken';
 import prisma from '../prisma.js';
 import config from '../config.js';
 import { runWithTenant, UNRESTRICTED } from '../tenantContext.js';
+import { isTokenEpochStale } from '../passwords.js';
+import { onInvalidationCommand, publishInvalidation } from '../invalidation.js';
 
 const JWT_SECRET = config.jwtSecret;
 
@@ -21,8 +23,16 @@ const JWT_SECRET = config.jwtSecret;
 const COMPANY_ACTIVE_CACHE_TTL_MS = 15_000;
 const companyActiveCache = new Map<string, { active: boolean; expires: number }>();
 
-export function invalidateCompanyActiveCache(companyProfileId: string): void {
+/** Local-only applier (used by the cluster invalidation handler). */
+function applyInvalidateCompanyActiveCache(companyProfileId: string): void {
   companyActiveCache.delete(companyProfileId);
+}
+
+export function invalidateCompanyActiveCache(companyProfileId: string): void {
+  applyInvalidateCompanyActiveCache(companyProfileId);
+  // Fan out to every replica so suspension is enforced cluster-wide
+  // immediately, not after the 15s TTL on the other nodes.
+  publishInvalidation({ type: 'invalidate-company', companyProfileId });
 }
 
 /**
@@ -64,8 +74,16 @@ function employeeStatusCacheKey(email: string, companyProfileId: string | null):
   return `${email.toLowerCase()}|${companyProfileId ?? ''}`;
 }
 
-export function invalidateEmployeeStatusCache(email: string, companyProfileId: string | null): void {
+/** Local-only applier (used by the cluster invalidation handler). */
+function applyInvalidateEmployeeStatusCache(email: string, companyProfileId: string | null): void {
   employeeStatusCache.delete(employeeStatusCacheKey(email, companyProfileId));
+}
+
+export function invalidateEmployeeStatusCache(email: string, companyProfileId: string | null): void {
+  applyInvalidateEmployeeStatusCache(email, companyProfileId);
+  // Fan out to every replica so termination/reactivation is enforced
+  // cluster-wide immediately, not after the 15s TTL on the other nodes.
+  publishInvalidation({ type: 'invalidate-employee-status', email, companyProfileId });
 }
 
 /**
@@ -110,6 +128,12 @@ export interface AuthUser {
    * points at the Master operator (enabling "Return to Master Console").
    */
   demoEmail?: string | null;
+  /**
+   * Session revocation epoch captured at sign time. User.pwdEpoch is bumped
+   * on every password change/reset; requireAuth rejects tokens whose epoch
+   * is older than the stored value (revocation-on-rotation).
+   */
+  pwdEpoch?: number;
 }
 
 declare global {
@@ -133,6 +157,7 @@ export function signToken(user: AuthUser): string {
       department: user.department ?? null,
       originalRole: user.originalRole ?? null,
       demoEmail: user.demoEmail ?? null,
+      pwdEpoch: user.pwdEpoch ?? 0,
     },
     JWT_SECRET,
     { expiresIn: '8h' },
@@ -170,6 +195,28 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   const user = verifyToken(token);
   if (!user) {
     res.status(401).json({ error: 'Invalid or expired token.' });
+    return;
+  }
+
+  // ── Session epoch check (revocation-on-rotation) ──
+  // Every password change/reset bumps User.pwdEpoch and invalidates this
+  // cache cluster-wide, so a stolen token stops working on the very next
+  // request after the victim rotates their password — instead of surviving
+  // up to 8h at JWT expiry. Fail-closed: if the check cannot run, deny.
+  const sessionState = await getUserSessionState(user.id);
+  if (sessionState === null) {
+    res.status(503).json({ error: 'Service temporarily unavailable. Please retry.', code: 'AUTH_CHECK_UNAVAILABLE' });
+    return;
+  }
+  if (sessionState === 'missing') {
+    res.status(401).json({ error: 'Account no longer exists.', code: 'UNAUTHORIZED' });
+    return;
+  }
+  if (isTokenEpochStale(user.pwdEpoch, sessionState.pwdEpoch)) {
+    res.status(401).json({
+      error: 'Your session was revoked because your password changed. Please sign in again.',
+      code: 'SESSION_REVOKED',
+    });
     return;
   }
 
@@ -229,36 +276,92 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   runWithTenant(tenantId, () => next());
 }
 
-// ── Live role re-verification (privilege-lag fix) ──
-// The JWT carries the role assigned at login for up to 8h. If a master
-// demotes an admin (or an admin changes a user's role), the stale JWT would
-// otherwise keep granting elevated access until expiry. We re-verify the
-// live DB role for elevated operations, cached for 30s to bound DB load.
+// ── Live session-state re-verification (privilege-lag + revocation fix) ──
+// The JWT carries the role and pwdEpoch assigned at login for up to 8h. If a
+// master demotes an admin (or an admin changes a user's role), or ANY user's
+// password is changed/reset, the stale JWT would otherwise keep granting its
+// original access until expiry. We re-verify the live DB state (role +
+// pwdEpoch in one query), cached for 30s to bound DB load, and invalidate the
+// cache cluster-wide on every such event.
 const ROLE_CACHE_TTL_MS = 30_000;
-const liveRoleCache = new Map<string, { role: string; expires: number }>();
+interface SessionStateEntry {
+  role: string;
+  pwdEpoch: number;
+  expires: number;
+}
+const sessionStateCache = new Map<string, SessionStateEntry>();
 
-async function getLiveRole(userId: string): Promise<string | null> {
-  const cached = liveRoleCache.get(userId);
-  if (cached && cached.expires > Date.now()) return cached.role;
+/**
+ * Live session state for a user:
+ *  - { role, pwdEpoch } — current DB values,
+ *  - 'missing'          — the user record no longer exists,
+ *  - null               — check could not run (transient DB error); callers
+ *                         MUST treat this as fail-closed (503).
+ */
+async function getUserSessionState(
+  userId: string,
+): Promise<{ role: string; pwdEpoch: number } | 'missing' | null> {
+  const cached = sessionStateCache.get(userId);
+  if (cached && cached.expires > Date.now()) {
+    return { role: cached.role, pwdEpoch: cached.pwdEpoch };
+  }
 
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { role: true },
+      select: { role: true, pwdEpoch: true },
     });
-    if (!user) return null;
-    liveRoleCache.set(userId, { role: user.role, expires: Date.now() + ROLE_CACHE_TTL_MS });
-    return user.role;
+    if (!user) return 'missing';
+    sessionStateCache.set(userId, {
+      role: user.role,
+      pwdEpoch: user.pwdEpoch,
+      expires: Date.now() + ROLE_CACHE_TTL_MS,
+    });
+    return { role: user.role, pwdEpoch: user.pwdEpoch };
   } catch (err) {
-    console.error('[auth] Failed to verify live role (fail-closed):', err);
+    console.error('[auth] Failed to verify session state (fail-closed):', err);
     return null;
   }
 }
 
-/** Invalidate the live-role cache for a user (call on any role change). */
-export function invalidateLiveRoleCache(userId: string): void {
-  liveRoleCache.delete(userId);
+async function getLiveRole(userId: string): Promise<string | null> {
+  const state = await getUserSessionState(userId);
+  return state && state !== 'missing' ? state.role : null;
 }
+
+/** Local-only applier (used by the cluster invalidation handler). */
+function applyInvalidateLiveRoleCache(userId: string): void {
+  sessionStateCache.delete(userId);
+}
+
+/**
+ * Invalidate the session-state cache for a user. Call on any role change AND
+ * any password change/reset. Fans out cluster-wide so demotions and
+ * revocations apply on every replica immediately (not after the 30s TTL).
+ */
+export function invalidateLiveRoleCache(userId: string): void {
+  applyInvalidateLiveRoleCache(userId);
+  publishInvalidation({ type: 'invalidate-user', userId });
+}
+
+// ── Cluster invalidation subscriber ──
+// Other replicas publish cache-invalidation commands here; apply them to the
+// local caches. (SSE stream closures are handled by sse.ts's own handler.)
+onInvalidationCommand((cmd) => {
+  switch (cmd.type) {
+    case 'invalidate-user':
+      applyInvalidateLiveRoleCache(cmd.userId);
+      break;
+    case 'invalidate-company':
+      applyInvalidateCompanyActiveCache(cmd.companyProfileId);
+      break;
+    case 'invalidate-employee-status':
+      applyInvalidateEmployeeStatusCache(cmd.email, cmd.companyProfileId);
+      break;
+    default:
+      break;
+  }
+});
 
 export async function requireAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
   if (!req.authUser) {

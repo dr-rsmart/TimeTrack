@@ -1,8 +1,8 @@
 import { execSync } from 'child_process';
 
 const PROD_URL = "postgresql://postgres:xfQZELnpkbAXaKchuYIlqtgCZEwCjzxF@altaria.proxy.rlwy.net:54199/railway";
-const LOCAL_POSTGRES_ADMIN = "postgresql://postgres:RicJer24@127.0.0.1:5433/postgres";
-const LOCAL_PROD_URL = "postgresql://postgres:RicJer24@127.0.0.1:5433/timetrack_prod";
+const LOCAL_POSTGRES_ADMIN = "postgresql://postgres:RicJer24@127.0.0.1:5432/postgres";
+const LOCAL_PROD_URL = "postgresql://postgres:RicJer24@127.0.0.1:5432/timetrack_prod";
 
 const PSQL = `"C:\\Program Files\\PostgreSQL\\18\\bin\\psql.exe"`;
 const PG_DUMP = `"C:\\Program Files\\PostgreSQL\\18\\bin\\pg_dump.exe"`;

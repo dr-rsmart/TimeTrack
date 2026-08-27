@@ -13,8 +13,14 @@ import { authApi, ApiError } from '../../services/api';
 import { Button, Input, Label } from '../ui';
 
 interface ChangePasswordModalProps {
-  /** When true, the modal is mandatory (mustChangePassword flag). User can still keep the current password. */
+  /** When true, the modal is mandatory (mustChangePassword flag). */
   forced?: boolean;
+  /**
+   * When false (account still on the default password), the "keep current
+   * password" escape hatch is hidden — the server rejects keep-password for
+   * default-password accounts, so the UI must not offer it.
+   */
+  allowKeep?: boolean;
   /** Called after a successful password change or keep-password decision. */
   onSuccess: () => void;
   /** Called when the user cancels (only when not forced). */
@@ -28,7 +34,7 @@ const COMPLEXITY_RULES = [
   { label: 'One number', test: (p: string) => /[0-9]/.test(p) },
 ];
 
-export default function ChangePasswordModal({ forced = false, onSuccess, onCancel }: ChangePasswordModalProps) {
+export default function ChangePasswordModal({ forced = false, allowKeep = true, onSuccess, onCancel }: ChangePasswordModalProps) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -165,15 +171,17 @@ export default function ChangePasswordModal({ forced = false, onSuccess, onCance
 
             <div className="flex flex-col-reverse sm:flex-row sm:justify-between sm:items-center gap-2 pt-2">
               {forced ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={handleKeepPassword}
-                  disabled={saving || keeping}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  {keeping ? 'Saving…' : 'Keep current password'}
-                </Button>
+                allowKeep ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={handleKeepPassword}
+                    disabled={saving || keeping}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    {keeping ? 'Saving…' : 'Keep current password'}
+                  </Button>
+                ) : null
               ) : (
                 <div>
                   {!forced && onCancel && (

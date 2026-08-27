@@ -12,6 +12,7 @@ import type { Response } from 'express';
 import crypto from 'crypto';
 import { Redis } from 'ioredis';
 import config from './config.js';
+import { onInvalidationCommand } from './invalidation.js';
 
 export interface SSEClient {
   id: string;
@@ -325,6 +326,13 @@ function deliverToLocalClients(event: SSEEventMessage['event'], scope?: Broadcas
 }
 
 /**
+ * Entities that are legitimately platform-global (no tenant scope). A
+ * broadcast without a companyProfileId scope reaches EVERY connected client
+ * across all tenants — only these may do so.
+ */
+export const GLOBAL_SCOPE_ENTITIES = new Set(['CompanySettings']);
+
+/**
  * Scoped broadcast: publishes to Redis cluster if connected,
  * or delivers directly to local clients if running in standalone mode.
  */
@@ -342,6 +350,19 @@ export function broadcastScoped(
       : entity === 'timeEntry'
       ? 'TimeEntry'
       : entity;
+
+  // GUARD: an unscoped broadcast is a cross-tenant primitive. Warn loudly if
+  // a non-global entity is about to be delivered to every tenant — that
+  // indicates a missing scope at the call site.
+  if (
+    (!scope || scope.companyProfileId == null) &&
+    !GLOBAL_SCOPE_ENTITIES.has(mappedEntity)
+  ) {
+    console.warn(
+      `[sse] broadcastScoped("${mappedEntity}", "${action}") has no tenant scope — ` +
+        'the event will reach clients in ALL tenants. Pass a companyProfileId scope.'
+    );
+  }
 
   const event = {
     id: `${mappedEntity}-${action}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -417,3 +438,29 @@ export function disconnectUserClients(userId: string): number {
   }
   return removed;
 }
+
+/**
+ * Close ALL SSE clients on this instance.
+ * Called during graceful shutdown so long-lived event-stream connections do
+ * not hold the HTTP server open until the 10s force-exit timer.
+ */
+export function closeAllClients(): number {
+  const ids = [...clients.keys()];
+  for (const id of ids) removeClient(id);
+  if (ids.length > 0) {
+    console.log(`[sse] Closed ${ids.length} SSE stream(s).`);
+  }
+  return ids.length;
+}
+
+// ── Cluster-wide session revocation subscriber ──
+// Other replicas publish disconnect commands (tenant suspension, employee
+// termination, password rotation) on the invalidation channel; close the
+// affected streams locally so revocation is instant across the cluster.
+onInvalidationCommand((cmd) => {
+  if (cmd.type === 'disconnect-user') {
+    disconnectUserClients(cmd.userId);
+  } else if (cmd.type === 'disconnect-tenant') {
+    disconnectTenantClients(cmd.companyProfileId);
+  }
+});

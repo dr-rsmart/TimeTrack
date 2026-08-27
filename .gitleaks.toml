@@ -1,0 +1,20 @@
+title = "TimeTrack gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known non-secret demo/test values committed intentionally"
+regexes = [
+    # Performance-test bypass secret — only honored outside production and
+    # listed publicly in server/.env.example; documented in config.ts.
+    '''tt_perf_bench_2026''',
+    # Demo dataset password used by seeded test accounts (README documents it).
+    '''Password123''',
+    # Local development database password (never valid outside localhost).
+    '''RicJer24''',
+]
+paths = [
+    '''(^|/)\.env\.example$''',
+    '''server/\.env\..*example''',
+]

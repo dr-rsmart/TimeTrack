@@ -291,7 +291,16 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
           showToast('success', `Auto clocked out — left "${event.geofence.name}"`, `~${event.distanceMetres ?? 0}m from centre.`);
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : 'Unknown error';
-          showToast('error', 'Auto clock-out failed', msg);
+          if (msg.toLowerCase().includes('no active')) {
+            // Session was already closed server-side — most commonly the
+            // shift-end auto clock-out. Sync local state and inform instead
+            // of surfacing a failure.
+            setLastAutoClockOut();
+            await onClockOutRef.current();
+            showToast('info', 'Shift already closed', 'You were automatically clocked out at the scheduled shift end.');
+          } else {
+            showToast('error', 'Auto clock-out failed', msg);
+          }
         }
       }
     });

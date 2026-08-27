@@ -3,6 +3,7 @@
  * ---------------
  * Background jobs for shift & time-entry lifecycle management:
  * - No-show detection (2+ hours past shift start)
+ * - Shift-end auto clock-out (closes active entries at scheduled shift end)
  * - Stale active time-entry auto-close (forgotten clock-outs)
  * - Retention purge (AuditLog is NEVER purged; no purgeable entities currently registered)
  * - Stale SSE connection pruning
@@ -13,6 +14,16 @@
 import { randomUUID } from 'crypto';
 import prisma from './prisma.js';
 import { broadcastScoped, pruneStaleConnections } from './sse.js';
+import {
+  getBusinessTimezone,
+  businessNow,
+  timeStrToMinutes,
+  isPastGraceDeadline,
+  isShiftEndReached,
+  addBusinessDays,
+  businessTimeToDate,
+} from './timezone.js';
+import { parseDate } from './overlap.js';
 
 const INSTANCE_ID = randomUUID();
 const NO_SHOW_GRACE_MINUTES = 120; // 2 hours
@@ -148,60 +159,212 @@ async function closeStaleActiveTimeEntries(): Promise<void> {
   }
 }
 
+/**
+ * Auto clock-out at scheduled shift end.
+ * When a manager has scheduled a shift with an end time and the employee is
+ * still clocked in as that end passes, the active time entry is closed and its
+ * clockOut stamped at the EXACT scheduled end instant — even when detection is
+ * delayed (cron cadence, instance restart). This captures accurate hours: an
+ * employee who forgets to logout cannot claim time beyond the scheduled end.
+ *
+ * Employees without a scheduled shift (or whose shift has not ended yet) are
+ * untouched — the standard auto/manual clock-out flows remain in force.
+ */
+async function autoClockOutAtShiftEnd(): Promise<void> {
+  const jobName = 'shift-end-auto-clock-out';
+  if (!(await acquireLock(jobName, 120_000))) return;
+
+  try {
+    const now = new Date();
+
+    // All comparisons use the configured business timezone, matching the
+    // convention used by no-show detection.
+    const tz = getBusinessTimezone();
+    const biz = businessNow(tz, now);
+    const yesterdayBiz = businessNow(tz, new Date(now.getTime() - 24 * 60 * 60_000));
+
+    // Today's candidates PLUS yesterday's — catches shift ends that cross
+    // midnight (e.g. a 22:00–06:00 shift) and backfills after cron downtime
+    // (clockOut is still stamped at the scheduled end, not the detection time).
+    const candidates = await prisma.shift.findMany({
+      where: {
+        status: { in: ['scheduled', 'active'] },
+        date: { in: [parseDate(biz.dateStr), parseDate(yesterdayBiz.dateStr)] },
+        endTime: { not: null },
+        employeeEmail: { not: null },
+      },
+    });
+
+    for (const shift of candidates) {
+      if (!shift.employeeEmail) continue;
+      const endMinutes = timeStrToMinutes(shift.endTime);
+      if (endMinutes === null) continue;
+
+      // endTime <= startTime means the shift crosses midnight (e.g. 22:00–06:00)
+      // and ends on the next calendar day.
+      const startMinutes = timeStrToMinutes(shift.startTime);
+      const crossesMidnight = startMinutes !== null && endMinutes <= startMinutes;
+
+      const shiftDateStr = shift.date.toISOString().slice(0, 10);
+      if (
+        !isShiftEndReached({
+          nowDateStr: biz.dateStr,
+          nowMinutesOfDay: biz.minutesOfDay,
+          shiftDateStr,
+          endMinutes,
+          crossesMidnight,
+        })
+      ) {
+        continue;
+      }
+
+      const activeEntry = await prisma.timeEntry.findFirst({
+        where: { employeeEmail: shift.employeeEmail, status: 'active' },
+        orderBy: { clockIn: 'desc' },
+      });
+      if (!activeEntry) continue;
+
+      // The exact scheduled end instant in the business timezone. Stamping the
+      // scheduled end (rather than the detection moment) keeps recorded hours
+      // correct even if this job notices late.
+      const endDateStr = crossesMidnight ? addBusinessDays(shiftDateStr, 1) : shiftDateStr;
+      const clockOut = businessTimeToDate(tz, endDateStr, endMinutes);
+
+      // Employee clocked in at/after the scheduled end — this session is not
+      // bounded by the shift; leave it to the standard clock-out flows.
+      if (activeEntry.clockIn.getTime() >= clockOut.getTime()) continue;
+
+      const breakHours = (activeEntry.breakMinutes ?? 0) / 60;
+      const rawHours = (clockOut.getTime() - activeEntry.clockIn.getTime()) / 3_600_000;
+      const totalHours = Math.max(0, Math.round((rawHours - breakHours) * 100) / 100);
+
+      // Optimistic guard: only close if still active — a concurrent manual
+      // clock-out must never be overwritten.
+      const closed = await prisma.timeEntry.updateMany({
+        where: { id: activeEntry.id, status: 'active' },
+        data: {
+          clockOut,
+          status: 'completed',
+          totalHours,
+          isManualOverride: true,
+          updatedBy: 'system:cron',
+        },
+      });
+      if (closed.count === 0) continue;
+
+      await prisma.shift.update({
+        where: { id: shift.id },
+        data: {
+          notes: shift.notes
+            ? `${shift.notes}\n[Auto] Auto clock-out applied at scheduled shift end (${shift.endTime}) — closed time entry ${activeEntry.id}`
+            : `[Auto] Auto clock-out applied at scheduled shift end (${shift.endTime}) — closed time entry ${activeEntry.id}`,
+        },
+      });
+
+      broadcastScoped(
+        'timeEntry',
+        'clockOut',
+        {
+          id: activeEntry.id,
+          employeeEmail: activeEntry.employeeEmail,
+          clockOut: clockOut.toISOString(),
+          totalHours,
+          status: 'completed',
+          autoClockOutAtShiftEnd: true,
+        },
+        {
+          companyProfileId: activeEntry.companyProfileId,
+          branch: activeEntry.branch,
+          department: activeEntry.department,
+        }
+      );
+
+      console.log(
+        `[cron] Auto clock-out at shift end: entry ${activeEntry.id} (${activeEntry.employeeEmail}) closed at ${shift.endTime} for shift ${shift.id}.`
+      );
+    }
+  } catch (err) {
+    console.error('[cron] Shift-end auto clock-out error:', err);
+  } finally {
+    await releaseLock(jobName);
+  }
+}
+
 async function detectNoShows(): Promise<void> {
   const jobName = 'no-show-detection';
   if (!(await acquireLock(jobName, 120_000))) return;
 
   try {
     const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
 
-    // Find scheduled shifts for today where start_time + grace < now.
-    // Dates are stored at UTC noon (see parseDate in routes/shifts.ts) to
-    // avoid timezone-induced day shifting — the query must use the same
-    // convention or it will miss/mismatch rows.
+    // All wall-clock comparisons happen in the configured business timezone
+    // (CRON_TIMEZONE; defaults to the process timezone). This keeps no-show
+    // detection correct even if the host/container timezone differs from the
+    // business locale. Dates are stored at UTC noon (parseDate convention),
+    // so the query uses the same convention to avoid day shifting.
+    const tz = getBusinessTimezone();
+    const biz = businessNow(tz, now);
+    const yesterdayBiz = businessNow(tz, new Date(now.getTime() - 24 * 60 * 60_000));
+
+    // Today's candidates PLUS yesterday's — catches grace windows that cross
+    // midnight (e.g. a 23:00 shift with a 2h grace deadline at 01:00) and
+    // backfills if the job was briefly down.
     const candidates = await prisma.shift.findMany({
       where: {
         status: 'scheduled',
-        date: new Date(todayStr + 'T12:00:00Z'),
+        date: { in: [parseDate(biz.dateStr), parseDate(yesterdayBiz.dateStr)] },
         startTime: { not: null },
       },
       include: { employee: { select: { email: true } } },
     });
 
     for (const shift of candidates) {
-      if (!shift.startTime) continue;
+      const startMinutes = timeStrToMinutes(shift.startTime);
+      if (startMinutes === null) continue;
 
-      const [hours, minutes] = shift.startTime.split(':').map(Number);
-      const shiftStart = new Date(now);
-      shiftStart.setHours(hours, minutes, 0, 0);
+      const shiftDateStr = shift.date.toISOString().slice(0, 10);
+      const isPreviousDay = shiftDateStr !== biz.dateStr;
 
-      const graceDeadline = new Date(shiftStart.getTime() + NO_SHOW_GRACE_MINUTES * 60_000);
+      const pastGrace = isPastGraceDeadline({
+        nowMinutesOfDay: biz.minutesOfDay,
+        shiftStartMinutes: startMinutes,
+        graceMinutes: NO_SHOW_GRACE_MINUTES,
+        isPreviousDay,
+      });
+      if (!pastGrace) continue;
 
-      if (now > graceDeadline) {
-        await prisma.shift.update({
-          where: { id: shift.id },
-          data: {
-            status: 'no_show',
-            notes: shift.notes
-              ? `${shift.notes}\n[Auto] Marked as no-show at ${now.toISOString()}`
-              : `[Auto] Marked as no-show at ${now.toISOString()}`,
-          },
+      // Guard: if the employee already has a time entry on this date they
+      // DID show up — a stale 'scheduled' shift row must not become no_show.
+      if (shift.employee?.email) {
+        const worked = await prisma.timeEntry.findFirst({
+          where: { employeeEmail: shift.employee.email, date: shift.date },
+          select: { id: true },
         });
-
-        broadcastScoped(
-          'Shift',
-          'no_show',
-          { id: shift.id, employeeId: shift.employeeId, date: todayStr },
-          {
-            companyProfileId: shift.companyProfileId,
-            branch: shift.branch,
-            department: shift.department,
-          }
-        );
-
-        console.log(`[cron] Shift ${shift.id} marked as no_show`);
+        if (worked) continue;
       }
+
+      await prisma.shift.update({
+        where: { id: shift.id },
+        data: {
+          status: 'no_show',
+          notes: shift.notes
+            ? `${shift.notes}\n[Auto] Marked as no-show at ${now.toISOString()}`
+            : `[Auto] Marked as no-show at ${now.toISOString()}`,
+        },
+      });
+
+      broadcastScoped(
+        'Shift',
+        'no_show',
+        { id: shift.id, employeeId: shift.employeeId, date: shiftDateStr },
+        {
+          companyProfileId: shift.companyProfileId,
+          branch: shift.branch,
+          department: shift.department,
+        }
+      );
+
+      console.log(`[cron] Shift ${shift.id} marked as no_show`);
     }
   } catch (err) {
     console.error('[cron] No-show detection error:', err);
@@ -221,6 +384,7 @@ export function startCron(): void {
   console.log('[cron] Starting background job runner (60s interval)');
 
   cronInterval = setInterval(async () => {
+    await autoClockOutAtShiftEnd();
     await detectNoShows();
     await purgeRetentionPolicies();
     await closeStaleActiveTimeEntries();
@@ -228,6 +392,7 @@ export function startCron(): void {
   }, 60_000);
 
   // Run once immediately
+  autoClockOutAtShiftEnd().catch(console.error);
   detectNoShows().catch(console.error);
   purgeRetentionPolicies().catch(console.error);
   closeStaleActiveTimeEntries().catch(console.error);

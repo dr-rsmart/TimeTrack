@@ -10,6 +10,11 @@ import prisma from '../prisma.js';
 import { requireAuth, signToken, invalidateCompanyActiveCache, invalidateLiveRoleCache } from '../middleware/auth.js';
 import { logAudit, getClientIp, computeChanges } from '../audit.js';
 import { disconnectTenantClients } from '../sse.js';
+import { DEFAULT_PASSWORD } from '../passwords.js';
+import { isMasterAuthorized } from '../masterAuth.js';
+import { disconnectUserClusterWide } from '../invalidation.js';
+import { getBusinessTimezone, businessNow } from '../timezone.js';
+import { parseDate } from '../overlap.js';
 import {
   notFound,
   accessDenied,
@@ -17,13 +22,6 @@ import {
   internalError,
   duplicateRecord,
 } from '../errorResponse.js';
-
-/**
- * Default password assigned to all newly created accounts and password
- * resets (master, admin, manager, employee). Users are flagged with
- * mustChangePassword and prompted to change (or keep) it on first login.
- */
-const DEFAULT_PASSWORD = 'Password123';
 
 const router = Router();
 
@@ -36,10 +34,15 @@ const COOKIE_OPTIONS = {
   path: '/',
 };
 
-// Middleware helper to ensure user is platform master
+// Middleware helper to ensure user is a platform master.
+// SECURITY (least privilege): impersonation/demo sessions carry
+// originalRole === 'master' but must NOT retain the full master governance
+// surface while simulating a tenant persona — they are only permitted to
+// call /stop-impersonation to restore the real master session. Every other
+// master endpoint requires the live role to actually be 'master'.
+// Decision logic lives in masterAuth.ts (unit-tested).
 function requireMaster(req: any, res: any, next: any) {
-  // Allow if role is master, OR if they are currently impersonating (originalRole is master) so they can access stop-impersonation
-  if (req.authUser?.role === 'master' || req.authUser?.originalRole === 'master') {
+  if (isMasterAuthorized(req.authUser, req.path)) {
     return next();
   }
   return accessDenied(res, 'Platform Master access required.');
@@ -70,7 +73,9 @@ router.get('/stats', async (req, res) => {
       prisma.timeEntry.findMany({
         where: {
           status: 'completed',
-          date: new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00')
+          // Business-timezone "today" using the UTC-noon DATE convention so
+          // the comparison is stable regardless of host timezone.
+          date: parseDate(businessNow(getBusinessTimezone()).dateStr)
         },
         select: { totalHours: true }
       })
@@ -724,8 +729,12 @@ router.post('/operators/:id/reset-password', async (req, res) => {
 
     await prisma.user.update({
       where: { id },
-      data: { passwordHash, mustChangePassword: true },
+      // SECURITY: bump pwdEpoch so any pre-existing session for this
+      // operator is revoked on the next request (revocation-on-rotation).
+      data: { passwordHash, mustChangePassword: true, pwdEpoch: { increment: 1 } },
     });
+    invalidateLiveRoleCache(id);
+    disconnectUserClusterWide(id);
 
     logAudit({
       entity: 'User',
@@ -798,6 +807,7 @@ router.post('/demo-login', async (req, res) => {
       department: employee?.department ?? null,
       originalRole: 'master',
       demoEmail: persona.email,
+      pwdEpoch: req.authUser!.pwdEpoch ?? 0,
     });
 
     res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
@@ -852,6 +862,7 @@ router.post('/impersonate/:id', async (req, res) => {
       role: 'admin',
       companyProfileId: company.id,
       originalRole: 'master',
+      pwdEpoch: req.authUser!.pwdEpoch ?? 0,
     });
 
     res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
@@ -897,6 +908,7 @@ router.post('/stop-impersonation', async (req, res) => {
       role: 'master',
       companyProfileId: null,
       originalRole: null,
+      pwdEpoch: user.pwdEpoch,
     });
 
     res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);

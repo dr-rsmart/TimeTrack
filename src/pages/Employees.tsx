@@ -396,6 +396,11 @@ export default function Employees() {
                         <div>
                           <p className="font-medium text-sm">{emp.firstName} {emp.surname}</p>
                           <p className="text-xs text-muted-foreground">{emp.email}</p>
+                          {emp.hasLoginAccount === false && (
+                            <p className="text-xs font-semibold text-red-600 dark:text-red-400 mt-0.5" title="This employee is visible in Workforce but has no login account — they cannot sign in.">
+                              ⚠ No login account
+                            </p>
+                          )}
                         </div>
                       </div>
                     </TableCell>

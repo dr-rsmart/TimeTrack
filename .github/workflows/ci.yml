@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  verify:
+    name: Typecheck · Unit · Build · E2E
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_pg_password
+          POSTGRES_DB: timetrack_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:ci_pg_password@localhost:5432/timetrack_ci?schema=public
+      # CI-only signing secret (96 hex chars). Never used outside CI — the
+      # fail-fast config rejects known-insecure defaults in production.
+      JWT_SECRET: 7c1e9f4b2a8d3e6c5b0a9f8e7d6c5b4a39281706f5e4d3c2b1a099887766554433221100ffeeddccbbaa998877665544
+      PORT: '4000'
+      CORS_ORIGIN: http://localhost:5173
+      # Enables the x-perf-bypass header used by API-level E2E specs.
+      # config.ts hard-disables this when NODE_ENV=production.
+      PERF_TEST_SECRET: tt_perf_bench_2026
+      NODE_ENV: test
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+
+      # Root install also installs server deps via postinstall.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prisma generate + schema push + demo seed
+        working-directory: server
+        run: |
+          npx prisma generate --schema=prisma/schema.prisma
+          npx prisma db push --schema=prisma/schema.prisma
+          npm run seed
+
+      - name: Typecheck (frontend + server)
+        run: npm run typecheck
+
+      - name: Unit tests (vitest)
+        run: npx vitest run
+
+      - name: Production build
+        run: npm run build
+
+      - name: Install Playwright (chromium)
+        run: npx playwright install --with-deps chromium
+
+      # playwright.config.ts boots BOTH the API and the web dev server, so a
+      # green run cannot mask a dead backend.
+      - name: E2E tests (Playwright)
+        run: npx playwright test

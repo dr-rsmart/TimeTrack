@@ -1,29 +1,20 @@
 /**
  * Manager Scope Middleware
  * ------------------------
- * Determines the data scope for manager users based on
- * manager_id relationships and branch/department assignment.
+ * Determines the data scope for manager users based on manager_id
+ * relationships and branch/department assignment.
+ *
+ * The pure decision logic lives in `scopeRules.ts` (unit-tested); this module
+ * only resolves the DB records and applies it.
+ *
+ * SECURITY: the default placeholders ('Unassigned'/'General') must never
+ * create a visibility bridge — enforced by hasExplicitAssignment() in
+ * scopeRules.ts.
  */
 
 import prisma from '../prisma.js';
 import type { AuthUser } from './auth.js';
-
-/**
- * Default placeholder values for unassigned branch/department.
- * SECURITY: these defaults must never create a visibility bridge — a manager
- * left on default values must NOT automatically see every other employee who
- * also has default values. Same-branch+department scoping only applies when
- * the manager has been explicitly assigned to a real branch AND department.
- */
-const DEFAULT_BRANCH = 'Unassigned';
-const DEFAULT_DEPARTMENT = 'General';
-
-function hasExplicitAssignment(branch: string | null, department: string | null): boolean {
-  return Boolean(
-    branch && branch !== DEFAULT_BRANCH &&
-    department && department !== DEFAULT_DEPARTMENT,
-  );
-}
+import { buildManagerScopeClauses, isTargetInManagerScope } from '../scopeRules.js';
 
 /**
  * Build a Prisma `where` filter for employees within a manager's scope.
@@ -39,26 +30,13 @@ export async function getManagerScopeFilter(
 
   // Find the manager's employee record
   const managerEmployee = await prisma.employee.findFirst({
-    where: { email: authUser.email, companyProfileId: authUser.companyProfileId ?? undefined },
+    where: { email: { equals: authUser.email.toLowerCase().trim(), mode: 'insensitive' }, companyProfileId: authUser.companyProfileId ?? undefined },
     select: { id: true, branch: true, department: true },
   });
 
   if (!managerEmployee) return { id: '__no_scope__' };
 
-  // Direct reports are always in scope.
-  const clauses: Record<string, unknown>[] = [{ managerId: managerEmployee.id }];
-
-  // Same branch+department only when explicitly assigned (no default leak).
-  if (hasExplicitAssignment(managerEmployee.branch, managerEmployee.department)) {
-    clauses.push({
-      AND: [
-        { branch: managerEmployee.branch },
-        { department: managerEmployee.department },
-      ],
-    });
-  }
-
-  return { OR: clauses };
+  return { OR: buildManagerScopeClauses(managerEmployee) };
 }
 
 /**
@@ -71,33 +49,31 @@ export async function isEmployeeInManagerScope(
   if (authUser.role !== 'manager') return true;
 
   const managerEmployee = await prisma.employee.findFirst({
-    where: { email: authUser.email, companyProfileId: authUser.companyProfileId ?? undefined },
+    where: { email: { equals: authUser.email.toLowerCase().trim(), mode: 'insensitive' }, companyProfileId: authUser.companyProfileId ?? undefined },
     select: { id: true, branch: true, department: true },
   });
 
   if (!managerEmployee) return false;
 
   const target = await prisma.employee.findFirst({
-    where: { email: employeeEmail, companyProfileId: authUser.companyProfileId ?? undefined },
+    where: { email: { equals: employeeEmail.toLowerCase().trim(), mode: 'insensitive' }, companyProfileId: authUser.companyProfileId ?? undefined },
     select: { id: true, managerId: true, branch: true, department: true },
   });
 
   if (!target) return false;
 
-  // Direct report
-  if (target.managerId === managerEmployee.id) return true;
-
-  // Same branch + department — only when the manager has an explicit
-  // (non-default) assignment, preventing the default-value visibility bridge.
-  if (
-    hasExplicitAssignment(managerEmployee.branch, managerEmployee.department) &&
-    target.branch === managerEmployee.branch &&
-    target.department === managerEmployee.department
-  ) {
-    return true;
-  }
-
-  return false;
+  return isTargetInManagerScope(
+    {
+      id: managerEmployee.id,
+      branch: managerEmployee.branch,
+      department: managerEmployee.department,
+    },
+    {
+      managerId: target.managerId,
+      branch: target.branch,
+      department: target.department,
+    },
+  );
 }
 
 /**

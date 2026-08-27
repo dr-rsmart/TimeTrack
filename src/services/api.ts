@@ -127,6 +127,8 @@ export interface CurrentUser {
   originalRole?: string | null;
   /** True when the account is still on the default password — user must change it. */
   mustChangePassword?: boolean;
+  /** True when the stored hash matches the default password — "keep current password" is forbidden. */
+  usingDefaultPassword?: boolean;
   /** Set during a Master demo session — the email of the persona being simulated. */
   demoEmail?: string | null;
 }
@@ -242,6 +244,8 @@ export interface Employee {
   updatedAt: string;
   geofence?: { id: string; name: string } | null;
   manager?: { id: string; firstName: string; surname: string; role?: string; branch?: string } | null;
+  /** Present on list responses: false = employee is visible in Workforce but has no login account. */
+  hasLoginAccount?: boolean;
 }
 
 export interface ManagerOption {

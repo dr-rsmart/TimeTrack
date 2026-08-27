@@ -46,15 +46,67 @@ function attemptBackup() {
 }
 
 // ── Step 2: Schema sync ──
-// SAFETY: We use `prisma db push` WITHOUT `--accept-data-loss` in ALL environments.
-// This guarantees:
-//   - Additive changes (new tables/columns) are applied safely.
-//   - Destructive changes (drop/rename) cause a HARD FAILURE instead of data loss.
-//   - Works with databases that have no migration history (db-push-created DBs).
-// The old start command used `--accept-data-loss`, which silently dropped tables
-// on schema drift — that is what destroyed production data. NEVER re-add that flag.
+// SAFETY: destructive schema changes cause a HARD FAILURE in both paths —
+// never data loss. The old start command used `--accept-data-loss`, which
+// silently dropped tables on schema drift — that is what destroyed
+// production data once. NEVER re-add that flag.
+//
+// Strategy:
+//   1. If the database has recognized Prisma migration history
+//      (_prisma_migrations populated), apply recorded migrations with
+//      `prisma migrate deploy` — reviewable, reproducible, CI-gateable.
+//   2. Otherwise (db-push-provisioned databases with no history), fall back
+//      to safe `prisma db push` WITHOUT --accept-data-loss: additive changes
+//      apply, destructive changes fail loudly.
+// To migrate a db-push database onto recorded history, run:
+//   npx prisma migrate resolve --applied 0_init
+//   npx prisma migrate resolve --applied 1_session_revocation_and_unique_index
+// (see server/prisma/migrations/1_.../MIGRATION.md)
 function syncSchema() {
-  log(`Schema sync via \`prisma db push\` (safe mode — destructive changes will FAIL, not drop data)...`);
+  let statusOutput = '';
+  let historyRecognized = false;
+
+  try {
+    statusOutput = execSync('npx prisma migrate status --schema=prisma/schema.prisma', {
+      cwd: SERVER_DIR,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 60_000,
+      encoding: 'utf8',
+    });
+    historyRecognized = true;
+  } catch (err) {
+    const text = `${err?.stdout || ''}\n${err?.stderr || ''}\n${err?.message || ''}`;
+    // These markers mean "no migration history on this database" (db-push
+    // provisioned) — anything else (drift, connection failure) is surfaced
+    // loudly below.
+    const noHistory =
+      /no migration found/i.test(text) ||
+      /_prisma_migrations/i.test(text) ||
+      /P3006|P3018/i.test(text) ||
+      /does not exist/i.test(text);
+    statusOutput = text;
+    historyRecognized = !noHistory;
+  }
+
+  if (historyRecognized) {
+    log('Migration history recognized — applying recorded migrations via `prisma migrate deploy`...');
+    try {
+      execSync('npx prisma migrate deploy --schema=prisma/schema.prisma', {
+        cwd: SERVER_DIR,
+        stdio: 'inherit',
+        timeout: 120_000,
+      });
+      log('Recorded migrations applied successfully.');
+      return;
+    } catch (err) {
+      log(`❌ FATAL: prisma migrate deploy failed — refusing to start to protect your data.`);
+      log(`   Error: ${err.message?.split('\n')[0]}`);
+      log('   Fix: resolve the migration state manually (see MIGRATION.md), or restore from backup.');
+      process.exit(1);
+    }
+  }
+
+  log('No migration history recognized (db-push-provisioned DB) — using safe `prisma db push` (destructive changes will FAIL, not drop data)...');
   try {
     execSync('npx prisma db push --schema=prisma/schema.prisma', {
       cwd: SERVER_DIR,

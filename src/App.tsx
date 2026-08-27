@@ -44,7 +44,11 @@ function RequireAuth({ children }: { children: ReactNode }) {
       {children}
       {/* Forced password reset for accounts still on the default password */}
       {user.mustChangePassword && (
-        <ChangePasswordModal forced onSuccess={() => refresh()} />
+        <ChangePasswordModal
+          forced
+          allowKeep={!user.usingDefaultPassword}
+          onSuccess={() => refresh()}
+        />
       )}
     </>
   );

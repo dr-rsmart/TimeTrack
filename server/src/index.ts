@@ -19,10 +19,12 @@ import bcrypt from 'bcryptjs';
 
 import { requireAuth } from './middleware/auth.js';
 import { errorHandler, notFoundHandler } from './errorResponse.js';
-import { addClient, getClientCount } from './sse.js';
+import { addClient, getClientCount, closeAllClients } from './sse.js';
 import { startCron, stopCron } from './cron.js';
 import { getRedis, isRedisConfigured, checkRedisHealth } from './redis.js';
 import { requestIdMiddleware } from './middleware/requestId.js';
+import { recordHttpRequest } from './metrics.js';
+import { DEFAULT_PASSWORD } from './passwords.js';
 import prisma from './prisma.js';
 
 import authRoutes from './routes/auth.js';
@@ -35,6 +37,7 @@ import settingsRoutes from './routes/settings.js';
 import auditRoutes from './routes/audit.js';
 import masterRoutes from './routes/master.js';
 import healthRoutes from './routes/health.js';
+import metricsRoutes from './routes/metrics.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -54,6 +57,12 @@ const CORS_ORIGIN = config.corsOrigin;
 
 // ── Middleware ──
 app.use(requestIdMiddleware);
+
+// ── Request metrics (Prometheus counters at GET /metrics) ──
+app.use((_req, res, next) => {
+  res.on('finish', () => recordHttpRequest(res.statusCode));
+  next();
+});
 
 // ── Canonical Domain Redirect (www → apex) ──
 // Both time-track.tech and www.time-track.tech are attached to this service
@@ -151,6 +160,9 @@ app.use('/api/live', (req, res, next) => { req.url = '/live'; healthRoutes(req, 
 app.use('/ping', (req, res, next) => { req.url = '/ping'; healthRoutes(req, res, next); });
 app.use('/api/ping', (req, res, next) => { req.url = '/ping'; healthRoutes(req, res, next); });
 
+// ── Prometheus metrics (scraper endpoint; counters/gauges only, no secrets) ──
+app.use('/metrics', metricsRoutes);
+
 // ── SSE endpoint ──
 // The browser's EventSource automatically sends the Last-Event-ID header on
 // reconnect. We forward it to addClient so missed events within the replay
@@ -224,37 +236,84 @@ async function ensureDatabaseIndexes() {
   }
 }
 
-// ── Startup: ensure every employee has a login User account (default Password123) ──
+// ── Startup: ensure every employee has a login User account (default password) ──
+// Efficient single-query variant: a LEFT JOIN finds ONLY employees that do
+// not yet have a login account, instead of loading both full tables on every
+// boot (O(missing) instead of O(employees + users)). Chunked inserts keep
+// memory flat for large backfills. Set AUTO_PROVISION_ACCOUNTS=false to
+// disable provisioning entirely.
 async function syncEmployeeUserAccounts() {
-  try {
-    const employees = await prisma.employee.findMany({
-      select: { id: true, email: true, firstName: true, surname: true, role: true, companyProfileId: true }
-    });
-    const emails = employees.map((e) => e.email.toLowerCase());
-    const existingUsers = await prisma.user.findMany({ where: { email: { in: emails } }, select: { email: true } });
-    const existingSet = new Set(existingUsers.map((u) => u.email.toLowerCase()));
+  if (process.env.AUTO_PROVISION_ACCOUNTS === 'false') {
+    console.log('[server] User account sync disabled (AUTO_PROVISION_ACCOUNTS=false).');
+    return;
+  }
 
-    const missing = employees.filter((e) => !existingSet.has(e.email.toLowerCase()));
+  const syncStartedAt = Date.now();
+  try {
+    // ── 0. Boot-time Email Normalization & Tenant Auto-Healing ──
+    // Standardize all employee and user emails to trimmed lowercase to ensure
+    // zero case-mismatch 404s on clock-in and profile lookups.
+    await prisma.$executeRawUnsafe(`
+      UPDATE "Employee" SET "email" = LOWER(TRIM("email")) WHERE "email" IS NOT NULL AND "email" != LOWER(TRIM("email"));
+    `);
+    await prisma.$executeRawUnsafe(`
+      UPDATE "User" SET "email" = LOWER(TRIM("email")) WHERE "email" IS NOT NULL AND "email" != LOWER(TRIM("email"));
+    `);
+    // Heal any Employee records with null companyProfileId if matching User has a companyProfileId
+    await prisma.$executeRawUnsafe(`
+      UPDATE "Employee" e
+      SET "companyProfileId" = u."companyProfileId"
+      FROM "User" u
+      WHERE LOWER(TRIM(e."email")) = LOWER(TRIM(u."email"))
+        AND e."companyProfileId" IS NULL
+        AND u."companyProfileId" IS NOT NULL;
+    `);
+
+    const missing = await prisma.$queryRaw<
+      Array<{
+        id: string;
+        email: string;
+        firstName: string;
+        surname: string;
+        role: string;
+        companyProfileId: string | null;
+      }>
+    >`
+      SELECT e."id", e."email", e."firstName", e."surname", e."role", e."companyProfileId"
+      FROM "Employee" e
+      LEFT JOIN "User" u ON u."email" = lower(trim(e."email"))
+      WHERE u."id" IS NULL
+    `;
+
     if (missing.length === 0) {
-      console.log('[server] User account sync: all employees have login accounts.');
+      console.log(`[server] User account sync: all employees have login accounts (${Date.now() - syncStartedAt}ms).`);
       return;
     }
 
-    const passwordHash = await bcrypt.hash('Password123', 10);
-    // High-performance batch insertion. Accounts provisioned with the default
-    // password are flagged mustChangePassword so login forces a rotation.
-    await prisma.user.createMany({
-      data: missing.map((emp) => ({
-        email: emp.email.toLowerCase(),
-        fullName: `${emp.firstName} ${emp.surname}`,
-        role: (['master', 'admin', 'manager', 'employee'].includes(emp.role) ? emp.role : 'employee') as 'master' | 'admin' | 'manager' | 'employee',
-        passwordHash,
-        mustChangePassword: true,
-        companyProfileId: emp.companyProfileId,
-      })),
-      skipDuplicates: true,
-    });
-    console.log(`[server] User account sync: batch created ${missing.length} login account(s) with default password "Password123".`);
+    const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
+    // Chunked batch insertion. Accounts provisioned with the default password
+    // are flagged mustChangePassword; the server additionally rejects
+    // keep-password for default hashes, so login forces a real rotation.
+    const CHUNK_SIZE = 500;
+    let created = 0;
+    for (let i = 0; i < missing.length; i += CHUNK_SIZE) {
+      const batch = missing.slice(i, i + CHUNK_SIZE);
+      const result = await prisma.user.createMany({
+        data: batch.map((emp) => ({
+          email: emp.email.toLowerCase(),
+          fullName: `${emp.firstName} ${emp.surname}`,
+          role: (['master', 'admin', 'manager', 'employee'].includes(emp.role) ? emp.role : 'employee') as 'master' | 'admin' | 'manager' | 'employee',
+          passwordHash,
+          mustChangePassword: true,
+          companyProfileId: emp.companyProfileId,
+        })),
+        skipDuplicates: true,
+      });
+      created += result.count;
+    }
+    console.log(
+      `[server] User account sync: created ${created} login account(s) with temporary password in ${Date.now() - syncStartedAt}ms.`
+    );
   } catch (err) {
     console.error('[server] User account sync failed:', err);
   }
@@ -267,15 +326,31 @@ server.listen(PORT, async () => {
   await syncEmployeeUserAccounts();
   startCron();
   
-  // Run seed script in production if SEED_ON_START is set
+  // Optional convenience seeding for LOCAL DEVELOPMENT only.
+  // SECURITY: the seed script is fully destructive — it deletes every table
+  // and recreates demo data — so it must NEVER run in production, even if the
+  // SEED_ON_START variable is accidentally carried over from a dev config.
   if (process.env.SEED_ON_START === 'true') {
-    console.log('[server] Running seed script...');
-    try {
-      const { stdout, stderr } = await execAsync('cd server && npm run seed');
-      console.log('[server] Seed output:', stdout);
-      if (stderr) console.error('[server] Seed errors:', stderr);
-    } catch (err) {
-      console.error('[server] Seed failed:', err);
+    if (config.isProduction) {
+      console.error(
+        '[server] SEED_ON_START=true is IGNORED in production: the seed script deletes all data. ' +
+          'Remove this variable from the production environment.'
+      );
+    } else {
+      console.log('[server] Running seed script (development only)...');
+      try {
+        // Resolve the server directory relative to this module so the seed
+        // runs correctly whether executing from src/ (tsx) or dist/ (build).
+        const serverDir = path.resolve(__dirname, '..');
+        const { stdout, stderr } = await execAsync('npm run seed', {
+          cwd: serverDir,
+          timeout: 300_000,
+        });
+        console.log('[server] Seed output:', stdout);
+        if (stderr) console.error('[server] Seed errors:', stderr);
+      } catch (err) {
+        console.error('[server] Seed failed:', err);
+      }
     }
   }
 });
@@ -291,6 +366,11 @@ async function gracefulShutdown(signal: string): Promise<void> {
   console.log(`[server] ${signal} received — starting graceful shutdown...`);
 
   stopCron();
+
+  // Close all SSE streams immediately — long-lived event-stream connections
+  // would otherwise hold the HTTP server open until the 10s force-exit timer
+  // and delay zero-downtime deploys.
+  closeAllClients();
 
   // Stop accepting new connections; existing in-flight requests get 10s to finish.
   server.close(() => {
