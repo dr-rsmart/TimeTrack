@@ -63,3 +63,23 @@ case (entry 001 below), which motivates this register.
      `commits` allowlist block in `.gitleaks.toml`.
   3. Move App Store Connect keys out of `eas/` into a secret manager and delete
      the local copies (finding B11/NB-ops).
+
+## 003 — Production migration baseline: pwdEpoch column + `_prisma_migrations` adoption
+
+- **Date:** 2026-08-27
+- **Author:** operator + Cline (remediating Railway deploy failures for commits 3ad6dfe/99d1e07)
+- **Target:** Railway production PostgreSQL (`railway` DB, accessed via the service's public TCP proxy)
+- **Problem:** deploys of the latest commits failed at the build stage — a tracked UTF-16-encoded temp file (`playwright-temp.config.ts`) broke Nixpacks — and, after that was fixed, at container start: `production-start.mjs` ran `prisma migrate deploy` against a db-push-provisioned database with no `_prisma_migrations` table, aborting with P3005 ("database schema is not empty").
+- **What changed:**
+  1. Read-only verification first: `prisma migrate diff --from-url <prod> --to-schema-datamodel schema.prisma --script` confirmed the ONLY gap was the missing `User.pwdEpoch` column (the partial unique index `uniq_active_time_entry_employee` already existed via the runtime boot ceremony). No destructive changes.
+  2. Applied migration `1_session_revocation_and_unique_index` SQL idempotently:
+     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "pwdEpoch" INTEGER NOT NULL DEFAULT 0;`
+     `CREATE UNIQUE INDEX IF NOT EXISTS "uniq_active_time_entry_employee" ON "TimeEntry"("employeeEmail") WHERE "status" = 'active';` (index already existed — no-op)
+  3. Baselined migration history per `server/prisma/migrations/1_.../MIGRATION.md`:
+     `npx prisma migrate resolve --applied 0_init`
+     `npx prisma migrate resolve --applied 1_session_revocation_and_unique_index`
+  4. Verified `prisma migrate status` → "Database schema is up to date!". Repo commit 99d1e07 additionally removed the UTF-16 temp files and added them to `.gitignore`.
+- **Why:** required for the new code (session revocation via `pwdEpoch` stamped at login) and to move production onto recorded, auditable migration history so future `migrate deploy` starts work.
+- **Roll-forward:** nothing extra needed; history is now canonical. Future schema changes go through `prisma migrate dev` locally + `migrate deploy` on start.
+- **Rollback path:** the column is additive with default 0 and would only need removal if the pwdEpoch code were reverted (not planned). `_prisma_migrations` rows can be dropped to revert to db-push mode if ever required.
+- **Status:** deployment fb4de3ee (commit 99d1e07) is healthy; `/ping` returns 200 from public and Railway healthcheck.
