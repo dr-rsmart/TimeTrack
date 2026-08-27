@@ -28,6 +28,13 @@ backups/
 test-results/
 playwright-report/
 coverage/
+test-output.txt
+test-error.txt
+
+# Local temp config files (UTF-16 encoded; breaks Nixpacks build)
+playwright-temp.config.ts
+playwright.config.ts.bak
+temp-config.txt
 
 # Headed-browser helper profiles (store automation)
 .playwright-google-profile/
