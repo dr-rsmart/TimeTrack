@@ -72,6 +72,30 @@ function setLastAutoClockOut(): void {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Auto-clock eligibility (role rules)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Auto clock-in/out NEVER applies to master accounts — including sessions a
+ * master operates indirectly:
+ *   • pure master sessions (`role === 'master'`),
+ *   • demo-persona sessions (`originalRole === 'master'`, `demoEmail` set —
+ *     the JWT role is the simulated persona's role),
+ *   • impersonation sessions (`originalRole === 'master'`, role 'admin').
+ * A master driving a persona around a site must not create attendance
+ * records for that persona. Genuine tenant users (employee/admin/manager)
+ * are eligible.
+ */
+export function isAutoClockEligible(
+  user: { role: string; originalRole?: string | null } | null | undefined,
+): boolean {
+  if (!user) return false;
+  if (user.role === 'master') return false;
+  if (user.originalRole === 'master') return false; // demo persona / impersonation
+  return true;
+}
+
+// ─────────────────────────────────────────────────────────────
 // Notification Helpers
 // ─────────────────────────────────────────────────────────────
 
@@ -187,8 +211,12 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
     autoGeofenceService.syncClockedIn(isClockedIn);
     // Keep the native background task's clock state in sync so it knows
     // whether to clock in or out on the next geofence boundary crossing.
-    postToNativeShell({ type: 'CLOCK_STATE', clockedIn: isClockedIn });
-  }, [isClockedIn]);
+    // Only for eligible sessions — master/demo sessions never touch the
+    // native clocking state.
+    if (enabled) {
+      postToNativeShell({ type: 'CLOCK_STATE', clockedIn: isClockedIn });
+    }
+  }, [isClockedIn, enabled]);
 
   // ── Fetch employee's geofence ──
 

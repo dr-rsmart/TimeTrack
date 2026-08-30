@@ -6,7 +6,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { authApi, registerSessionHandler, suppressUnauthenticatedErrors, type CurrentUser, type SessionErrorCode } from '../services/api';
-import { postToNativeShell, isNativeShellPresent } from '../hooks/useAutoGeofence';
+import { postToNativeShell, isNativeShellPresent, isAutoClockEligible } from '../hooks/useAutoGeofence';
 
 interface AuthContextValue {
   user: CurrentUser | null;
@@ -52,7 +52,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Running inside the mobile native shell: hand it a fresh bearer token
       // so its background geofence task can clock in/out while the WebView
       // is suspended. Cookie auth is httpOnly and unreadable by native code.
-      if (isNativeShellPresent()) {
+      // Never mint for master/demo/impersonation sessions — auto clock-in/out
+      // does not apply to master accounts.
+      if (isNativeShellPresent() && isAutoClockEligible(me)) {
         authApi
           .nativeToken()
           .then((r) => postToNativeShell({ type: 'AUTH_TOKEN', token: r.token }))
@@ -93,7 +95,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSessionError(null);
     setUser(res.user);
     // Forward the just-issued token to the native shell (no-op in browsers).
-    if (res.token) postToNativeShell({ type: 'AUTH_TOKEN', token: res.token });
+    // Never for master accounts — auto clock-in/out does not apply to them.
+    // (A fresh login can never be a demo/impersonation session, so `role`
+    // alone is sufficient here; refresh() handles the session-restored case.)
+    if (res.token && isAutoClockEligible(res.user)) {
+      postToNativeShell({ type: 'AUTH_TOKEN', token: res.token });
+    }
   }, []);
 
   const logout = useCallback(async () => {

@@ -16,12 +16,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { timeEntryApi, type TimeEntry } from '../../services/api';
-import { useAutoGeofence, AUTO_CLOCK_EVENT } from '../../hooks/useAutoGeofence';
+import { useAutoGeofence, AUTO_CLOCK_EVENT, isAutoClockEligible } from '../../hooks/useAutoGeofence';
 import { useSSE } from '../../hooks/useSSE';
 import { checkGpsAvailability } from '../../utils/clockInHelper';
 
 export default function AutoGeofenceMonitor() {
-  const { user, isMaster } = useAuth();
+  const { user } = useAuth();
   const [activeEntry, setActiveEntry] = useState<TimeEntry | null>(null);
   const [gpsAvailable] = useState<boolean>(() => checkGpsAvailability().available);
 
@@ -58,9 +58,11 @@ export default function AutoGeofenceMonitor() {
   }, [loadActive]);
 
   // ── Own the auto-geofence hook ──
-  // Master console sessions never clock; tenant personas (employee, admin,
-  // manager, demo) all get monitoring. Widgets refresh themselves via
-  // AUTO_CLOCK_EVENT, so no callbacks are needed here.
+  // Auto clock-in/out NEVER applies to master accounts — including demo and
+  // impersonation sessions a master operates (originalRole === 'master'), so
+  // a master driving a persona never creates attendance records for it.
+  // Genuine tenant personas (employee, admin, manager) get monitoring.
+  // Widgets refresh themselves via AUTO_CLOCK_EVENT, so no callbacks needed.
   useAutoGeofence({
     userEmail: user?.email ?? null,
     isClockedIn: Boolean(activeEntry),
@@ -68,7 +70,7 @@ export default function AutoGeofenceMonitor() {
     activeEntry: (activeEntry as Record<string, unknown> | null) ?? null,
     onClockIn: async () => undefined,
     onClockOut: async () => undefined,
-    enabled: gpsAvailable && !isMaster,
+    enabled: gpsAvailable && isAutoClockEligible(user),
   });
 
   return null;
