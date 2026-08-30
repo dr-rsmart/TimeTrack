@@ -24,6 +24,11 @@ server/.env.*
 *.sql
 backups/
 
+# EXCEPTION: Prisma migration SQL files MUST be version-controlled —
+# deployments run `prisma migrate deploy`, which fails (P3015) if a
+# migration directory exists without its migration.sql.
+!server/prisma/migrations/**/*.sql
+
 # Test artifacts
 test-results/
 playwright-report/
