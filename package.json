@@ -28,7 +28,7 @@
     "submit:ios": "node scripts/submit-to-app-store.mjs",
     "review:ios": "node scripts/add-for-review-asc.mjs",
     "browser:asc": "node scripts/open-browser-asc.mjs",
-    "play:closedalpha": "node scripts/update-closed-alpha-vc9.mjs",
+    "play:closedalpha": "node scripts/update-closed-alpha-vc11.mjs",
     "play:verify": "node scripts/verify-closed-alpha-release.mjs"
   },
   "dependencies": {
