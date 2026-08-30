@@ -34,6 +34,8 @@ interface EmployeeLite {
   branch: string;
   department: string;
   geofenceId: string | null;
+  /** All assigned work locations (multi-location union incl. legacy primary). */
+  geofenceIds?: string[];
 }
 
 interface GeocodeResult {
@@ -394,6 +396,25 @@ export function GeofenceManager({ hideAssignEmployees = false }: { hideAssignEmp
     }
   };
 
+  /** Remove ONE location from an employee (multi-location aware, additive model). */
+  const unassignEmployee = async (employeeId: string, geofenceId: string) => {
+    try {
+      const res = await fetch(`/api/settings/geofences/${geofenceId}/assign-employees`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employeeIds: [employeeId], mode: 'unassign' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        loadData();
+      } else {
+        alert(data.error || 'Unassignment failed.');
+      }
+    } catch {
+      alert('Unassignment failed. Check your connection.');
+    }
+  };
+
   // ── Format radius for display ──
   const formatRadius = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m}m`);
 
@@ -405,7 +426,7 @@ export function GeofenceManager({ hideAssignEmployees = false }: { hideAssignEmp
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-xl font-semibold text-slate-900">Work Locations (Geofences)</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Clock-in validation zones. Employees with an assigned location can only clock in at their assigned geofence; unassigned employees may clock in at any active geofence.</p>
+          <p className="text-sm text-slate-500 mt-0.5">Clock-in validation zones. Employees can be assigned to one or MULTIPLE locations (e.g. Head Office and Branch) and may only clock in at their assigned geofences. Unassigned employees ("No Geo Location Assigned") can clock in/out from anywhere — no location restriction.</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -510,21 +531,42 @@ Automatically clocks user in upon sign-in/entry within allocated radius, and aut
             </button>
           </div>
           <div className="max-h-48 overflow-y-auto border rounded-lg divide-y">
-            {employees.map((emp) => (
-              <label key={emp.id} className="flex items-center gap-3 px-3 py-2 hover:bg-green-50 cursor-pointer text-sm">
-                <input
-                  type="checkbox"
-                  checked={selectedEmployeeIds.has(emp.id)}
-                  onChange={() => toggleEmployeeSelection(emp.id)}
-                  className="rounded"
-                />
-                <span className="font-medium">{emp.firstName} {emp.surname}</span>
-                <span className="text-slate-400 text-xs">{emp.email}</span>
-                <span className="ml-auto text-xs text-slate-400">
-                  {emp.geofenceId ? `Assigned: ${geofences.find((g) => g.id === emp.geofenceId)?.name || 'Unknown'}` : '⚠️ No geofence'}
-                </span>
-              </label>
-            ))}
+            {employees.map((emp) => {
+              const assignedIds = (emp.geofenceIds && emp.geofenceIds.length > 0)
+                ? emp.geofenceIds
+                : emp.geofenceId ? [emp.geofenceId] : [];
+              return (
+                <label key={emp.id} className="flex items-center gap-3 px-3 py-2 hover:bg-green-50 cursor-pointer text-sm flex-wrap">
+                  <input
+                    type="checkbox"
+                    checked={selectedEmployeeIds.has(emp.id)}
+                    onChange={() => toggleEmployeeSelection(emp.id)}
+                    className="rounded"
+                  />
+                  <span className="font-medium">{emp.firstName} {emp.surname}</span>
+                  <span className="text-slate-400 text-xs">{emp.email}</span>
+                  <span className="ml-auto flex items-center gap-1 flex-wrap" onClick={(e) => e.preventDefault()}>
+                    {assignedIds.length === 0 ? (
+                      <span className="text-xs text-amber-600">⚠️ No Geo Location Assigned (unrestricted)</span>
+                    ) : (
+                      assignedIds.map((gfId) => (
+                        <span key={gfId} className="inline-flex items-center gap-1 text-xs bg-green-100 text-green-800 px-1.5 py-0.5 rounded-full">
+                          {geofences.find((g) => g.id === gfId)?.name || 'Unknown'}
+                          <button
+                            type="button"
+                            onClick={() => unassignEmployee(emp.id, gfId)}
+                            className="text-green-700 hover:text-red-600 font-bold"
+                            title="Remove this location from the employee"
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      ))
+                    )}
+                  </span>
+                </label>
+              );
+            })}
             {employees.length === 0 && <p className="p-3 text-sm text-slate-400">No employees found.</p>}
           </div>
         </div>

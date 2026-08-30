@@ -73,7 +73,24 @@ import SelfClockWidget from '../components/dashboard/SelfClockWidget';
 import MasterDashboardView from '../components/dashboard/MasterDashboardView';
 import AttendanceDetailModal from '../components/dashboard/AttendanceDetailModal';
 
-const PIE_COLORS = ['#005DEC', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
+const PIE_COLORS = [
+  '#005DEC', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4',
+  '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16', '#a855f7',
+  '#0284c7', '#e11d48', '#d97706', '#059669', '#4f46e5', '#7c3aed',
+  '#2563eb', '#db2777', '#ca8a04', '#0d9488', '#9333ea', '#ea580c',
+];
+
+/**
+ * Slice colour resolver: curated high-contrast palette first, then maximally
+ * distinct generated hues (golden-angle rotation) so NO two slices share a
+ * colour no matter how many branches/departments exist (bug fix: multiple
+ * branches previously rendered with the same colour).
+ */
+function pieColor(index: number): string {
+  if (index < PIE_COLORS.length) return PIE_COLORS[index];
+  const hue = Math.round((index * 137.508) % 360);
+  return `hsl(${hue}, 68%, 46%)`;
+}
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -347,7 +364,7 @@ export default function Dashboard() {
                 <PieChart margin={{ top: 24, right: 24, bottom: 8, left: 24 }}>
                   <Pie data={distribution} dataKey="count" nameKey="branch" cx="50%" cy="50%" outerRadius={85} label>
                     {distribution.map((_, i) => (
-                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                      <Cell key={i} fill={pieColor(i)} />
                     ))}
                   </Pie>
                   <Legend />
@@ -410,7 +427,7 @@ export default function Dashboard() {
               <PieChart margin={{ top: 24, right: 24, bottom: 8, left: 24 }}>
                 <Pie data={departmentDistribution} dataKey="count" nameKey="department" cx="50%" cy="50%" outerRadius={85} label>
                   {departmentDistribution.map((_, i) => (
-                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                    <Cell key={i} fill={pieColor(i)} />
                   ))}
                 </Pie>
                 <Legend />

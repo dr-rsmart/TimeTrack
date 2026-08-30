@@ -104,7 +104,7 @@ function getZone(distanceMeters: number, radiusMeters: number): ProximityZone {
 
 export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
   const [allGeofences, setAllGeofences] = useState<Geofence[]>([]);
-  const [assignedGeofenceId, setAssignedGeofenceId] = useState<string | null>(null);
+  const [assignedGeofenceIds, setAssignedGeofenceIds] = useState<string[]>([]);
   const [distanceResults, setDistanceResults] = useState<DistanceResult[]>([]);
   const [closestResult, setClosestResult] = useState<DistanceResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -124,10 +124,8 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
 
       const geofences: Geofence[] = data.geofences || [];
       setAllGeofences(geofences);
-
-      if (data.employee?.geofenceId) {
-        setAssignedGeofenceId(data.employee.geofenceId);
-      }
+      const assigned: string[] = data.employee?.geofenceIds ?? (data.employee?.geofenceId ? [data.employee.geofenceId] : []);
+      setAssignedGeofenceIds(assigned);
     } catch (err) {
       console.error('Failed to fetch work location data:', err);
     } finally {
@@ -175,10 +173,10 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
 
       // Determine allowed geofences (matches backend logic)
       const activeGeofences = allGeofences.filter((g) => g.isActive);
-      const assignedGeofence = assignedGeofenceId
-        ? activeGeofences.find((g) => g.id === assignedGeofenceId)
-        : undefined;
-      const allowedGeofences = assignedGeofence ? [assignedGeofence] : activeGeofences;
+      const assignedGeofences = assignedGeofenceIds.length > 0
+        ? activeGeofences.filter((g) => assignedGeofenceIds.includes(g.id))
+        : [];
+      const allowedGeofences = assignedGeofences.length > 0 ? assignedGeofences : activeGeofences;
 
       const results: DistanceResult[] = allowedGeofences.map((gf) => {
         const distance = haversineDistance(latitude, longitude, gf.latitude, gf.longitude);
@@ -188,7 +186,7 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
           distanceMeters: Math.round(distance),
           withinRadius: distance <= effectiveRadius,
           zone: getZone(Math.round(distance), gf.radiusMeters),
-          isAssigned: gf.id === assignedGeofenceId,
+          isAssigned: assignedGeofenceIds.includes(gf.id),
         };
       });
 
@@ -213,7 +211,7 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
     } finally {
       setLocating(false);
     }
-  }, [allGeofences, assignedGeofenceId]);
+  }, [allGeofences, assignedGeofenceIds]);
 
   // Auto-calculate on first load once geofences are available
   useEffect(() => {
@@ -467,7 +465,7 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
           {!canAddLocation && distanceResults.length > 1 && (
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
-                {assignedGeofenceId ? 'Your Assigned Work Location' : `All Company Work Locations (${distanceResults.length})`}
+                {assignedGeofenceIds.length > 0 ? `Your Assigned Work Location${assignedGeofenceIds.length > 1 ? 's' : ''}` : `All Company Work Locations (${distanceResults.length})`}
               </p>
               {distanceResults.map((r) => (
                 <div

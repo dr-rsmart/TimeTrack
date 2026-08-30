@@ -294,10 +294,12 @@ export interface Employee {
   hireDate: string | null;
   managerId: string | null;
   geofenceId: string | null;
+  geofenceIds?: string[];
   version: number;
   createdAt: string;
   updatedAt: string;
   geofence?: { id: string; name: string } | null;
+  employeeGeofences?: Array<{ geofence: { id: string; name: string } }>;
   manager?: { id: string; firstName: string; surname: string; role?: string; branch?: string } | null;
   /** Present on list responses: false = employee is visible in Workforce but has no login account. */
   hasLoginAccount?: boolean;
@@ -406,6 +408,7 @@ export const shiftApi = {
     location?: string;
     notes?: string;
     skipOverlaps?: boolean;
+    weeklySchedule?: Record<string, { enabled?: boolean; startTime?: string; endTime?: string; shiftType?: string }>;
   }) => api.post<BulkShiftResult>('/shifts/bulk', data),
 };
 
@@ -546,7 +549,7 @@ export const settingsApi = {
   listGeofences: () => api.get<{ geofences: Geofence[] }>('/settings/geofences'),
   getMyGeofences: () =>
     api.get<{
-      employee: { id: string; branch: string; department: string; geofenceId: string | null } | null;
+      employee: { id: string; branch: string; department: string; geofenceId: string | null; geofenceIds?: string[] } | null;
       geofences: Geofence[];
     }>('/settings/geofences/my'),
   createGeofence: (data: Partial<Geofence>) => api.post<{ geofence: Geofence }>('/settings/geofences', data),

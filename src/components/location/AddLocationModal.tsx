@@ -92,7 +92,9 @@ export function AddLocationModal({ isOpen, onClose }: { isOpen: boolean; onClose
 
       if (data.employee?.geofenceId && data.geofences) {
         const assigned = data.geofences.find((g: Geofence) => g.id === data.employee.geofenceId);
-        if (assigned) setMyGeofence(assigned);
+        setMyGeofence(assigned ?? null);
+      } else {
+        setMyGeofence(null);
       }
     } catch (err) {
       console.error('Failed to fetch work location:', err);

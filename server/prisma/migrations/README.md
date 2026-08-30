@@ -14,3 +14,5 @@ TimeTrack utilizes Prisma Migrate alongside idempotent SQL migrations for Postgr
 
 ## Migration History
 - `0_init`: Initial baseline schema containing `User`, `CompanyProfile`, `Employee`, `Shift`, `TimeEntry`, `CompanySettings`, `Geofence`, `LocationPreset`, `AuditLog`, `RetentionPolicy`, `CronLock`, `EmploymentHistory`.
+- `1_session_revocation_and_unique_index`: `User.pwdEpoch` session revocation + structural partial unique index on active time entries.
+- `2_employee_geofence_multi_location`: `EmployeeGeofence` join table enabling multi-location geofence assignments per employee.

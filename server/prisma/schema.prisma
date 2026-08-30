@@ -106,6 +106,7 @@ model Employee {
   updatedAt        DateTime           @updatedAt
 
   geofence         Geofence?          @relation(fields: [geofenceId], references: [id])
+  employeeGeofences EmployeeGeofence[]
   manager          Employee?          @relation("ManagerSubordinates", fields: [managerId], references: [id])
   subordinates     Employee[]         @relation("ManagerSubordinates")
   shifts           Shift[]
@@ -261,8 +262,25 @@ model Geofence {
   updatedAt        DateTime        @updatedAt
 
   employees        Employee[]
+  employeeGeofences EmployeeGeofence[]
   companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id])
 
+  @@index([companyProfileId])
+}
+
+model EmployeeGeofence {
+  id               String    @id @default(cuid())
+  employeeId       String
+  geofenceId       String
+  companyProfileId String?
+  createdAt        DateTime  @default(now())
+
+  employee         Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  geofence         Geofence  @relation(fields: [geofenceId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, geofenceId])
+  @@index([employeeId])
+  @@index([geofenceId])
   @@index([companyProfileId])
 }
 

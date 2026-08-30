@@ -15,6 +15,10 @@ import {
 } from '../services/AutoGeofenceService';
 import { authApi, employeeApi, timeEntryApi, settingsApi } from '../services/api';
 import { getCurrentPosition } from '../utils/clockInHelper';
+import { useSSE } from './useSSE';
+
+/** How often the geofence assignment is re-fetched as a safety net (SSE covers most updates instantly). */
+const GEOFENCE_REFRESH_INTERVAL_MS = 5 * 60_000;
 
 // ─────────────────────────────────────────────────────────────
 // Local Storage Keys
@@ -190,7 +194,10 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
   const { userEmail, isClockedIn, activeEntryId, activeEntry, onClockIn, onClockOut, enabled = true } = options;
 
   const [autoGeofenceEnabled, setAutoGeofenceEnabledState] = useState(() => getAutoGeofenceEnabled());
-  const [geofence, setGeofence] = useState<GeofenceDefinition | null>(null);
+  /** All assigned work locations being monitored (multi-location employees). */
+  const [geofences, setGeofences] = useState<GeofenceDefinition[]>([]);
+  /** Primary monitoring target (first assigned location) — display/compat. */
+  const geofence = geofences.length > 0 ? geofences[0] : null;
   const [monitorState, setMonitorState] = useState<AutoGeofenceState | null>(null);
   const [isInsideGeofence, setIsInsideGeofence] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -218,112 +225,102 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
     }
   }, [isClockedIn, enabled]);
 
-  // ── Fetch employee's geofence ──
+  // ── Fetch the employee's assigned geofence(s) — multi-location aware ──
+  //
+  // Assigned employees are monitored against ALL their assigned locations:
+  // auto clock-in inside ANY of them, auto clock-out only when OUTSIDE ALL.
+  // UNASSIGNED employees ("No Geo Location Assigned") are NOT monitored —
+  // they have no location restriction for clocking (server-side), so tying
+  // their auto punches to an arbitrary company site would be wrong.
 
-  useEffect(() => {
-    let cancelled = false;
-    if (!enabled || !userEmail) { setGeofence(null); return; }
+  const fetchGeofences = useCallback(async () => {
+    if (!enabled || !userEmail) return;
+    try {
+      // Employee-accessible endpoint /api/settings/geofences/my
+      const myData = await settingsApi.getMyGeofences().catch(() => null);
+      let targets: GeofenceDefinition[] = [];
 
-    async function fetchGeofence() {
-      try {
-        // Use employee-accessible endpoint /api/settings/geofences/my
-        const myData = await settingsApi.getMyGeofences().catch(() => null);
-        let targetGeofence: GeofenceDefinition | null = null;
+      if (myData && myData.geofences) {
+        const assignedIds: string[] =
+          myData.employee?.geofenceIds ?? (myData.employee?.geofenceId ? [myData.employee.geofenceId] : []);
+        targets = myData.geofences
+          .filter((g) => g.isActive && assignedIds.includes(g.id))
+          .map((g) => ({
+            id: g.id,
+            name: g.name,
+            address: g.address,
+            latitude: g.latitude,
+            longitude: g.longitude,
+            radius_meters: g.radiusMeters,
+            is_active: g.isActive,
+          }));
+      }
 
-        if (myData && myData.geofences) {
-          const assignedId = myData.employee?.geofenceId;
-          if (assignedId) {
-            const assigned = myData.geofences.find((g) => g.id === assignedId && g.isActive);
-            if (assigned) {
-              targetGeofence = {
-                id: assigned.id,
-                name: assigned.name,
-                address: assigned.address,
-                latitude: assigned.latitude,
-                longitude: assigned.longitude,
-                radius_meters: assigned.radiusMeters,
-                is_active: assigned.isActive,
-              };
-            }
-          }
+      setGeofences(targets);
+      setError(null);
 
-          // If no assigned geofence or not found, fall back to first active company geofence
-          if (!targetGeofence && myData.geofences.length > 0) {
-            const firstActive = myData.geofences.find((g) => g.isActive);
-            if (firstActive) {
-              targetGeofence = {
-                id: firstActive.id,
-                name: firstActive.name,
-                address: firstActive.address,
-                latitude: firstActive.latitude,
-                longitude: firstActive.longitude,
-                radius_meters: firstActive.radiusMeters,
-                is_active: firstActive.isActive,
-              };
-            }
-          }
-        }
-
-        // Fallback for Admin/Manager roles if /geofences/my returned empty
-        if (!targetGeofence) {
-          try {
-            const { geofences } = await settingsApi.listGeofences();
-            const active = geofences.find((g) => g.isActive);
-            if (active) {
-              targetGeofence = {
-                id: active.id,
-                name: active.name,
-                address: active.address,
-                latitude: active.latitude,
-                longitude: active.longitude,
-                radius_meters: active.radiusMeters,
-                is_active: active.isActive,
-              };
-            }
-          } catch {
-            // Ignore error if not permitted
-          }
-        }
-
-        if (cancelled) return;
-
-        if (!targetGeofence) {
-          setError('No active work location assigned to your profile.');
-          setGeofence(null);
-          return;
-        }
-
-        setGeofence(targetGeofence);
-        setError(null);
-
-        // Forward the assignment to the native shell so its background task
-        // can monitor the same geofence while the WebView is suspended.
+      // Forward the FULL assignment list to the native shell so its
+      // background task can monitor every location while the WebView is
+      // suspended. `geofence` (single) is kept for older app builds.
+      if (targets.length > 0) {
         postToNativeShell({
           type: 'GEOFENCE_ASSIGNED',
           geofence: {
-            id: targetGeofence.id,
-            name: targetGeofence.name,
-            latitude: targetGeofence.latitude,
-            longitude: targetGeofence.longitude,
-            radiusMeters: targetGeofence.radius_meters,
+            id: targets[0].id,
+            name: targets[0].name,
+            latitude: targets[0].latitude,
+            longitude: targets[0].longitude,
+            radiusMeters: targets[0].radius_meters,
           },
+          geofences: targets.map((t) => ({
+            id: t.id,
+            name: t.name,
+            latitude: t.latitude,
+            longitude: t.longitude,
+            radiusMeters: t.radius_meters,
+          })),
         });
-      } catch (err: unknown) {
-        if (!cancelled) {
-          const message = err instanceof Error ? err.message : 'Unknown error';
-          console.error('[useAutoGeofence] Failed to fetch geofence:', err);
-          setError(`Failed to load geofence data: ${message}`);
-        }
+      } else {
+        // Assignment removed — tell the native shell to stop geofence
+        // monitoring (new builds clear any stale stored location).
+        postToNativeShell({ type: 'GEOFENCE_ASSIGNED', geofence: null, geofences: [] });
       }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[useAutoGeofence] Failed to fetch geofences:', err);
+      setError(`Failed to load geofence data: ${message}`);
     }
-    fetchGeofence();
-    return () => { cancelled = true; };
   }, [enabled, userEmail]);
+
+  // Initial load + refresh whenever the session/target changes.
+  useEffect(() => {
+    if (!enabled || !userEmail) {
+      setGeofences([]);
+      return;
+    }
+    void fetchGeofences();
+  }, [enabled, userEmail, fetchGeofences]);
+
+  // Realtime refresh: admin reassignment broadcasts (geofence entity).
+  useSSE((event) => {
+    if (event.entity === 'geofence') void fetchGeofences();
+  });
+
+  // Safety-net periodic refresh in case SSE is unavailable.
+  useEffect(() => {
+    if (!enabled || !userEmail) return;
+    const iv = setInterval(() => { void fetchGeofences(); }, GEOFENCE_REFRESH_INTERVAL_MS);
+    return () => clearInterval(iv);
+  }, [enabled, userEmail, fetchGeofences]);
 
   // ── Start/stop monitoring ──
 
+  // Key on the geofence ID set so identical re-fetches (SSE/poll) don't tear
+  // down and restart the position watch unnecessarily.
+  const geofenceIdsKey = geofences.map((g) => g.id).join('|');
+
   useEffect(() => {
-    if (!enabled || !geofence || !autoGeofenceEnabled) {
+    if (!enabled || geofences.length === 0 || !autoGeofenceEnabled) {
       autoGeofenceService.stopMonitoring();
       return;
     }
@@ -333,10 +330,11 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
     // startMonitoring seeds the boundary state from the live clock state:
     // clocked-in users are treated as INSIDE (reliable auto clock-out), and
     // signed-out users get an immediate auto clock-in on the first good fix
-    // inside the geofence.
-    autoGeofenceService.startMonitoring(geofence, isClockedInRef.current);
+    // inside ANY assigned geofence (unless the awaiting-exit guard is armed).
+    autoGeofenceService.startMonitoring(geofences, isClockedInRef.current);
     return () => { autoGeofenceService.stopMonitoring(); };
-  }, [enabled, geofence, autoGeofenceEnabled]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, geofenceIdsKey, autoGeofenceEnabled]);
 
   // ── Listen for state changes ──
 
@@ -372,7 +370,7 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
             showToast('error', 'Auto clock-in failed', msg);
           }
         }
-      } else if (event.type === 'EXITED_GEOFENCE' && event.geofence && isClockedInRef.current && activeEntryRef.current) {
+      } else if (event.type === 'EXITED_GEOFENCE' && event.geofence && isClockedInRef.current) {
         try {
           const pos = event.position || (await getCurrentPosition());
           await timeEntryApi.clockOut(0, pos?.latitude, pos?.longitude, userEmail ?? undefined);
@@ -420,9 +418,10 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
   // startMonitoring is idempotent — it tears down any existing watch/timers
   // first, so this is safe to call at any time.
   const restartMonitoring = useCallback(() => {
-    if (!geofence || !autoGeofenceEnabledRef.current) return;
-    autoGeofenceService.startMonitoring(geofence, isClockedInRef.current);
-  }, [geofence]);
+    if (geofences.length === 0 || !autoGeofenceEnabledRef.current) return;
+    autoGeofenceService.startMonitoring(geofences, isClockedInRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geofenceIdsKey]);
 
   return {
     isAutoGeofenceActive: autoGeofenceEnabled && monitorState?.isMonitoring === true,

@@ -9,9 +9,11 @@
  * - Role-based manual override bypass (admin/master only)
  * - Rich error payloads with actionable troubleshooting suggestions
  * - Coordinate range validation and inactive geofence handling
- * - Assigned-geofence enforcement: employees with a geofenceId are validated
- *   ONLY against their assigned geofence. Employees without an assignment
- *   fall back to checking all active company geofences.
+ * - Assigned-geofence enforcement: employees with assigned geofences (via the
+ *   EmployeeGeofence multi-location table and/or the legacy geofenceId field)
+ *   are validated against ALL of their active assigned geofences. Employees
+ *   without any assignment have NO location restriction and may clock in from
+ *   anywhere ("No Geo Location Assigned" = unrestricted).
  * - GPS accuracy tolerance buffer to prevent false declines at boundaries
  */
 
@@ -165,6 +167,21 @@ export async function validateClockInLocation(
             isActive: true,
           },
         },
+        employeeGeofences: {
+          select: {
+            geofence: {
+              select: {
+                id: true,
+                name: true,
+                address: true,
+                latitude: true,
+                longitude: true,
+                radiusMeters: true,
+                isActive: true,
+              },
+            },
+          },
+        },
       },
     }).catch((lookupError: unknown) => {
       const err = lookupError as { code?: string };
@@ -192,22 +209,33 @@ export async function validateClockInLocation(
     };
 
     // ── Determine which geofences the employee is allowed to clock in at ──
-    // Employees WITH an assigned geofence are locked to that geofence only —
-    // this prevents an employee assigned to Cape Town from clocking in at
-    // Sitari Country Estate (or any other company site), which would produce
-    // inaccurate attendance reporting.
-    // Employees WITHOUT an assignment may clock in at any active company site.
-    let allowedGeofences: GeofenceRecord[];
-    const hasAssignedGeofence = Boolean(employee.geofenceId && employee.geofence);
+    // Multiple geofences can be assigned to an employee (via employeeGeofences or legacy geofenceId).
+    // If the employee HAS assigned geofences, validation is performed against ALL active assigned geofences.
+    // Employees WITHOUT any assignment may clock in at any active company site.
+    let allowedGeofences: GeofenceRecord[] = [];
+    
+    // Collect all assigned geofences (both multi-location and legacy single location)
+    const assignedList: GeofenceRecord[] = [];
+    if (employee.employeeGeofences && employee.employeeGeofences.length > 0) {
+      for (const eg of employee.employeeGeofences) {
+        if (eg.geofence) assignedList.push(eg.geofence);
+      }
+    }
+    if (employee.geofence && !assignedList.some((g) => g.id === employee.geofence!.id)) {
+      assignedList.push(employee.geofence);
+    }
 
-    if (hasAssignedGeofence && employee.geofence) {
-      // Assigned geofence must be active to be usable
-      if (!employee.geofence.isActive) {
+    const hasAssignedGeofences = assignedList.length > 0;
+
+    if (hasAssignedGeofences) {
+      const activeAssigned = assignedList.filter((g) => g.isActive);
+      if (activeAssigned.length === 0) {
+        const names = assignedList.map((g) => `"${g.name}"`).join(', ');
         return {
           passed: !STRICT_GEOFENCE,
-          geofenceName: employee.geofence.name,
+          geofenceName: assignedList[0].name,
           error: STRICT_GEOFENCE
-            ? `Your assigned work location "${employee.geofence.name}" is currently inactive. Ask your administrator to reactivate it or reassign you to an active location.`
+            ? `Your assigned work location(s) (${names}) are currently inactive. Ask your administrator to reactivate or reassign you.`
             : undefined,
           suggestions: STRICT_GEOFENCE
             ? [
@@ -217,24 +245,17 @@ export async function validateClockInLocation(
             : undefined,
         };
       }
-      allowedGeofences = [employee.geofence];
+      allowedGeofences = activeAssigned;
     } else {
-      // Unassigned employee — allow any active company geofence
-      allowedGeofences = await prisma.geofence.findMany({
-        where: {
-          companyProfileId: employee.companyProfileId ?? undefined,
-          isActive: true,
-        },
-        select: {
-          id: true,
-          name: true,
-          address: true,
-          latitude: true,
-          longitude: true,
-          radiusMeters: true,
-          isActive: true,
-        },
-      }).catch(() => [] as GeofenceRecord[]);
+      // Unassigned employee ("No Geo Location Assigned") — NO location
+      // restriction: they may clock in from anywhere.
+      //
+      // Previously this fell back to validating against every active company
+      // geofence, which effectively locked unassigned employees out of
+      // clocking in/out unless they stood inside a company site (bug report:
+      // after removing an assignment the employee still had to be at the last
+      // assigned location). No assignment now means "no geofence enforcement".
+      return { passed: true };
     }
 
     // No geofences available (none configured, or none active)
@@ -389,6 +410,21 @@ export async function validateClockOutLocation(
             isActive: true,
           },
         },
+        employeeGeofences: {
+          select: {
+            geofence: {
+              select: {
+                id: true,
+                name: true,
+                address: true,
+                latitude: true,
+                longitude: true,
+                radiusMeters: true,
+                isActive: true,
+              },
+            },
+          },
+        },
       },
     }).catch(() => null);
 
@@ -412,7 +448,25 @@ export async function validateClockOutLocation(
       };
     }
 
-    let allowedGeofences = employee?.geofence ? [employee.geofence] : [];
+    const assignedList: Array<{
+      id: string;
+      name: string;
+      address: string | null;
+      latitude: number;
+      longitude: number;
+      radiusMeters: number;
+      isActive: boolean;
+    }> = [];
+    if (employee?.employeeGeofences && employee.employeeGeofences.length > 0) {
+      for (const eg of employee.employeeGeofences) {
+        if (eg.geofence) assignedList.push(eg.geofence);
+      }
+    }
+    if (employee?.geofence && !assignedList.some((g) => g.id === employee.geofence!.id)) {
+      assignedList.push(employee.geofence);
+    }
+
+    let allowedGeofences = assignedList.filter((g) => g.isActive);
     if (allowedGeofences.length === 0 && employee?.companyProfileId) {
       allowedGeofences = await prisma.geofence.findMany({
         where: { companyProfileId: employee.companyProfileId, isActive: true },

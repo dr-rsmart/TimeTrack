@@ -63,7 +63,7 @@ export default function Employees() {
   
   // Geofence options for assignment
   const [geofences, setGeofences] = useState<GeofenceOption[]>([]);
-  const [formGeofenceId, setFormGeofenceId] = useState<string | null>(null);
+  const [formGeofenceIds, setFormGeofenceIds] = useState<string[]>([]);
 
   // Manager options loaded from dedicated endpoint (admin only)
   const [managerOptions, setManagerOptions] = useState<ManagerOption[]>([]);
@@ -125,6 +125,7 @@ export default function Employees() {
   const openCreate = () => {
     setEditing(null);
     setForm(emptyForm);
+    setFormGeofenceIds([]);
     setModalOpen(true);
   };
 
@@ -142,8 +143,17 @@ export default function Employees() {
       phone: emp.phone ?? '',
       managerId: emp.managerId ?? '',
     });
-    const geofenceId = (emp as any).geofenceId || (emp as any).geofence_id || null;
-    setFormGeofenceId(geofenceId);
+    const assigned: string[] = [];
+    if (emp.employeeGeofences && emp.employeeGeofences.length > 0) {
+      for (const eg of emp.employeeGeofences) {
+        if (eg.geofence?.id) assigned.push(eg.geofence.id);
+      }
+    }
+    const legacyGfId = (emp as any).geofenceId || (emp as any).geofence_id;
+    if (legacyGfId && !assigned.includes(legacyGfId)) {
+      assigned.push(legacyGfId);
+    }
+    setFormGeofenceIds(assigned);
     setModalOpen(true);
   };
 
@@ -224,12 +234,8 @@ export default function Employees() {
         payload.managerId = form.managerId || null;
       }
       // Include geofence assignment if admin/master
-      if (formGeofenceId) {
-        payload.geofenceId = formGeofenceId;
-      } else if (formGeofenceId === null && editing) {
-        // Clear geofence assignment
-        payload.geofenceId = null;
-      }
+      payload.geofenceIds = formGeofenceIds;
+      payload.geofenceId = formGeofenceIds.length > 0 ? formGeofenceIds[0] : null;
       if (editing) {
         await employeeApi.update(editing.id, { ...payload, version: editing.version });
         toast.success('Employee updated');
@@ -586,27 +592,60 @@ export default function Employees() {
             </div>
           )}
 
-          {/* Geofence Assignment (Admin and Manager — managers can change location of their supervised employees) */}
+          {/* Geofence Assignment (Admin and Manager — multiple locations supported) */}
           {canManage && (
             <div className="space-y-2 pt-2 border-t border-border/50">
-              <div className="flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-blue-500" />
-                <Label htmlFor="f-geofence" className="text-sm font-semibold text-slate-700">Work Location (Geofence)</Label>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-blue-500" />
+                  <Label className="text-sm font-semibold text-slate-700">Work Locations (Geofences)</Label>
+                </div>
+                {formGeofenceIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setFormGeofenceIds([])}
+                    className="text-xs text-muted-foreground hover:text-foreground underline"
+                  >
+                    Clear All
+                  </button>
+                )}
               </div>
-              <Select
-                id="f-geofence"
-                value={formGeofenceId ?? ''}
-                onChange={(e) => setFormGeofenceId(e.target.value || null)}
-              >
-                <option value="">— No geofence assigned —</option>
-                {geofences.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name} ({g.address || 'No address'}) ⌀ radius
-                  </option>
-                ))}
-              </Select>
+              <div className="border border-border rounded-lg p-2.5 max-h-48 overflow-y-auto space-y-1.5 bg-secondary/20">
+                {geofences.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-2">No geofences configured.</p>
+                ) : (
+                  geofences.map((g) => {
+                    const isSelected = formGeofenceIds.includes(g.id);
+                    return (
+                      <label
+                        key={g.id}
+                        className={`flex items-center gap-2.5 p-2 rounded-md text-xs cursor-pointer border transition-colors ${
+                          isSelected ? 'bg-blue-50/80 border-blue-200 text-blue-900 font-medium' : 'hover:bg-secondary/60 border-transparent text-slate-700'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFormGeofenceIds([...formGeofenceIds, g.id]);
+                            } else {
+                              setFormGeofenceIds(formGeofenceIds.filter((id) => id !== g.id));
+                            }
+                          }}
+                          className="h-3.5 w-3.5 rounded text-brand focus:ring-brand"
+                        />
+                        <div className="flex-1 truncate">
+                          <span className="font-semibold">{g.name}</span>
+                          {g.address && <span className="text-muted-foreground ml-1.5 truncate">({g.address})</span>}
+                        </div>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
               <p className="text-xs text-muted-foreground">
-                Assign this employee to a work location for automatic clock-in validation. Employees can only clock in when within the geofence radius.
+                Assign this employee to one or multiple locations (e.g. Head Office and Branch). When no locations are selected ("No Geo Location Assigned"), they can clock in/out from anywhere — no location restriction applies.
               </p>
             </div>
           )}

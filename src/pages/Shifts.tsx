@@ -59,6 +59,25 @@ function daysInclusive(a: Date, b: Date): number {
   return Math.round((b.getTime() - a.getTime()) / 86400000) + 1;
 }
 
+interface DayScheduleConfig {
+  enabled: boolean;
+  startTime: string;
+  endTime: string;
+  shiftType: string;
+}
+
+const defaultWeeklySchedule: Record<number, DayScheduleConfig> = {
+  1: { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Mon
+  2: { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Tue
+  3: { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Wed
+  4: { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Thu
+  5: { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Fri
+  6: { enabled: false, startTime: '08:00', endTime: '12:30', shiftType: 'half_day' }, // Sat (Closed)
+  0: { enabled: false, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Sun (Closed)
+};
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
 const emptyForm = {
   branch: '',
   employeeIds: [] as string[],
@@ -69,6 +88,8 @@ const emptyForm = {
   endTime: '17:00',
   shiftType: 'full_day',
   notes: '',
+  useCustomDailyHours: false,
+  weeklySchedule: { ...defaultWeeklySchedule },
 };
 
 export default function Shifts() {
@@ -303,6 +324,7 @@ export default function Shifts() {
           endTime: form.endTime,
           shiftType: form.shiftType,
           notes: form.notes || undefined,
+          weeklySchedule: form.useCustomDailyHours ? form.weeklySchedule : undefined,
         });
         toast.success(`Created ${res.created} shift${res.created === 1 ? '' : 's'}`);
         if (res.skipped > 0) {
@@ -596,12 +618,91 @@ export default function Shifts() {
               </div>
 
               {(rangeDays ?? 1) > 1 && (
-                <p className="rounded-lg bg-muted/70 px-3 py-2 text-sm text-muted-foreground">
-                  <Info className="mr-1.5 inline h-3.5 w-3.5" />
-                  {projectedShifts > 0
-                    ? <>Creates {projectedShifts} shift{projectedShifts === 1 ? '' : 's'}: {rangeDays} day{rangeDays === 1 ? '' : 's'} × {form.employeeIds.length} employee{form.employeeIds.length === 1 ? '' : 's'}.</>
-                    : <>Range covers {rangeDays} days — select employees above to include them.</>}
-                </p>
+                <div className="space-y-3">
+                  <p className="rounded-lg bg-muted/70 px-3 py-2 text-sm text-muted-foreground">
+                    <Info className="mr-1.5 inline h-3.5 w-3.5" />
+                    {projectedShifts > 0
+                      ? <>Creates {projectedShifts} shift{projectedShifts === 1 ? '' : 's'}: {rangeDays} day{rangeDays === 1 ? '' : 's'} × {form.employeeIds.length} employee{form.employeeIds.length === 1 ? '' : 's'}.</>
+                      : <>Range covers {rangeDays} days — select employees above to include them.</>}
+                  </p>
+
+                  {/* Day-of-week customize toggle */}
+                  <div className="rounded-xl border border-border p-3 bg-secondary/20 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-sm font-semibold">Custom Hours per Day of Week</span>
+                        <p className="text-xs text-muted-foreground">Set unique hours for weekdays, Saturdays, or mark Sundays Closed.</p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        id="s-custom-daily"
+                        checked={form.useCustomDailyHours}
+                        onChange={(e) => setForm({ ...form, useCustomDailyHours: e.target.checked })}
+                        className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand cursor-pointer"
+                      />
+                    </div>
+
+                    {form.useCustomDailyHours && (
+                      <div className="space-y-2 pt-2 border-t border-border/50">
+                        {/* Day list: Mon(1) to Sat(6), Sun(0) */}
+                        {[1, 2, 3, 4, 5, 6, 0].map((dayIdx) => {
+                          const config = form.weeklySchedule[dayIdx] ?? defaultWeeklySchedule[dayIdx];
+                          return (
+                            <div key={dayIdx} className="flex items-center gap-2 text-xs py-1 px-2 rounded-lg bg-background border border-border/40">
+                              <span className="w-20 font-medium">{DAY_NAMES[dayIdx]}</span>
+                              <label className="flex items-center gap-1 cursor-pointer mr-2">
+                                <input
+                                  type="checkbox"
+                                  checked={config.enabled}
+                                  onChange={(e) => {
+                                    const next = {
+                                      ...form.weeklySchedule,
+                                      [dayIdx]: { ...config, enabled: e.target.checked },
+                                    };
+                                    setForm({ ...form, weeklySchedule: next });
+                                  }}
+                                  className="h-3.5 w-3.5 rounded text-brand cursor-pointer"
+                                />
+                                <span className={config.enabled ? 'text-emerald-600 font-semibold' : 'text-muted-foreground'}>
+                                  {config.enabled ? 'Open' : 'Closed'}
+                                </span>
+                              </label>
+                              {config.enabled && (
+                                <>
+                                  <input
+                                    type="time"
+                                    value={config.startTime}
+                                    onChange={(e) => {
+                                      const next = {
+                                        ...form.weeklySchedule,
+                                        [dayIdx]: { ...config, startTime: e.target.value },
+                                      };
+                                      setForm({ ...form, weeklySchedule: next });
+                                    }}
+                                    className="px-2 py-1 text-xs border rounded bg-secondary/30"
+                                  />
+                                  <span>to</span>
+                                  <input
+                                    type="time"
+                                    value={config.endTime}
+                                    onChange={(e) => {
+                                      const next = {
+                                        ...form.weeklySchedule,
+                                        [dayIdx]: { ...config, endTime: e.target.value },
+                                      };
+                                      setForm({ ...form, weeklySchedule: next });
+                                    }}
+                                    className="px-2 py-1 text-xs border rounded bg-secondary/30"
+                                  />
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </>
           ) : (

@@ -55,6 +55,7 @@ export const createEmployeeSchema = z.object({
   employmentType: z.string().max(50).nullish(),
   managerId: z.string().nullish(),
   geofenceId: z.string().nullish(),
+  geofenceIds: z.array(z.string()).nullish(),
 });
 
 export const updateEmployeeSchema = createEmployeeSchema
@@ -111,6 +112,22 @@ export const createShiftSchema = z.object({
    * the route prefers the employee's own branch.
    */
   branch: z.string().max(100).nullish(),
+  /**
+   * Optional custom hours by day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
+   */
+  weeklySchedule: z
+    .record(
+      z.string(),
+      z.object({
+        enabled: z.boolean().default(true),
+        startTime: timeStrSchema.nullish(),
+        endTime: timeStrSchema.nullish(),
+        shiftType: z
+          .enum(['full_day', 'half_day', 'Holiday', 'Leave', 'Sick', 'PTO', 'Unpaid'])
+          .optional(),
+      }),
+    )
+    .optional(),
 });
 
 export const updateShiftSchema = createShiftSchema.partial().extend({

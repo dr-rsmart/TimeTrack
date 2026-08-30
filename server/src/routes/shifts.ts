@@ -312,12 +312,13 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
       employeeIds,
       date,
       endDate,
-      startTime,
-      endTime,
-      shiftType,
+      startTime: defaultStartTime,
+      endTime: defaultEndTime,
+      shiftType: defaultShiftType,
       location,
       notes,
       skipOverlaps,
+      weeklySchedule,
     } = req.body as {
       employeeIds?: string[];
       date?: string;
@@ -328,6 +329,7 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
       location?: string;
       notes?: string;
       skipOverlaps?: boolean;
+      weeklySchedule?: Record<string, { enabled?: boolean; startTime?: string; endTime?: string; shiftType?: string }>;
     };
 
     // Validate required fields
@@ -373,12 +375,36 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
       }
     }
 
+    // Helper: resolve hours & shift type for a specific calendar day
+    const resolveDayConfig = (dayStr: string) => {
+      if (!weeklySchedule) {
+        return {
+          enabled: true,
+          startTime: defaultStartTime ?? null,
+          endTime: defaultEndTime ?? null,
+          shiftType: defaultShiftType ?? 'full_day',
+        };
+      }
+      const dayDate = parseDate(dayStr);
+      const dayOfWeek = dayDate.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+      const dayConfig = weeklySchedule[String(dayOfWeek)] ?? weeklySchedule[dayOfWeek];
+      if (!dayConfig || dayConfig.enabled === false) {
+        return { enabled: false, startTime: null, endTime: null, shiftType: 'full_day' };
+      }
+      return {
+        enabled: true,
+        startTime: dayConfig.startTime ?? defaultStartTime ?? null,
+        endTime: dayConfig.endTime ?? defaultEndTime ?? null,
+        shiftType: dayConfig.shiftType ?? defaultShiftType ?? 'full_day',
+      };
+    };
+
     // Overlap detection per employee × day (unless skipOverlaps is true).
     // All conflicting shifts across the whole range are fetched in ONE query
     // and indexed by "employeeId|YYYY-MM-DD" for fast lookups.
     const skipped: Array<{ employeeId: string; employeeName: string; date?: string; reason: string }> = [];
     let overlapWindows: Map<string, ShiftTimeWindow[]> | null = null;
-    if (!skipOverlaps && startTime && endTime) {
+    if (!skipOverlaps) {
       overlapWindows = new Map();
       const existing = await prisma.shift.findMany({
         where: {
@@ -399,12 +425,28 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
       }
     }
 
-    const toCreate: Array<{ employee: (typeof employees)[number]; date: string }> = [];
+    const toCreate: Array<{
+      employee: (typeof employees)[number];
+      date: string;
+      startTime: string | null;
+      endTime: string | null;
+      shiftType: string;
+    }> = [];
+
     for (const day of dates) {
+      const dayConfig = resolveDayConfig(day);
+      if (!dayConfig.enabled) {
+        // Day is marked closed (e.g. Sunday)
+        continue;
+      }
+      const dayStart = dayConfig.startTime;
+      const dayEnd = dayConfig.endTime;
+      const dayShiftType = dayConfig.shiftType;
+
       for (const employee of employees) {
-        if (overlapWindows && startTime && endTime) {
+        if (overlapWindows && dayStart && dayEnd) {
           const windows = overlapWindows.get(`${employee.id}|${day}`) ?? [];
-          if (countOverlaps(startTime, endTime, windows) > 0) {
+          if (countOverlaps(dayStart, dayEnd, windows) > 0) {
             skipped.push({
               employeeId: employee.id,
               employeeName: `${employee.firstName} ${employee.surname}`,
@@ -414,7 +456,13 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
             continue;
           }
         }
-        toCreate.push({ employee, date: day });
+        toCreate.push({
+          employee,
+          date: day,
+          startTime: dayStart,
+          endTime: dayEnd,
+          shiftType: dayShiftType,
+        });
       }
     }
 
@@ -422,7 +470,7 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
       return sendError(
         res,
         409,
-        'No shifts were created. All employees had scheduling conflicts.',
+        'No shifts were created. All employees had scheduling conflicts or all days were closed.',
         {
           code: 'BULK_ALL_SKIPPED',
           details: { skipped },
@@ -432,7 +480,7 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
 
     // Create shifts (employees × days) in a transaction
     const created = await prisma.$transaction(
-      toCreate.map(({ employee, date: day }) =>
+      toCreate.map(({ employee, date: day, startTime, endTime, shiftType }) =>
         prisma.shift.create({
           data: {
             date: parseDate(day),
@@ -471,7 +519,7 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
         days: { before: null, after: dates.length },
         employees_assigned: { before: null, after: created.length },
         employees_skipped: { before: null, after: skipped.length },
-        shift_type: { before: null, after: shiftType ?? 'full_day' },
+        shift_type: { before: null, after: defaultShiftType ?? 'full_day' },
       } as any,
     });
 

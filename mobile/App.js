@@ -66,10 +66,37 @@ const BACKGROUND_LOCATION_TASK = 'timetrack-background-location-task';
 
 // AsyncStorage keys (populated by the web app via postMessage bridge)
 const GEOFENCE_KEY = 'timetrack_geofence';
+/** Multi-location: JSON array of ALL assigned geofences (new builds). */
+const GEOFENCE_LIST_KEY = 'timetrack_geofences';
 const CLOCKED_IN_KEY = 'timetrack_clocked_in';
 const TOKEN_KEY = 'timetrack_auth_token';
 /** Persisted boundary state machine (zone, confirmation counters, cooldown). */
 const GEOFENCE_STATE_KEY = 'timetrack_geofence_state';
+/** One-shot flag: background-permission guidance already shown. */
+const BG_PERMISSION_PROMPTED_KEY = 'timetrack_bg_permission_prompted';
+
+/**
+ * Read ALL monitored geofences. Prefers the multi-location list; falls back
+ * to the legacy single-geofence key for older web-build bridges.
+ */
+async function readGeofences() {
+  try {
+    const listRaw = await AsyncStorage.getItem(GEOFENCE_LIST_KEY);
+    if (listRaw) {
+      const list = JSON.parse(listRaw);
+      if (Array.isArray(list) && list.length > 0) return list;
+    }
+  } catch {
+    /* fall through to legacy key */
+  }
+  try {
+    const raw = await AsyncStorage.getItem(GEOFENCE_KEY);
+    if (raw) return [JSON.parse(raw)];
+  } catch {
+    /* ignore */
+  }
+  return [];
+}
 
 // ── Geofence hysteresis constants (mirrors src/services/AutoGeofenceService.ts) ──
 // Keep in sync with the web implementation.
@@ -128,60 +155,118 @@ async function notify(title, body) {
 // Detects geofence boundary crossings with the same hysteresis as the web
 // service (accuracy gate + confirmation samples + cooldown) and performs the
 // REAL clock-in/out API call, so attendance is recorded even when the WebView
-// is suspended. The web app keeps GEOFENCE_KEY / CLOCKED_IN_KEY / TOKEN_KEY
-// fresh via the postMessage bridge.
+// is suspended. The web app keeps GEOFENCE(_LIST)_KEY / CLOCKED_IN_KEY /
+// TOKEN_KEY fresh via the postMessage bridge.
+//
+// MULTI-LOCATION: employees assigned to several sites are clocked IN when
+// they enter ANY assigned geofence and clocked OUT only when they leave ALL
+// of them (distance > radius + 200m for every location).
+//
+// DOUBLE CLOCK-IN GUARD (mirrors the web "awaiting exit" flag): when the
+// boundary state says the employee clocked out while still on site
+// (st.clockedOutInside), auto clock-in is suppressed until a fix proves they
+// left every assigned location.
 TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
   if (error) return;
   if (!data?.locations?.length) return;
 
   try {
-    const geofenceRaw = await AsyncStorage.getItem(GEOFENCE_KEY);
-    if (!geofenceRaw) return;
-    const geofence = JSON.parse(geofenceRaw);
-    const radius = geofence.radiusMeters || 300;
+    const geofences = await readGeofences();
+    if (geofences.length === 0) return;
 
     const stateRaw = await AsyncStorage.getItem(GEOFENCE_STATE_KEY);
     const st = stateRaw
       ? JSON.parse(stateRaw)
-      : { zone: null, pendingEnter: 0, pendingExit: 0, lastEventAt: 0 };
+      : { zone: null, pendingEnter: 0, pendingExit: 0, lastEventAt: 0, clockedOutInside: false };
+    if (typeof st.clockedOutInside !== 'boolean') st.clockedOutInside = false;
 
     let clockedIn = (await AsyncStorage.getItem(CLOCKED_IN_KEY)) === 'true';
-    // Seed the zone from clock state (mirrors web syncClockedIn): a clocked-in
+    // Seed the zone from clock state (mirrors web syncClockedIn). A clocked-in
     // user is treated as INSIDE so clock-out can fire on the first crossing.
-    if (!st.zone) st.zone = clockedIn ? 'inside' : 'outside';
+    // A NOT-clocked-in user with completely fresh state is conservatively
+    // seeded as "clocked out on site" (guard armed) — the first clearly
+    // outside fix releases it. This prevents phantom re-clock-ins after state
+    // loss while the employee never actually left.
+    if (!st.zone) {
+      st.zone = 'inside';
+      if (!clockedIn) st.clockedOutInside = true;
+    }
 
     const now = Date.now();
 
     for (const loc of data.locations) {
       const accuracy = loc.coords?.accuracy;
-      // Accuracy gate — unstable fixes are never used for zone decisions.
-      if (typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > MAX_ACCURACY_METERS) {
-        continue;
+      const pos = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+
+      // ── Distance profile across ALL assigned geofences ──
+      let nearest = geofences[0];
+      let nearestDist = Infinity;
+      let inside = false;   // inside ANY geofence
+      let outside = true;   // outside ALL geofences (radius + exit buffer)
+      for (const gf of geofences) {
+        const radius = gf.radiusMeters || 300;
+        const d = distanceMetres(pos, gf);
+        if (d < nearestDist) {
+          nearestDist = d;
+          nearest = gf;
+        }
+        if (d <= radius) inside = true;
+        if (d <= radius + EXIT_BUFFER_METERS) outside = false;
       }
 
-      const pos = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
-      const dist = distanceMetres(pos, geofence);
-      const inside = dist <= radius;
-      const outside = dist > radius + EXIT_BUFFER_METERS;
+      // ── Accuracy gate ──
+      // Coarse fixes (> MAX_ACCURACY_METERS) are normally dropped, BUT are
+      // accepted when they clearly prove the user is far away from EVERY
+      // assigned location (distance − accuracy > radius + exit buffer). This
+      // makes auto clock-out reliable while driving away even when only
+      // coarse network fixes arrive (GPS radio sleeping).
+      const coarseFix =
+        typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > MAX_ACCURACY_METERS;
+      if (coarseFix) {
+        const clearlyFarEverywhere = geofences.every((gf) => {
+          const radius = gf.radiusMeters || 300;
+          return distanceMetres(pos, gf) - accuracy > radius + EXIT_BUFFER_METERS;
+        });
+        if (!clearlyFarEverywhere) continue;
+        // Coarse-but-clearly-far fix: treat as an outside signal only.
+        inside = false;
+        outside = true;
+      }
+
+      // A clearly-outside fix releases the double-clock-in suppression.
+      if (outside && st.clockedOutInside) {
+        st.clockedOutInside = false;
+      }
 
       if (inside && st.zone !== 'inside') {
         st.pendingExit = 0;
         st.pendingEnter += 1;
         if (st.pendingEnter >= CONFIRMATIONS && !clockedIn && now - st.lastEventAt >= EVENT_COOLDOWN_MS) {
           st.pendingEnter = 0;
+          if (st.clockedOutInside) {
+            // Double clock-in guard: employee clocked out while still on site.
+            // Do NOT re-clock-in until they leave every assigned location.
+            continue;
+          }
           const { status, data: resBody } = await apiClock('in', pos);
+          const reclockBlocked = status === 409 && resBody?.code === 'RECLOCK_GUARD';
           const alreadyActive =
-            status === 409 ||
-            resBody?.code === 'DUPLICATE_ACTIVE' ||
-            String(resBody?.error || '').toLowerCase().includes('already clocked');
+            !reclockBlocked &&
+            (status === 409 ||
+              resBody?.code === 'DUPLICATE_ACTIVE' ||
+              String(resBody?.error || '').toLowerCase().includes('already clocked'));
           if (status === 201 || status === 200 || alreadyActive) {
             st.zone = 'inside';
             st.lastEventAt = Date.now();
             clockedIn = true;
             await AsyncStorage.setItem(CLOCKED_IN_KEY, 'true');
             if (!alreadyActive) {
-              await notify('Auto Clock In', `You entered "${geofence.name}". Shift started automatically.`);
+              await notify('Auto Clock In', `You entered "${nearest.name}". Shift started automatically.`);
             }
+          } else if (reclockBlocked) {
+            // Server re-clock guard: too soon after the last clock-out. Leave
+            // the zone unset so the next confirming sample retries naturally.
+            st.lastEventAt = Date.now();
           }
           // 401 (expired token) or 403: leave state untouched — the web app
           // will re-sync the token/state next time it runs.
@@ -200,7 +285,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
             clockedIn = false;
             await AsyncStorage.setItem(CLOCKED_IN_KEY, 'false');
             if (!noActive) {
-              await notify('Auto Clock Out', `You left "${geofence.name}". Shift ended automatically.`);
+              await notify('Auto Clock Out', `You left "${nearest.name}". Shift ended automatically.`);
             }
           }
         }
@@ -324,7 +409,25 @@ export default function App() {
         const { status: fg } = await Location.requestForegroundPermissionsAsync();
         if (fg === 'granted') {
           // Background permission (Always) — required for auto clock-in/out
-          await Location.requestBackgroundPermissionsAsync();
+          // while the app is closed. Without it the OS stops delivering
+          // location fixes as soon as the app is backgrounded, which is the
+          // most common cause of "left the location but the app didn't auto
+          // clock out" — so surface clear guidance when it isn't granted.
+          const { status: bg } = await Location.requestBackgroundPermissionsAsync();
+          if (bg !== 'granted') {
+            const alreadyPrompted = await AsyncStorage.getItem(BG_PERMISSION_PROMPTED_KEY);
+            if (alreadyPrompted !== 'true') {
+              await AsyncStorage.setItem(BG_PERMISSION_PROMPTED_KEY, 'true');
+              Alert.alert(
+                'Auto clock-out needs background location',
+                'To clock you out automatically when you leave your work location, TimeTrack needs location access set to "Allow all the time" (Android) or "Always" (iOS). Without it, auto clock-out only works while the app is open.',
+                [
+                  { text: 'Not now', style: 'cancel' },
+                  { text: 'Open Settings', onPress: () => Linking.openSettings() },
+                ],
+              );
+            }
+          }
         }
         await Notifications.requestPermissionsAsync();
       } catch {
@@ -342,7 +445,10 @@ export default function App() {
         const granted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
         if (!granted) {
           await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-            accuracy: Location.Accuracy.Balanced,
+            // High accuracy: Balanced (network-only) fixes frequently exceed
+            // the 150m accuracy gate, which previously prevented auto
+            // clock-out detection while driving away from the site.
+            accuracy: Location.Accuracy.High,
             timeInterval: 30000,
             distanceInterval: 50,
             showsBackgroundLocationIndicator: true,
@@ -363,25 +469,84 @@ export default function App() {
   const onWebViewMessage = async (event) => {
     try {
       const msg = JSON.parse(event.nativeEvent.data || '{}');
-      if (msg.type === 'GEOFENCE_ASSIGNED' && msg.geofence) {
-        const next = JSON.stringify(msg.geofence);
-        const prev = await AsyncStorage.getItem(GEOFENCE_KEY);
-        await AsyncStorage.setItem(GEOFENCE_KEY, next);
+      if (msg.type === 'GEOFENCE_ASSIGNED') {
+        // Multi-location builds send `geofences` (array); older builds send a
+        // single `geofence` object. An empty/null assignment means the
+        // employee is unassigned → stop monitoring (clear stored locations).
+        const list = Array.isArray(msg.geofences) ? msg.geofences : msg.geofence ? [msg.geofence] : [];
+        const nextList = JSON.stringify(list);
+        const nextSingle = list.length > 0 ? JSON.stringify(list[0]) : null;
+        const prevList = await AsyncStorage.getItem(GEOFENCE_LIST_KEY);
+        const prevSingle = await AsyncStorage.getItem(GEOFENCE_KEY);
+
+        if (list.length === 0) {
+          await AsyncStorage.multiRemove([GEOFENCE_LIST_KEY, GEOFENCE_KEY]);
+        } else {
+          await AsyncStorage.setItem(GEOFENCE_LIST_KEY, nextList);
+          await AsyncStorage.setItem(GEOFENCE_KEY, nextSingle);
+        }
         // Reset the boundary state machine when the assignment changes so
         // stale zone/counters from a previous location can't misfire.
-        if (prev !== next) {
-          await AsyncStorage.removeItem(GEOFENCE_STATE_KEY);
+        // (clockedOutInside + lastClockedIn survive: they belong to the
+        // employee, not to a specific location.)
+        if (prevList !== nextList || prevSingle !== nextSingle) {
+          const stateRaw = await AsyncStorage.getItem(GEOFENCE_STATE_KEY);
+          if (stateRaw) {
+            try {
+              const st = JSON.parse(stateRaw);
+              await AsyncStorage.setItem(
+                GEOFENCE_STATE_KEY,
+                JSON.stringify({
+                  zone: null,
+                  pendingEnter: 0,
+                  pendingExit: 0,
+                  lastEventAt: 0,
+                  clockedOutInside: Boolean(st.clockedOutInside),
+                  lastClockedIn: st.lastClockedIn,
+                }),
+              );
+            } catch {
+              await AsyncStorage.removeItem(GEOFENCE_STATE_KEY);
+            }
+          }
         }
       }
       if (msg.type === 'CLOCK_STATE' && typeof msg.clockedIn === 'boolean') {
         await AsyncStorage.setItem(CLOCKED_IN_KEY, String(msg.clockedIn));
+        // Double clock-in guard (mirrors the web awaiting-exit flag): when a
+        // REAL clocked-in → clocked-out transition happens, arm the native
+        // suppression so the background task never instantly re-clocks-in an
+        // employee who is still on site. Cleared on the next clock-in or by a
+        // clearly-outside location fix in the background task.
+        try {
+          const stateRaw = await AsyncStorage.getItem(GEOFENCE_STATE_KEY);
+          const st = stateRaw
+            ? JSON.parse(stateRaw)
+            : { zone: null, pendingEnter: 0, pendingExit: 0, lastEventAt: 0, clockedOutInside: false };
+          if (st.lastClockedIn === true && msg.clockedIn === false) {
+            st.clockedOutInside = true;
+          }
+          if (msg.clockedIn === true) {
+            st.clockedOutInside = false;
+          }
+          st.lastClockedIn = msg.clockedIn;
+          await AsyncStorage.setItem(GEOFENCE_STATE_KEY, JSON.stringify(st));
+        } catch {
+          /* non-fatal */
+        }
       }
       if (msg.type === 'AUTH_TOKEN' && typeof msg.token === 'string' && msg.token.length > 0) {
         await AsyncStorage.setItem(TOKEN_KEY, msg.token);
       }
       if (msg.type === 'SESSION_ENDED') {
         // Sign-out: wipe everything so the next session starts clean.
-        await AsyncStorage.multiRemove([TOKEN_KEY, GEOFENCE_KEY, CLOCKED_IN_KEY, GEOFENCE_STATE_KEY]);
+        await AsyncStorage.multiRemove([
+          TOKEN_KEY,
+          GEOFENCE_KEY,
+          GEOFENCE_LIST_KEY,
+          CLOCKED_IN_KEY,
+          GEOFENCE_STATE_KEY,
+        ]);
       }
     } catch {
       // Ignore malformed bridge messages

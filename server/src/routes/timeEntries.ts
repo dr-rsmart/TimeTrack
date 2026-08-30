@@ -28,6 +28,7 @@ import {
   type GeoPosition,
   type GeoValidationResult,
 } from '../geoValidationService.js';
+import { getReclockGuardSeconds, isWithinReclockWindow } from '../reclockGuard.js';
 import { assertTenantMatch } from '../tenantContext.js';
 import {
   badRequest,
@@ -39,6 +40,7 @@ import {
   geofenceViolation,
   alreadyClockedIn,
   noActiveSession,
+  sendError,
 } from '../errorResponse.js';
 
 const router = Router();
@@ -81,6 +83,9 @@ function isActiveEntryConflict(err: any): boolean {
     err?.message?.includes('deadlock')
   );
 }
+
+// Re-clock-in protection (double clock-in/out prevention) — pure helpers live
+// in reclockGuard.ts (unit-tested without the Express/Prisma import chain).
 
 // ── GET / (List time entries) ──
 router.get('/', requireAuth, async (req, res) => {
@@ -234,6 +239,45 @@ router.post('/clock-in', requireAuth, clockRateLimit, validate(clockInSchema), a
     if (authUser.role === 'manager' && targetEmailLower !== authUserEmailLower) {
       const inScope = await isEmployeeInManagerScope(authUser, targetEmailLower);
       if (!inScope) return outsideScope(res, 'This employee');
+    }
+
+    // ── Re-clock-in protection (double clock-in/out prevention) ──
+    // Self-service punches only: if this employee clocked out moments ago,
+    // reject an immediate re-clock-in. This backstops client-side glitches
+    // (auto clock-in firing right after a manual clock-out, stale UI state,
+    // duplicate webhook/app events) that previously produced phantom extra
+    // sessions. Proxy punches by admin/manager/master bypass the guard, and
+    // system-closed sessions (cron shift-end / stale auto-close) never count
+    // as a blocking clock-out — an employee still on site after an auto-close
+    // must be able to clock straight back in.
+    if (!isManualOverride) {
+      const guardSeconds = getReclockGuardSeconds();
+      if (guardSeconds > 0) {
+        const lastCompleted = await prisma.timeEntry.findFirst({
+          where: {
+            employeeEmail: targetEmailLower,
+            status: 'completed',
+            clockOut: { not: null },
+          },
+          orderBy: { clockOut: 'desc' },
+          select: { clockOut: true, updatedBy: true },
+        });
+        const systemClosed = lastCompleted?.updatedBy === 'system:cron';
+        if (!systemClosed && isWithinReclockWindow(lastCompleted?.clockOut ?? null, new Date(), guardSeconds)) {
+          return sendError(
+            res,
+            409,
+            `You clocked out less than ${guardSeconds} seconds ago. To prevent duplicate records, please wait a moment before clocking in again, or ask a manager to clock you in.`,
+            {
+              code: 'RECLOCK_GUARD',
+              suggestions: [
+                `Wait ${guardSeconds} seconds after your last clock-out and try again.`,
+                'If you need to clock in immediately, ask your manager or admin to clock you in manually.',
+              ],
+            },
+          );
+        }
+      }
     }
 
     // NOTE: Duplicate-active prevention is handled atomically below inside a

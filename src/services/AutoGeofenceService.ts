@@ -85,6 +85,17 @@ export const EVENT_COOLDOWN_MS = 60_000;
 /** Backoff schedule (ms) for restarting the position watch after a transient GPS error. */
 export const WATCH_RESTART_DELAYS_MS = [5_000, 10_000, 30_000, 60_000];
 
+/**
+ * localStorage key persisting the "awaiting confirmed exit" flag across app
+ * restarts. Set when the employee clocks out (manually or automatically) so a
+ * reload/reopen while still on site can NEVER instantly auto clock-in again —
+ * they must first produce a confirmed OUTSIDE fix (double clock-in fix).
+ */
+const AWAITING_EXIT_KEY = 'timetrack_awaiting_exit';
+
+/** Safety expiry for the persisted awaiting-exit flag (12 hours). */
+const AWAITING_EXIT_TTL_MS = 12 * 60 * 60 * 1000;
+
 export interface AutoGeofenceEvent {
   type: AutoGeofenceEventType;
   geofence?: GeofenceDefinition;
@@ -154,37 +165,103 @@ class AutoGeofenceService {
   private lastEventAt = 0;
 
   // ── Watch resilience internals ──
-  private activeGeofence: GeofenceDefinition | null = null;
+  /** All monitored work locations (multi-location employees). */
+  private activeGeofences: GeofenceDefinition[] = [];
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
   private restartAttempts = 0;
 
+  // ── Double clock-in prevention ──
   /**
-   * Start monitoring the user's position against the target geofence.
+   * True when the employee clocked out and has not yet produced a confirmed
+   * OUTSIDE fix. While set, ENTERED_GEOFENCE events are suppressed so an
+   * employee who clocks out while still on site is never auto clocked back in.
+   * Persisted to localStorage so it survives app restarts/page reloads.
+   */
+  private awaitingExit = false;
+  /** Last clocked-in state synced by the app (transition detection). */
+  private lastSyncedClockedIn: boolean | null = null;
+  /** Live clocked-in knowledge (drives the inside-but-not-clocked recovery path). */
+  private lastKnownClockedIn = false;
+
+  /** Compatibility accessor: primary (first) monitored geofence. */
+  private get activeGeofence(): GeofenceDefinition | null {
+    return this.activeGeofences.length > 0 ? this.activeGeofences[0] : null;
+  }
+
+  /** Read the persisted awaiting-exit flag (expired flags are ignored). */
+  private loadAwaitingExit(): boolean {
+    try {
+      const raw = localStorage.getItem(AWAITING_EXIT_KEY);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw) as { setAt?: number };
+      if (typeof parsed?.setAt !== 'number') return false;
+      if (Date.now() - parsed.setAt > AWAITING_EXIT_TTL_MS) {
+        localStorage.removeItem(AWAITING_EXIT_KEY);
+        return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private setAwaitingExit(value: boolean): void {
+    if (this.awaitingExit === value) return;
+    this.awaitingExit = value;
+    try {
+      if (value) {
+        localStorage.setItem(AWAITING_EXIT_KEY, JSON.stringify({ setAt: Date.now() }));
+      } else {
+        localStorage.removeItem(AWAITING_EXIT_KEY);
+      }
+    } catch {
+      /* storage unavailable — in-memory flag still protects this session */
+    }
+  }
+
+  /**
+   * Start monitoring the user's position against one or more target geofences
+   * (multi-location employees are monitored against ALL assigned locations:
+   * auto clock-in fires inside ANY of them, auto clock-out only when OUTSIDE
+   * ALL of them).
    *
-   * @param geofence   The work location to monitor.
+   * @param geofence   The work location(s) to monitor (single or array).
    * @param isClockedIn Current clocked-in state. When true the service is
    *   seeded as INSIDE so auto clock-out can fire reliably even before the
    *   first fix arrives. When false the previous state is left unset so the
    *   first accepted fix inside the geofence triggers an immediate auto
-   *   clock-in (no 3-sample wait on sign-in).
+   *   clock-in (no 3-sample wait on sign-in) — UNLESS the awaiting-exit flag
+   *   is set (employee clocked out and has not left the site yet).
    */
-  startMonitoring(geofence: GeofenceDefinition, isClockedIn = false): void {
+  startMonitoring(geofence: GeofenceDefinition | GeofenceDefinition[], isClockedIn = false): void {
     if (!navigator.geolocation) {
       this.emitError('GPS not supported on this device.');
       return;
     }
 
-    this.activeGeofence = geofence;
+    const list = (Array.isArray(geofence) ? geofence : [geofence]).filter(Boolean);
+    if (list.length === 0) {
+      this.emitError('No work location to monitor.');
+      return;
+    }
+
+    this.activeGeofences = list;
     this.state = {
       isMonitoring: true,
       isInsideGeofence: false,
       zone: 'outside',
       poorSignal: false,
       permissionDenied: false,
-      geofence,
+      geofence: list[0],
     };
     // Seed boundary state from live clock state (see doc above).
     this.previousState = isClockedIn ? 'INSIDE' : null;
+    this.lastKnownClockedIn = isClockedIn;
+    // Restore the persisted awaiting-exit flag — but only when NOT clocked in.
+    // A clocked-in employee never needs the suppression. The in-memory flag
+    // also survives same-session monitoring restarts (storage may be absent).
+    this.awaitingExit = isClockedIn ? false : this.awaitingExit || this.loadAwaitingExit();
+    if (isClockedIn) this.setAwaitingExit(false);
     this.lastAccepted = null;
     this.pendingEnter = 0;
     this.pendingExit = 0;
@@ -198,8 +275,8 @@ class AutoGeofenceService {
 
   /** (Re)arm the continuous position watch. No timeout: it must run indefinitely. */
   private startWatch(): void {
-    const geofence = this.activeGeofence;
-    if (!geofence) return;
+    const geofences = this.activeGeofences;
+    if (geofences.length === 0) return;
 
     if (this.watchId !== null) {
       navigator.geolocation.clearWatch(this.watchId);
@@ -212,7 +289,7 @@ class AutoGeofenceService {
         this.restartAttempts = 0;
         this.processPosition(
           { latitude: pos.coords.latitude, longitude: pos.coords.longitude },
-          geofence,
+          geofences,
           pos.coords.accuracy,
           pos.timestamp || Date.now(),
         );
@@ -230,15 +307,15 @@ class AutoGeofenceService {
 
   /** One-shot position check to trigger instant auto-clock on sign-in. */
   private requestImmediateFix(): void {
-    const geofence = this.activeGeofence;
-    if (!geofence || !navigator.geolocation) return;
+    const geofences = this.activeGeofences;
+    if (geofences.length === 0 || !navigator.geolocation) return;
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         if (!this.state.isMonitoring) return;
         this.processPosition(
           { latitude: pos.coords.latitude, longitude: pos.coords.longitude },
-          geofence,
+          geofences,
           pos.coords.accuracy,
           pos.timestamp || Date.now(),
         );
@@ -300,32 +377,67 @@ class AutoGeofenceService {
   }
 
   /**
-   * Process a GPS position update against the active geofence.
+   * Process a GPS position update against ALL active (monitored) geofences.
    *
    * Raw samples first pass the accuracy gate and speed filter. Only accepted
-   * fixes update the displayed distance/zone. Auto clock-in triggers when
-   * inside the geofence (distance <= radius_meters) and auto clock-out when
-   * 200m outside (distance > radius_meters + 200) — each confirmed by
+   * fixes update the displayed distance/zone. With multiple assigned
+   * locations: auto clock-in triggers when INSIDE ANY geofence
+   * (distance <= radius_meters) and auto clock-out only when OUTSIDE ALL of
+   * them (every distance > radius_meters + 200) — each confirmed by
    * CONSECUTIVE_CONFIRMATIONS qualifying samples and rate-limited by
    * EVENT_COOLDOWN_MS.
+   *
+   * Coarse fixes (accuracy > MAX_ACCURACY_METERS) are normally dropped, BUT
+   * are accepted when they clearly prove the user is far away from every
+   * monitored location (distance − accuracy > radius + exit buffer). This
+   * makes auto clock-out reliable while driving away even when the GPS radio
+   * sleeps and only coarse network fixes arrive.
    */
   private processPosition(
     position: { latitude: number; longitude: number },
-    geofence: GeofenceDefinition,
+    geofences: GeofenceDefinition[],
     accuracy?: number,
     timestamp?: number,
   ): void {
     const now = timestamp ?? Date.now();
+    if (geofences.length === 0) return;
+
+    // ── Distance profile across all monitored geofences ──
+    let nearest = geofences[0];
+    let nearestDistance = Infinity;
+    let insideAny = false;
+    let outsideAll = true;
+    for (const gf of geofences) {
+      const d = haversineDistance(position.latitude, position.longitude, gf.latitude, gf.longitude);
+      if (d < nearestDistance) {
+        nearestDistance = d;
+        nearest = gf;
+      }
+      if (d <= gf.radius_meters) insideAny = true;
+      if (d <= gf.radius_meters + EXIT_BUFFER_METERS) outsideAll = false;
+    }
 
     // ── 1. Accuracy gate: drop fixes the browser itself reports as unreliable ──
-    if (typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > MAX_ACCURACY_METERS) {
-      this.state.poorSignal = true;
-      this.notifyState();
-      return;
+    const coarseFix =
+      typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > MAX_ACCURACY_METERS;
+    let clearlyFarEverywhere = false;
+    if (coarseFix) {
+      clearlyFarEverywhere = geofences.every((gf) => {
+        const d = haversineDistance(position.latitude, position.longitude, gf.latitude, gf.longitude);
+        return d - (accuracy as number) > gf.radius_meters + EXIT_BUFFER_METERS;
+      });
+      if (!clearlyFarEverywhere) {
+        this.state.poorSignal = true;
+        this.notifyState();
+        return;
+      }
     }
 
     // ── 2. Speed filter: drop fixes implying physically impossible movement ──
-    if (this.lastAccepted) {
+    // Skipped for clearly-far coarse fixes: network-based positioning
+    // legitimately jumps kilometres between fixes, and rejecting those jumps
+    // would prevent exit confirmations while driving away.
+    if (!clearlyFarEverywhere && this.lastAccepted) {
       const dtSec = (now - this.lastAccepted.timestamp) / 1000;
       if (dtSec > 0.5) {
         const moved = haversineDistance(
@@ -350,29 +462,27 @@ class AutoGeofenceService {
       this.state.lastAccuracy = Math.round(accuracy);
     }
     this.state.lastPosition = position;
+    this.state.lastDistance = Math.round(nearestDistance);
+    this.state.geofence = nearest;
 
-    const distance = haversineDistance(
-      position.latitude,
-      position.longitude,
-      geofence.latitude,
-      geofence.longitude,
-    );
-    this.state.lastDistance = Math.round(distance);
-
-    const exitThreshold = geofence.radius_meters + EXIT_BUFFER_METERS;
-
-    // Inside geofence: distance is within configured radius
-    const isInside = distance <= geofence.radius_meters;
-    // Exited geofence: distance exceeds radius + 200m exit boundary
-    const isPastExitThreshold = distance > exitThreshold;
+    // Inside: within the radius of ANY assigned geofence.
+    const isInside = insideAny;
+    // Exited: beyond radius + 200m exit boundary of EVERY assigned geofence.
+    const isPastExitThreshold = outsideAll;
 
     this.state.isInsideGeofence = isInside;
     this.state.zone = isInside ? 'inside' : isPastExitThreshold ? 'outside' : 'approaching';
 
+    // An accepted fix outside ALL assigned locations proves the employee left
+    // — release the double-clock-in suppression immediately.
+    if (isPastExitThreshold && this.awaitingExit) {
+      this.setAwaitingExit(false);
+    }
+
     // Emit live position update (accepted fixes only — UI never sees glitch jumps)
     this.emit({
       type: 'POSITION_UPDATE',
-      geofence,
+      geofence: nearest,
       distanceMetres: this.state.lastDistance,
       position,
     });
@@ -390,13 +500,36 @@ class AutoGeofenceService {
         if (now - this.lastEventAt >= EVENT_COOLDOWN_MS || isInitialFix) {
           this.previousState = 'INSIDE';
           this.lastEventAt = now;
-          this.emit({
-            type: 'ENTERED_GEOFENCE',
-            geofence,
-            distanceMetres: this.state.lastDistance,
-            position,
-          });
+          if (this.awaitingExit) {
+            // Double clock-in prevention: the employee clocked out while still on
+            // site — swallow the enter event. They must first leave every
+            // assigned location (which clears the flag) before auto clock-in
+            // is re-armed.
+          } else {
+            this.emit({
+              type: 'ENTERED_GEOFENCE',
+              geofence: nearest,
+              distanceMetres: this.state.lastDistance,
+              position,
+            });
+          }
         }
+      }
+    } else if (isInside && this.previousState === 'INSIDE' && !this.lastKnownClockedIn && !this.awaitingExit) {
+      // Recovery path: inside, not clocked in, not awaiting exit. Happens when
+      // the employee clocked out while OUTSIDE (or a transition was missed)
+      // and walked back in — no OUTSIDE→INSIDE crossing would otherwise fire.
+      // Also provides a natural retry (once per cooldown) when a clock-in was
+      // temporarily rejected (e.g. the server re-clock guard window).
+      this.pendingExit = 0;
+      if (now - this.lastEventAt >= EVENT_COOLDOWN_MS) {
+        this.lastEventAt = now;
+        this.emit({
+          type: 'ENTERED_GEOFENCE',
+          geofence: nearest,
+          distanceMetres: this.state.lastDistance,
+          position,
+        });
       }
     } else if (isPastExitThreshold && this.previousState === 'INSIDE') {
       this.pendingEnter = 0;
@@ -406,9 +539,10 @@ class AutoGeofenceService {
         if (now - this.lastEventAt >= EVENT_COOLDOWN_MS) {
           this.previousState = 'OUTSIDE';
           this.lastEventAt = now;
+          this.setAwaitingExit(false);
           this.emit({
             type: 'EXITED_GEOFENCE',
-            geofence,
+            geofence: nearest,
             distanceMetres: this.state.lastDistance,
             position,
           });
@@ -422,21 +556,44 @@ class AutoGeofenceService {
   }
 
   /**
-   * Sync active clocked-in state from app to prevent manual clock-in race conditions.
-   * If a user manually clocks in while inside or before exiting, ensure previousState
-   * is set to 'INSIDE' so auto clock-out reliably triggers when crossing > (radius + 200m).
+   * Sync active clocked-in state from app to prevent manual clock-in/out race conditions.
+   * If a user is clocked in, ensure previousState is set to 'INSIDE' so auto clock-out
+   * triggers when crossing > (radius + 200m).
+   * If a user clocks out while physically inside the geofence, keep previousState as 'INSIDE'
+   * so they are not immediately re-clocked in (they must first physically exit before re-entering).
    *
-   * When clocked in, previousState is ALWAYS set to 'INSIDE' regardless of the last
-   * known distance — this guarantees the EXITED_GEOFENCE event can fire even if the
-   * user clocked in while GPS had not yet reported a position, or was already in the
-   * approaching zone. The exit event itself is still gated on the 200m threshold,
-   * confirmation samples and cooldown.
+   * DOUBLE CLOCK-IN PREVENTION: on a genuine clocked-in → clocked-out
+   * transition while still inside, the awaiting-exit flag is armed
+   * (persisted). While armed, ENTERED_GEOFENCE events are suppressed — even
+   * across app restarts/page reloads — until a fix proves the employee left
+   * every assigned location.
    */
   syncClockedIn(isClockedIn: boolean): void {
+    const wasClockedIn = this.lastSyncedClockedIn;
+    this.lastSyncedClockedIn = isClockedIn;
+    this.lastKnownClockedIn = isClockedIn;
+
     if (isClockedIn) {
       this.previousState = 'INSIDE';
-    } else {
+      this.setAwaitingExit(false);
+      return;
+    }
+
+    if (!this.state.isInsideGeofence) {
       this.previousState = 'OUTSIDE';
+    }
+    // If clocked out while still inside geofence (isInsideGeofence === true),
+    // retain previousState = 'INSIDE'. Auto clock-in will not trigger until
+    // the user leaves (transitioning to OUTSIDE) and returns.
+
+    // Arm the suppression on a REAL clocked-in → clocked-out transition. The
+    // initial mount sync (wasClockedIn === null) never arms it, so fresh
+    // sessions still auto clock in normally. It is armed regardless of the
+    // last known zone: if the employee is already outside, the next accepted
+    // outside fix releases it immediately; if they are on site (or GPS has
+    // not fixed yet), re-clock-in stays blocked until they genuinely leave.
+    if (wasClockedIn === true) {
+      this.setAwaitingExit(true);
     }
   }
 
@@ -454,20 +611,27 @@ class AutoGeofenceService {
     this.lastAccepted = null;
     this.pendingEnter = 0;
     this.pendingExit = 0;
-    this.activeGeofence = null;
+    this.activeGeofences = [];
     this.restartAttempts = 0;
+    // NOTE: the persisted awaiting-exit flag is intentionally NOT cleared —
+    // the suppression must survive monitoring restarts and page reloads.
   }
 
   /**
-   * Restart monitoring with the last active geofence (e.g. after the user
+   * Restart monitoring with the last active geofences (e.g. after the user
    * re-enables location permission). No-op when nothing was being monitored.
    */
   restartMonitoring(isClockedIn = false): void {
-    const geofence = this.activeGeofence ?? this.state.geofence;
-    if (!geofence) return;
+    const geofences =
+      this.activeGeofences.length > 0
+        ? this.activeGeofences
+        : this.state.geofence
+          ? [this.state.geofence]
+          : [];
+    if (geofences.length === 0) return;
     this.stopMonitoring();
-    // stopMonitoring clears activeGeofence — startMonitoring re-arms it.
-    this.startMonitoring(geofence, isClockedIn);
+    // stopMonitoring clears activeGeofences — startMonitoring re-arms them.
+    this.startMonitoring(geofences, isClockedIn);
   }
 
   /**

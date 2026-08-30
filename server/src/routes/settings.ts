@@ -291,6 +291,9 @@ router.get('/geofences/my', requireAuth, async (req, res) => {
         department: true,
         geofenceId: true,
         companyProfileId: true,
+        employeeGeofences: {
+          select: { geofenceId: true },
+        },
       },
     });
 
@@ -312,6 +315,16 @@ router.get('/geofences/my', requireAuth, async (req, res) => {
       },
     });
 
+    const assignedIds: string[] = [];
+    if (employee?.employeeGeofences && employee.employeeGeofences.length > 0) {
+      for (const eg of employee.employeeGeofences) {
+        assignedIds.push(eg.geofenceId);
+      }
+    }
+    if (employee?.geofenceId && !assignedIds.includes(employee.geofenceId)) {
+      assignedIds.push(employee.geofenceId);
+    }
+
     res.json({
       employee: employee
         ? {
@@ -322,6 +335,7 @@ router.get('/geofences/my', requireAuth, async (req, res) => {
             branch: employee.branch,
             department: employee.department,
             geofenceId: employee.geofenceId,
+            geofenceIds: assignedIds,
           }
         : null,
       geofences,
@@ -347,14 +361,35 @@ router.get('/geofences', requireAdminOrManager, async (req, res) => {
     const geofences = await prisma.geofence.findMany({
       where: tenantWhere,
       orderBy: { name: 'asc' },
-      include: {
-        _count: {
-          select: {
-            employees: true,
-          },
-        },
-      },
     });
+
+    // ── Accurate assigned-employee counts (multi-location aware) ──
+    // An employee can be linked to a geofence two ways: the legacy
+    // Employee.geofenceId column and/or an EmployeeGeofence row. Union both
+    // per geofence so the UI count is correct for multi-location staff.
+    const gfIds = geofences.map((g) => g.id);
+    const countByGeofence = new Map<string, Set<string>>();
+    if (gfIds.length > 0) {
+      const [legacyRows, multiRows] = await Promise.all([
+        prisma.employee.findMany({
+          where: { geofenceId: { in: gfIds } },
+          select: { id: true, geofenceId: true },
+        }),
+        prisma.employeeGeofence.findMany({
+          where: { geofenceId: { in: gfIds } },
+          select: { employeeId: true, geofenceId: true },
+        }),
+      ]);
+      for (const row of legacyRows) {
+        if (!row.geofenceId) continue;
+        if (!countByGeofence.has(row.geofenceId)) countByGeofence.set(row.geofenceId, new Set());
+        countByGeofence.get(row.geofenceId)!.add(row.id);
+      }
+      for (const row of multiRows) {
+        if (!countByGeofence.has(row.geofenceId)) countByGeofence.set(row.geofenceId, new Set());
+        countByGeofence.get(row.geofenceId)!.add(row.employeeId);
+      }
+    }
 
     // Shape response with employee count
     const formatted = geofences.map((g) => ({
@@ -368,7 +403,7 @@ router.get('/geofences', requireAdminOrManager, async (req, res) => {
       companyProfileId: g.companyProfileId,
       createdAt: g.createdAt,
       updatedAt: g.updatedAt,
-      employeeCount: g._count.employees,
+      employeeCount: countByGeofence.get(g.id)?.size ?? 0,
     }));
 
     res.json({ geofences: formatted });
@@ -586,12 +621,18 @@ router.get('/geocode', requireAuth, async (req, res) => {
   }
 });
 
-// ── POST /geofences/:id/assign-employees — assign employees to a geofence ──
+// ── POST /geofences/:id/assign-employees — assign/unassign employees to/from a geofence ──
+// Multi-location aware: assignments are stored in the EmployeeGeofence join
+// table (additive). `mode: 'unassign'` removes the assignment. The legacy
+// Employee.geofenceId column is kept in sync as the "primary" location mirror
+// (set when null on assign, cleared when it matches on unassign) so older
+// clients and reports keep working.
 router.post('/geofences/:id/assign-employees', requireAdmin, async (req, res) => {
   try {
     const authUser = req.authUser!;
     const id = req.params.id as string;
-    const { employeeIds } = req.body as { employeeIds?: string[] };
+    const { employeeIds, mode } = req.body as { employeeIds?: string[]; mode?: 'assign' | 'unassign' };
+    const unassign = mode === 'unassign';
 
     if (!Array.isArray(employeeIds) || employeeIds.length === 0) {
       return badRequest(res, 'employeeIds array is required.');
@@ -609,26 +650,72 @@ router.post('/geofences/:id/assign-employees', requireAdmin, async (req, res) =>
       return accessDenied(res);
     }
 
-    const result = await prisma.employee.updateMany({
+    // Restrict to employees of the geofence's tenant
+    const employees = await prisma.employee.findMany({
       where: {
         id: { in: employeeIds },
         companyProfileId: geofence.companyProfileId ?? undefined,
       },
-      data: { geofenceId: id },
+      select: { id: true, geofenceId: true },
+    });
+    if (employees.length === 0) {
+      return badRequest(res, 'None of the given employees belong to this company.');
+    }
+    const empIds = employees.map((e) => e.id);
+
+    await prisma.$transaction(async (tx) => {
+      if (unassign) {
+        // Remove the multi-location assignment…
+        await tx.employeeGeofence.deleteMany({
+          where: { employeeId: { in: empIds }, geofenceId: id },
+        });
+        // …and clear the legacy mirror when it points at this geofence.
+        await tx.employee.updateMany({
+          where: { id: { in: empIds }, geofenceId: id },
+          data: { geofenceId: null },
+        });
+      } else {
+        // Additive assignment (skipDuplicates keeps it idempotent).
+        await tx.employeeGeofence.createMany({
+          data: empIds.map((employeeId) => ({
+            employeeId,
+            geofenceId: id,
+            companyProfileId: geofence.companyProfileId,
+          })),
+          skipDuplicates: true,
+        });
+        // Mirror into the legacy column when the employee has no primary yet.
+        const withoutPrimary = employees.filter((e) => !e.geofenceId).map((e) => e.id);
+        if (withoutPrimary.length > 0) {
+          await tx.employee.updateMany({
+            where: { id: { in: withoutPrimary } },
+            data: { geofenceId: id },
+          });
+        }
+      }
     });
 
     logAudit({
       entity: 'Geofence',
       entityId: id,
-      action: 'assign_employees',
+      action: unassign ? 'unassign_employees' : 'assign_employees',
       actorId: authUser.id,
       actorEmail: authUser.email,
       actorRole: authUser.role,
-      justification: `Assigned ${result.count} employee(s) to "${geofence.name}"`,
+      justification: `${unassign ? 'Removed' : 'Assigned'} ${employees.length} employee(s) ${unassign ? 'from' : 'to'} "${geofence.name}"`,
       ipAddress: getClientIp(req),
     });
 
-    res.json({ success: true, assignedCount: result.count, geofenceName: geofence.name });
+    // Let employee apps pick up the change without a reload (MyWorkLocation,
+    // auto-geofence monitor both listen for geofence broadcasts).
+    broadcastScoped('geofence', unassign ? 'unassignEmployees' : 'assignEmployees', {
+      geofenceId: id,
+      employeeIds: empIds,
+    }, {
+      companyProfileId: geofence.companyProfileId,
+    });
+
+    res.json({ success: true, assignedCount: employees.length, geofenceName: geofence.name, mode: unassign ? 'unassign' : 'assign' });
   } catch (err) {
     console.error('[settings] Assign employees error:', err);
     internalError(res, 'assigning employees to geofence');
@@ -656,11 +743,31 @@ router.get('/employees-for-geofence', requireAdminOrManager, async (req, res) =>
         branch: true,
         department: true,
         geofenceId: true,
+        employeeGeofences: { select: { geofenceId: true } },
       },
       orderBy: { firstName: 'asc' },
     });
 
-    res.json({ employees });
+    // Union of multi-location rows + legacy primary so the assignment panel
+    // shows every location an employee is linked to.
+    const shaped = employees.map((e) => {
+      const geofenceIds = e.employeeGeofences.map((eg) => eg.geofenceId);
+      if (e.geofenceId && !geofenceIds.includes(e.geofenceId)) {
+        geofenceIds.push(e.geofenceId);
+      }
+      return {
+        id: e.id,
+        firstName: e.firstName,
+        surname: e.surname,
+        email: e.email,
+        branch: e.branch,
+        department: e.department,
+        geofenceId: e.geofenceId,
+        geofenceIds,
+      };
+    });
+
+    res.json({ employees: shaped });
   } catch (err) {
     console.error('[settings] Employees for geofence error:', err);
     internalError(res, 'fetching employees for geofence');

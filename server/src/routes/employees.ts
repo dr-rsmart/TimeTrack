@@ -91,6 +91,7 @@ router.get('/', requireAuth, async (req, res) => {
         orderBy: [{ firstName: 'asc' }, { surname: 'asc' }],
         include: {
           geofence: { select: { id: true, name: true } },
+          employeeGeofences: { select: { geofence: { select: { id: true, name: true } } } },
           manager: { select: { id: true, firstName: true, surname: true, role: true, branch: true } },
         },
       }),
@@ -578,9 +579,30 @@ router.put('/:id', requireAuth, validate(updateEmployeeSchema), async (req, res)
     const hd = toDateField(data.hireDate);
     if (hd) data.hireDate = hd;
 
-    const item = await prisma.employee.update({
-      where: { id },
-      data: { ...data, updatedBy: authUser.id, version: { increment: 1 } },
+    const geofenceIds = Array.isArray(data.geofenceIds) ? (data.geofenceIds as string[]) : undefined;
+    delete data.geofenceIds;
+
+    const item = await prisma.$transaction(async (tx) => {
+      const emp = await tx.employee.update({
+        where: { id },
+        data: { ...data, updatedBy: authUser.id, version: { increment: 1 } },
+      });
+
+      if (geofenceIds !== undefined) {
+        // Sync multi-location assignments
+        await tx.employeeGeofence.deleteMany({ where: { employeeId: id } });
+        if (geofenceIds.length > 0) {
+          await tx.employeeGeofence.createMany({
+            data: geofenceIds.map((gId) => ({
+              employeeId: id,
+              geofenceId: gId,
+              companyProfileId: emp.companyProfileId,
+            })),
+          });
+        }
+      }
+
+      return emp;
     });
 
     // Invalidate the terminated-status cache so status changes (e.g.
