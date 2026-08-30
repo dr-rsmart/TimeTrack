@@ -26,6 +26,16 @@ if (!DATABASE_URL) {
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(process.cwd(), 'backups');
 const RETENTION_DAYS = parseInt(process.env.RETENTION_DAYS || '14', 10);
 
+/**
+ * Redact credentials from connection strings before logging. exec() error
+ * messages echo the failed command — which used to leak the production DSN
+ * (including the password) into Railway deploy logs.
+ */
+function redact(text) {
+  if (typeof text !== 'string') return text;
+  return text.replace(/(postgres(?:ql)?:\/\/[^:/\s]+:)[^@\s]+(@)/gi, '$1***$2');
+}
+
 async function runBackup() {
   const startTime = Date.now();
   console.log('[backup] Starting PostgreSQL database backup...');
@@ -59,7 +69,7 @@ async function runBackup() {
     // Retention cleanup: purge backups older than RETENTION_DAYS
     cleanupOldBackups();
   } catch (err) {
-    console.error('[backup] Backup failed:', err.message || err);
+    console.error('[backup] Backup failed:', redact(err.message) || err);
     process.exit(1);
   }
 }
