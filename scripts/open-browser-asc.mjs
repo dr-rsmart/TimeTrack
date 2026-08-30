@@ -4,8 +4,9 @@ import readline from 'readline';
 
 dotenv.config();
 
-const APPLE_ID = process.env.iOS_Build_Credentials || 'ricardovsmart@gmail.com';
-const APPLE_PWD = process.env.iOS_Build_Password || 'RicJer24';
+// This helper only opens a visible browser — sign-in is done manually, so no
+// credentials are read here (previously carried a hardcoded password fallback;
+// removed as part of the credential scrub).
 const APP_ID = '6803827296';
 const TARGET_URL = `https://appstoreconnect.apple.com/apps/${APP_ID}/appstore/ios/version/deliverable`;
 

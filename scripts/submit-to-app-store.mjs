@@ -7,8 +7,14 @@ import dotenv from 'dotenv';
 // Load environment variables
 dotenv.config();
 
+// Credentials MUST come from the environment (.env) — never hardcode a
+// fallback password in source. This file is committed to git history.
 const APPLE_ID = process.env.iOS_Build_Credentials || 'ricardovsmart@gmail.com';
-const APPLE_PWD = process.env.iOS_Build_Password || 'RicJer24';
+const APPLE_PWD = process.env.iOS_Build_Password;
+if (!APPLE_PWD) {
+  console.error('❌ iOS_Build_Password is not set. Add it to your .env file (never hardcode it).');
+  process.exit(1);
+}
 const APP_ID = '6803827296'; // From eas.json
 
 const METADATA = {
