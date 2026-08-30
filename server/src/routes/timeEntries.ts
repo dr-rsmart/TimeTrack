@@ -228,7 +228,10 @@ router.post('/clock-in', requireAuth, clockRateLimit, validate(clockInSchema), a
     if (!employee) return notFound(res, 'Employee record');
 
     // Manager scope check for manual overrides
-    if (authUser.role === 'manager' && targetEmailLower !== authUser.email) {
+    // (case-insensitive self comparison — a manager clocking THEMSELVES in,
+    // e.g. via auto-geofence passing their own email, must not be treated as
+    // a proxy punch subject to scope rules)
+    if (authUser.role === 'manager' && targetEmailLower !== authUserEmailLower) {
       const inScope = await isEmployeeInManagerScope(authUser, targetEmailLower);
       if (!inScope) return outsideScope(res, 'This employee');
     }

@@ -24,6 +24,7 @@ import Register from './pages/Register';
 import Demo from './pages/Demo';
 import ProfilePage from './pages/Profile';
 import ChangePasswordModal from './components/auth/ChangePasswordModal';
+import AutoGeofenceMonitor from './components/location/AutoGeofenceMonitor';
 import { Spinner } from './components/ui';
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -41,6 +42,9 @@ function RequireAuth({ children }: { children: ReactNode }) {
   if (!user) return <Navigate to="/login" replace />;
   return (
     <>
+      {/* Auto clock-in/out monitoring — owned once at shell level so it runs
+          on every page, not just the dashboard. */}
+      <AutoGeofenceMonitor />
       {children}
       {/* Forced password reset for accounts still on the default password */}
       {user.mustChangePassword && (

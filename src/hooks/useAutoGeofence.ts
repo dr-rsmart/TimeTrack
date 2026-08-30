@@ -81,6 +81,47 @@ function sendNotification(title: string, body: string): void {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Native Shell Bridge (mobile app)
+// ─────────────────────────────────────────────────────────────
+// The React Native shell (mobile/App.js) injects `window.ReactNativeWebView`
+// into the WebView. We forward the geofence assignment, clock state and auth
+// token so the NATIVE background task can auto clock in/out even when the
+// WebView is suspended. In a plain browser this is a silent no-op.
+
+export function postToNativeShell(message: Record<string, unknown>): void {
+  try {
+    const shell = (window as unknown as { ReactNativeWebView?: { postMessage?: (msg: string) => void } })
+      .ReactNativeWebView;
+    shell?.postMessage?.(JSON.stringify(message));
+  } catch {
+    /* Never let bridge failures affect the web app. */
+  }
+}
+
+export function isNativeShellPresent(): boolean {
+  try {
+    return typeof (window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView !== 'undefined';
+  } catch {
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Auto-clock completion event (consumed by UI widgets for refresh)
+// ─────────────────────────────────────────────────────────────
+
+export const AUTO_CLOCK_EVENT = 'timetrack:auto-clock';
+
+/** Dispatched on window after a successful auto clock-in/out API call. */
+export function dispatchAutoClockCompleted(kind: 'in' | 'out'): void {
+  try {
+    window.dispatchEvent(new CustomEvent(AUTO_CLOCK_EVENT, { detail: { kind } }));
+  } catch {
+    /* ignore */
+  }
+}
+
 // Simple toast notification helper
 function showToast(type: 'success' | 'error' | 'info', title: string, description?: string): void {
   const el = document.createElement('div');
@@ -111,6 +152,8 @@ export interface UseAutoGeofenceReturn {
   geofence: GeofenceDefinition | null;
   monitorState: AutoGeofenceState | null;
   toggleAutoGeofence: () => void;
+  /** Restart monitoring with the current geofence (e.g. after permission re-grant). */
+  restartMonitoring: () => void;
   autoGeofenceEnabled: boolean;
   error: string | null;
 }
@@ -139,9 +182,12 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
   const autoGeofenceEnabledRef = useRef(autoGeofenceEnabled);
   autoGeofenceEnabledRef.current = autoGeofenceEnabled;
 
-  // ── Sync active clocked-in state with background service ──
+  // ── Sync active clocked-in state with background service + native shell ──
   useEffect(() => {
     autoGeofenceService.syncClockedIn(isClockedIn);
+    // Keep the native background task's clock state in sync so it knows
+    // whether to clock in or out on the next geofence boundary crossing.
+    postToNativeShell({ type: 'CLOCK_STATE', clockedIn: isClockedIn });
   }, [isClockedIn]);
 
   // ── Fetch employee's geofence ──
@@ -221,6 +267,19 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
 
         setGeofence(targetGeofence);
         setError(null);
+
+        // Forward the assignment to the native shell so its background task
+        // can monitor the same geofence while the WebView is suspended.
+        postToNativeShell({
+          type: 'GEOFENCE_ASSIGNED',
+          geofence: {
+            id: targetGeofence.id,
+            name: targetGeofence.name,
+            latitude: targetGeofence.latitude,
+            longitude: targetGeofence.longitude,
+            radiusMeters: targetGeofence.radius_meters,
+          },
+        });
       } catch (err: unknown) {
         if (!cancelled) {
           const message = err instanceof Error ? err.message : 'Unknown error';
@@ -243,8 +302,11 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
-    autoGeofenceService.startMonitoring(geofence);
-    autoGeofenceService.syncClockedIn(isClockedInRef.current);
+    // startMonitoring seeds the boundary state from the live clock state:
+    // clocked-in users are treated as INSIDE (reliable auto clock-out), and
+    // signed-out users get an immediate auto clock-in on the first good fix
+    // inside the geofence.
+    autoGeofenceService.startMonitoring(geofence, isClockedInRef.current);
     return () => { autoGeofenceService.stopMonitoring(); };
   }, [enabled, geofence, autoGeofenceEnabled]);
 
@@ -272,6 +334,7 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
           if (result?.id) {
             setLastAutoClockIn(result.id);
             await onClockInRef.current();
+            dispatchAutoClockCompleted('in');
             sendNotification('Auto Clock In', `You entered "${event.geofence.name}".`);
             showToast('success', `Auto clocked in at "${event.geofence.name}"`, `~${event.distanceMetres ?? 0}m from centre.`);
           }
@@ -287,6 +350,7 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
           await timeEntryApi.clockOut(0, pos?.latitude, pos?.longitude, userEmail ?? undefined);
           setLastAutoClockOut();
           await onClockOutRef.current();
+          dispatchAutoClockCompleted('out');
           sendNotification('Auto Clock Out', `You left "${event.geofence.name}".`);
           showToast('success', `Auto clocked out — left "${event.geofence.name}"`, `~${event.distanceMetres ?? 0}m from centre.`);
         } catch (err: unknown) {
@@ -297,6 +361,7 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
             // of surfacing a failure.
             setLastAutoClockOut();
             await onClockOutRef.current();
+            dispatchAutoClockCompleted('out');
             showToast('info', 'Shift already closed', 'You were automatically clocked out at the scheduled shift end.');
           } else {
             showToast('error', 'Auto clock-out failed', msg);
@@ -323,15 +388,73 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
     });
   }, []);
 
+  // ── Restart monitoring (e.g. after the user re-enables location permission) ──
+  // startMonitoring is idempotent — it tears down any existing watch/timers
+  // first, so this is safe to call at any time.
+  const restartMonitoring = useCallback(() => {
+    if (!geofence || !autoGeofenceEnabledRef.current) return;
+    autoGeofenceService.startMonitoring(geofence, isClockedInRef.current);
+  }, [geofence]);
+
   return {
     isAutoGeofenceActive: autoGeofenceEnabled && monitorState?.isMonitoring === true,
     isInsideGeofence,
     geofence,
     monitorState,
     toggleAutoGeofence,
+    restartMonitoring,
     autoGeofenceEnabled,
     error,
   };
+}
+
+// ─────────────────────────────────────────────────────────────
+// Read-only consumer hook (UI widgets)
+// ─────────────────────────────────────────────────────────────
+// The owner hook (useAutoGeofence) is mounted ONCE at app-shell level so
+// monitoring survives page navigation and never double-subscribes. Widgets
+// that only need to DISPLAY monitoring state (distance, zone, geofence name)
+// use this read-only hook, which subscribes to the shared singleton service.
+
+export interface UseAutoGeofenceStateReturn {
+  isInsideGeofence: boolean;
+  geofence: GeofenceDefinition | null;
+  monitorState: AutoGeofenceState | null;
+  autoGeofenceEnabled: boolean;
+  error: string | null;
+}
+
+export function useAutoGeofenceState(): UseAutoGeofenceStateReturn {
+  const [autoGeofenceEnabled] = useState(() => getAutoGeofenceEnabled());
+  const [geofence, setGeofence] = useState<GeofenceDefinition | null>(
+    () => autoGeofenceService.getState().geofence ?? null,
+  );
+  const [monitorState, setMonitorState] = useState<AutoGeofenceState | null>(null);
+  const [isInsideGeofence, setIsInsideGeofence] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Hydrate from current service state first (monitoring may already run).
+    const current = autoGeofenceService.getState();
+    setGeofence(current.geofence ?? null);
+    setMonitorState(current);
+    setIsInsideGeofence(current.isInsideGeofence);
+    if (current.error) setError(current.error);
+
+    const unsubscribe = autoGeofenceService.onStateChange((state: AutoGeofenceState) => {
+      setMonitorState(state);
+      setIsInsideGeofence(state.isInsideGeofence);
+      if (state.geofence) setGeofence(state.geofence);
+      if (state.error) setError(state.error);
+      if (!state.isMonitoring) {
+        // Monitoring stopped — clear transient error so the UI recovers cleanly.
+        setError(null);
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  return { isInsideGeofence, geofence, monitorState, autoGeofenceEnabled, error };
 }
 
 export default useAutoGeofence;

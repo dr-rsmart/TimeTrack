@@ -221,6 +221,29 @@ router.post('/logout', (_req, res) => {
   res.json({ success: true });
 });
 
+// ── POST /native-token ──
+// Re-mints a fresh 8h JWT for the CURRENT session. Used by the mobile app's
+// native shell: the WebView authenticates with an httpOnly cookie that native
+// code cannot read, so the web app forwards this token to the shell and the
+// background geofence task uses it (Authorization: Bearer) to clock in/out
+// while the WebView is suspended. Rotating pwdEpoch still revokes it.
+router.post('/native-token', requireAuth, async (req, res) => {
+  try {
+    const authUser = req.authUser!;
+    const user = await prisma.user.findUnique({
+      where: { id: authUser.id },
+      select: { pwdEpoch: true },
+    });
+    if (!user) return unauthorized(res, 'Session is no longer valid.');
+
+    const token = signToken({ ...authUser, pwdEpoch: user.pwdEpoch });
+    res.json({ token });
+  } catch (err) {
+    console.error('[auth] Native token error:', err);
+    internalError(res, 'minting native token');
+  }
+});
+
 // ── POST /forgot-password ──
 // Returns the company admin contact email so the user can reach out for a
 // password reset. The admin then resets the password via Workforce → Edit →

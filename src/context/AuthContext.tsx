@@ -6,6 +6,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { authApi, registerSessionHandler, suppressUnauthenticatedErrors, type CurrentUser, type SessionErrorCode } from '../services/api';
+import { postToNativeShell, isNativeShellPresent } from '../hooks/useAutoGeofence';
 
 interface AuthContextValue {
   user: CurrentUser | null;
@@ -48,6 +49,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const me = await authApi.me();
       hadSessionRef.current = true;
       setUser(me);
+      // Running inside the mobile native shell: hand it a fresh bearer token
+      // so its background geofence task can clock in/out while the WebView
+      // is suspended. Cookie auth is httpOnly and unreadable by native code.
+      if (isNativeShellPresent()) {
+        authApi
+          .nativeToken()
+          .then((r) => postToNativeShell({ type: 'AUTH_TOKEN', token: r.token }))
+          .catch(() => {
+            /* Non-fatal: foreground web auto-clock still works. */
+          });
+      }
     } catch {
       setUser(null);
     }
@@ -80,6 +92,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     hadSessionRef.current = true;
     setSessionError(null);
     setUser(res.user);
+    // Forward the just-issued token to the native shell (no-op in browsers).
+    if (res.token) postToNativeShell({ type: 'AUTH_TOKEN', token: res.token });
   }, []);
 
   const logout = useCallback(async () => {
@@ -88,6 +102,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // stale banner so the login page renders clean.
     loggingOutRef.current = true;
     const restore = suppressUnauthenticatedErrors();
+    // Tell the native shell to drop the token/geofence/clock state so a
+    // different user signing in on this device never reuses stale credentials.
+    postToNativeShell({ type: 'SESSION_ENDED' });
     try {
       await authApi.logout();
     } catch {

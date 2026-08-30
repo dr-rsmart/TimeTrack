@@ -151,6 +151,8 @@ export const authApi = {
   login: (email: string, password: string) =>
     api.post<{ user: CurrentUser; token: string }>('/auth/login', { email, password }),
   logout: () => api.post<{ success: boolean }>('/auth/logout'),
+  /** Re-mint a fresh 8h bearer token for the current session (mobile native shell bridge). */
+  nativeToken: () => api.post<{ token: string }>('/auth/native-token'),
   me: () => api.get<CurrentUser>('/auth/me'),
   changePassword: (currentPassword: string, newPassword: string) =>
     api.post<{ success: boolean }>('/auth/change-password', { currentPassword, newPassword }),

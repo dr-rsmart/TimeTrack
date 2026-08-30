@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 import { timeEntryApi, type TimeEntry } from '../../services/api';
 import { Button, Card, CardContent, Badge, Spinner } from '../ui';
 import { cn } from '../../lib/utils';
-import { useAutoGeofence } from '../../hooks/useAutoGeofence';
+import { useAutoGeofenceState, AUTO_CLOCK_EVENT } from '../../hooks/useAutoGeofence';
 import { checkGpsAvailability, queryLocationPermissions, getCurrentPosition } from '../../utils/clockInHelper';
 import { LocationPermissionModal } from '../location/LocationPermissionModal';
 
@@ -45,7 +45,6 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
   const [breakMinutes, setBreakMinutes] = useState(0);
   
   // Geofence state
-  const [gpsAvailable, setGpsAvailable] = useState(true);
   const [locationDenied, setLocationDenied] = useState(false);
   const [showLocationModal, setShowLocationModal] = useState(false);
 
@@ -82,26 +81,42 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
     return () => clearInterval(interval);
   }, [activeEntry]);
 
-  // ── Pre-flight GPS check ──
+  // ── Pre-flight GPS check + real permission probe ──
   useEffect(() => {
     const status = checkGpsAvailability();
-    setGpsAvailable(status.available);
-    if (status.permission === 'denied') {
+    if (!status.available) return; // monitoring owner (shell) skips too
+    let cancelled = false;
+    // checkGpsAvailability only checks API support; this actually queries the
+    // browser's permission state so we can guide users who blocked location.
+    queryLocationPermissions().then((p) => {
+      if (cancelled) return;
+      if (p.permission === 'denied') {
+        setLocationDenied(true);
+        setShowLocationModal(true);
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  // ── Auto Geofence (read-only) ──
+  // Monitoring is OWNED by AutoGeofenceMonitor at app-shell level so it runs
+  // on every page. This widget only displays state and refreshes its data
+  // when an auto punch completes.
+  const autoGeo = useAutoGeofenceState();
+
+  useEffect(() => {
+    const handler = () => { loadData(); };
+    window.addEventListener(AUTO_CLOCK_EVENT, handler);
+    return () => window.removeEventListener(AUTO_CLOCK_EVENT, handler);
+  }, [loadData]);
+
+  // If the monitor hit a hard permission denial at watch time, guide the user.
+  useEffect(() => {
+    if (autoGeo.monitorState?.permissionDenied) {
       setLocationDenied(true);
       setShowLocationModal(true);
     }
-  }, []);
-
-  // ── Auto Geofence Hook ──
-  const autoGeo = useAutoGeofence({
-    userEmail,
-    isClockedIn: !!activeEntry,
-    activeEntryId: activeEntry?.id ?? null,
-    activeEntry: activeEntry as Record<string, unknown> | null,
-    onClockIn: async () => { await loadData(); },
-    onClockOut: async () => { await loadData(); },
-    enabled: gpsAvailable,
-  });
+  }, [autoGeo.monitorState?.permissionDenied]);
 
   const handleClockIn = async () => {
     setActionLoading(true);
@@ -210,15 +225,30 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
                           </span>
                         )}
                       </div>
-                      {autoGeo.monitorState?.poorSignal && (
+                      {autoGeo.monitorState?.poorSignal && !autoGeo.monitorState?.permissionDenied && (
                         <span className="text-[10px] text-amber-600 dark:text-amber-400">
                           ⚠ Poor GPS signal — waiting for a reliable fix (unstable readings ignored)
                         </span>
+                      )}
+                      {autoGeo.monitorState?.permissionDenied && (
+                        <button
+                          onClick={() => { setLocationDenied(true); setShowLocationModal(true); }}
+                          className="text-[10px] text-red-600 dark:text-red-400 underline underline-offset-2"
+                        >
+                          ⚠ Location blocked — tap to fix (auto clock-in/out is paused)
+                        </button>
                       )}
                     </div>
                   );
                 })()}
               </div>
+
+              {/* Geofence monitor error (e.g. GPS signal lost / no assignment) */}
+              {autoGeo.error && !autoGeo.monitorState?.permissionDenied && (
+                <div className="mb-4 p-2.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-xs text-center">
+                  {autoGeo.error}
+                </div>
+              )}
 
               {/* Timer display */}
               <div className="space-y-1">
@@ -339,6 +369,23 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
           </CardContent>
         </Card>
       )}
+
+      {/* Location permission guidance modal */}
+      <LocationPermissionModal
+        open={showLocationModal}
+        onClose={() => setShowLocationModal(false)}
+        permission={locationDenied ? 'denied' : 'unknown'}
+        suggestions={
+          locationDenied
+            ? [
+                'On mobile: open device Settings → Apps → TimeTrack → Permissions → Location → Allow.',
+                'On desktop: click the lock icon in the address bar and set Location to Allow.',
+                'Make sure your device\'s Location/GPS toggle is turned ON.',
+                'Then tap "I\'ve Enabled Location — Retry" to reload and resume auto clock-in/out.',
+              ]
+            : undefined
+        }
+      />
     </div>
   );
 }
