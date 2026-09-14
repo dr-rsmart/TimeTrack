@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Standardized Error Response Utilities
  * -------------------------------------
  * Consistent error response format across all API endpoints.
@@ -6,6 +6,7 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
+import { logger } from './logger.js';
 
 export interface ErrorResponse {
   error: string;
@@ -184,6 +185,6 @@ export function notFoundHandler(_req: Request, res: Response): void {
  * Central Express error-handling middleware.
  */
 export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction): void {
-  console.error('[server] Unhandled error:', err);
+  logger.error({ err }, '[server] Unhandled error:');
   internalError(res);
 }

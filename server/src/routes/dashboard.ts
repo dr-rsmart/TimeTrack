@@ -1,10 +1,11 @@
-/**
+﻿/**
  * Dashboard Routes
  * ----------------
  * KPI aggregation endpoints with tenant + role scoping.
  */
 
 import { Router } from 'express';
+import { logger } from '../logger.js';
 import prisma from '../prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getManagerScopeFilter } from '../middleware/scope.js';
@@ -119,7 +120,7 @@ router.get('/summary', requireAuth, async (req, res) => {
       date: todayStr,
     });
   } catch (err) {
-    console.error('[dashboard] Summary error:', err);
+    logger.error('[dashboard] Summary error:', err);
     internalError(res, 'loading dashboard summary');
   }
 });
@@ -272,7 +273,7 @@ router.get('/attendance-detail', requireAuth, async (req, res) => {
       employees: employeeRows,
     });
   } catch (err) {
-    console.error('[dashboard] Attendance detail error:', err);
+    logger.error('[dashboard] Attendance detail error:', err);
     internalError(res, 'loading attendance detail');
   }
 });
@@ -317,7 +318,7 @@ router.get('/hours-trend', requireAuth, async (req, res) => {
 
     res.json({ trend });
   } catch (err) {
-    console.error('[dashboard] Trend error:', err);
+    logger.error('[dashboard] Trend error:', err);
     internalError(res, 'loading hours trend');
   }
 });
@@ -345,7 +346,7 @@ router.get('/branch-distribution', requireAuth, async (req, res) => {
       distribution: employees.map((e) => ({ branch: e.branch, count: e._count.id })),
     });
   } catch (err) {
-    console.error('[dashboard] Branch distribution error:', err);
+    logger.error('[dashboard] Branch distribution error:', err);
     internalError(res, 'loading branch distribution');
   }
 });
@@ -380,7 +381,7 @@ router.get('/department-distribution', requireAuth, async (req, res) => {
       distribution: employees.map((e) => ({ department: e.department, count: e._count.id })),
     });
   } catch (err) {
-    console.error('[dashboard] Department distribution error:', err);
+    logger.error('[dashboard] Department distribution error:', err);
     internalError(res, 'loading department distribution');
   }
 });
@@ -509,7 +510,7 @@ router.get('/department-performance', requireAuth, async (req, res) => {
 
     res.json({ departments: Object.values(departmentMap) });
   } catch (err) {
-    console.error('[dashboard] Department performance error:', err);
+    logger.error('[dashboard] Department performance error:', err);
     internalError(res, 'loading department performance');
   }
 });
@@ -543,7 +544,7 @@ router.get('/recent-activity', requireAuth, async (req, res) => {
 
     res.json({ activity: entries });
   } catch (err) {
-    console.error('[dashboard] Recent activity error:', err);
+    logger.error('[dashboard] Recent activity error:', err);
     internalError(res, 'loading recent activity');
   }
 });
@@ -611,7 +612,7 @@ router.get('/attendance-trend', requireAuth, async (req, res) => {
 
     res.json({ trend, totalEmployees });
   } catch (err) {
-    console.error('[dashboard] Attendance trend error:', err);
+    logger.error('[dashboard] Attendance trend error:', err);
     internalError(res, 'loading attendance trend');
   }
 });
@@ -772,7 +773,7 @@ router.get('/overtime-alerts', requireAuth, async (req, res) => {
       periodDays: days,
     });
   } catch (err) {
-    console.error('[dashboard] Overtime alerts error:', err);
+    logger.error('[dashboard] Overtime alerts error:', err);
     internalError(res, 'loading overtime alerts');
   }
 });
@@ -892,7 +893,7 @@ router.get('/overtime-forecast', requireAuth, async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('[dashboard] Overtime forecast error:', err);
+    logger.error('[dashboard] Overtime forecast error:', err);
     internalError(res, 'loading overtime forecast');
   }
 });

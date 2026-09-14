@@ -1,10 +1,11 @@
-/**
+﻿/**
  * Audit Service
  * -------------
  * Immutable audit logging with before/after diff tracking.
  */
 
 import type { Request } from 'express';
+import { logger } from './logger.js';
 import { Prisma } from '@prisma/client';
 import prisma from './prisma.js';
 import { recordAuditWriteFailure } from './metrics.js';
@@ -99,7 +100,7 @@ export async function logAudit(entry: AuditEntry): Promise<void> {
       },
     });
   } catch (err) {
-    console.error('[audit] Failed to write audit log:', err);
+    logger.error('[audit] Failed to write audit log:', err);
     if (entry.required) recordAuditWriteFailure();
   }
 }

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Shift Routes
  * ------------
  * Shift scheduling with overlap detection, RBAC scoping,
@@ -6,6 +6,7 @@
  */
 
 import { Router } from 'express';
+import { logger } from '../logger.js';
 import prisma from '../prisma.js';
 import { requireAuth, requireAdminOrManager } from '../middleware/auth.js';
 import { getManagerScopeFilter, isEmployeeInManagerScope } from '../middleware/scope.js';
@@ -120,7 +121,7 @@ router.get('/', requireAuth, async (req, res) => {
     setPageHeaders(res, total, { limit, offset });
     res.json({ items, total, limit, offset });
   } catch (err) {
-    console.error('[shifts] List error:', err);
+    logger.error('[shifts] List error:', err);
     internalError(res, 'fetching shifts');
   }
 });
@@ -200,7 +201,7 @@ router.post('/', requireAdminOrManager, validate(createShiftSchema), async (req,
 
     res.status(201).json(shift);
   } catch (err) {
-    console.error('[shifts] Create error:', err);
+    logger.error('[shifts] Create error:', err);
     internalError(res, 'creating the shift');
   }
 });
@@ -294,7 +295,7 @@ router.put('/:id', requireAdminOrManager, validate(updateShiftSchema), async (re
 
     res.json(updated);
   } catch (err) {
-    console.error('[shifts] Update error:', err);
+    logger.error('[shifts] Update error:', err);
     internalError(res, 'updating the shift');
   }
 });
@@ -347,7 +348,7 @@ router.delete('/:id', requireAdminOrManager, async (req, res) => {
 
     res.json({ success: true, deleted: id });
   } catch (err) {
-    console.error('[shifts] Delete error:', err);
+    logger.error('[shifts] Delete error:', err);
     internalError(res, 'deleting the shift');
   }
 });
@@ -563,7 +564,7 @@ router.post('/bulk', requireAdminOrManager, validate(bulkCreateShiftsSchema), as
       days: dates.length,
     });
   } catch (err) {
-    console.error('[shifts] Bulk create error:', err);
+    logger.error('[shifts] Bulk create error:', err);
     internalError(res, 'creating bulk shifts');
   }
 });

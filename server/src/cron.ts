@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Cron Job Runner
  * ---------------
  * Background jobs for shift & time-entry lifecycle management:
@@ -12,6 +12,7 @@
  */
 
 import { randomUUID } from 'crypto';
+import { logger } from './logger.js';
 import prisma from './prisma.js';
 import { broadcastScoped, pruneStaleConnections } from './sse.js';
 import {
@@ -53,7 +54,7 @@ async function acquireLock(jobName: string, ttlMs: number): Promise<boolean> {
     `;
     return rowsAffected > 0;
   } catch (err) {
-    console.warn('[cron] Lock acquisition error:', err);
+    logger.warn('[cron] Lock acquisition error:', err);
     return false;
   }
 }
@@ -97,14 +98,14 @@ async function purgeRetentionPolicies(): Promise<void> {
       if (policy.entity === 'AuditLog') {
         // AuditLog is immutable/append-only: never purge. Log the skip so
         // operators know the policy exists but is intentionally not enforced.
-        console.log(
+        logger.info(
           `[cron] Retention policy for AuditLog ignored (append-only compliance record; archive manually).`,
         );
       }
       // No other purgeable entities are currently registered.
     }
   } catch (err) {
-    console.error('[cron] Retention policy purge error:', err);
+    logger.error('[cron] Retention policy purge error:', err);
   } finally {
     await releaseLock(jobName);
   }
@@ -163,12 +164,12 @@ async function closeStaleActiveTimeEntries(): Promise<void> {
         },
       );
 
-      console.log(
+      logger.info(
         `[cron] Auto-closed stale active time entry ${entry.id} (${entry.employeeEmail}).`,
       );
     }
   } catch (err) {
-    console.error('[cron] Stale active time-entry close error:', err);
+    logger.error('[cron] Stale active time-entry close error:', err);
   } finally {
     await releaseLock(jobName);
   }
@@ -304,7 +305,7 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
         },
       );
 
-      console.log(
+      logger.info(
         `[cron] Auto clock-out at shift end: entry ${activeEntry.id} (${activeEntry.employeeEmail}) closed at ${shift.endTime} for shift ${shift.id}.`,
       );
     }
@@ -390,12 +391,12 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
         },
       );
 
-      console.log(
+      logger.info(
         `[cron] Auto clock-out at location working end: entry ${entry.id} (${entry.employeeEmail}) closed at ${clockOut.toISOString()} for ${location.name}.`,
       );
     }
   } catch (err) {
-    console.error('[cron] Shift-end auto clock-out error:', err);
+    logger.error('[cron] Shift-end auto clock-out error:', err);
   } finally {
     await releaseLock(jobName);
   }
@@ -481,10 +482,10 @@ async function detectNoShows(): Promise<void> {
         },
       );
 
-      console.log(`[cron] Shift ${shift.id} marked as no_show`);
+      logger.info(`[cron] Shift ${shift.id} marked as no_show`);
     }
   } catch (err) {
-    console.error('[cron] No-show detection error:', err);
+    logger.error('[cron] No-show detection error:', err);
   } finally {
     await releaseLock(jobName);
   }
@@ -498,7 +499,7 @@ let cronInterval: ReturnType<typeof setInterval> | null = null;
 export function startCron(): void {
   if (cronInterval) return;
 
-  console.log('[cron] Starting background job runner (60s interval)');
+  logger.info('[cron] Starting background job runner (60s interval)');
 
   cronInterval = setInterval(async () => {
     await autoClockOutAtShiftEnd();
@@ -509,10 +510,10 @@ export function startCron(): void {
   }, 60_000);
 
   // Run once immediately
-  autoClockOutAtShiftEnd().catch(console.error);
-  detectNoShows().catch(console.error);
-  purgeRetentionPolicies().catch(console.error);
-  closeStaleActiveTimeEntries().catch(console.error);
+  autoClockOutAtShiftEnd().catch((err: unknown) => logger.error(err));
+  detectNoShows().catch((err: unknown) => logger.error(err));
+  purgeRetentionPolicies().catch((err: unknown) => logger.error(err));
+  closeStaleActiveTimeEntries().catch((err: unknown) => logger.error(err));
 }
 
 /**
@@ -522,6 +523,6 @@ export function stopCron(): void {
   if (cronInterval) {
     clearInterval(cronInterval);
     cronInterval = null;
-    console.log('[cron] Stopped background job runner');
+    logger.info('[cron] Stopped background job runner');
   }
 }

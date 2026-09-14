@@ -1,10 +1,11 @@
-/**
+﻿/**
  * Reports Routes
  * --------------
  * Payroll/overtime reporting using the Decimal-precision payroll engine.
  */
 
 import { Router } from 'express';
+import { logger } from '../logger.js';
 import prisma from '../prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getManagerScopeFilter } from '../middleware/scope.js';
@@ -176,7 +177,7 @@ router.get('/payroll', requireAuth, async (req, res) => {
 
     res.json({ from, to, rows, settings });
   } catch (err) {
-    console.error('[reports] Payroll error:', err);
+    logger.error('[reports] Payroll error:', err);
     internalError(res, 'generating payroll report');
   }
 });
@@ -221,7 +222,7 @@ router.get('/attendance', requireAuth, async (req, res) => {
 
     res.json({ entries });
   } catch (err) {
-    console.error('[reports] Attendance error:', err);
+    logger.error('[reports] Attendance error:', err);
     internalError(res, 'generating attendance report');
   }
 });

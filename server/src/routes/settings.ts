@@ -1,10 +1,11 @@
-/**
+﻿/**
  * Settings & Geofence Routes
  * --------------------------
  * Company payroll settings and geofence management (admin-only).
  */
 
 import { Router } from 'express';
+import { logger } from '../logger.js';
 import prisma from '../prisma.js';
 import { requireAuth, requireAdmin, requireAdminOrManager } from '../middleware/auth.js';
 import {
@@ -60,7 +61,7 @@ router.get('/settings', requireAuth, async (req, res) => {
 
     res.json({ settings: merged });
   } catch (err) {
-    console.error('[settings] Get error:', err);
+    logger.error('[settings] Get error:', err);
     internalError(res, 'fetching settings');
   }
 });
@@ -114,7 +115,7 @@ router.put('/settings', requireAdmin, validate(updateSettingsSchema), async (req
 
     res.json({ settings });
   } catch (err) {
-    console.error('[settings] Update error:', err);
+    logger.error('[settings] Update error:', err);
     internalError(res, 'updating settings');
   }
 });
@@ -144,7 +145,7 @@ router.get('/holidays', requireAuth, async (req, res) => {
 
     res.json({ systemHolidays, companyHolidays });
   } catch (err) {
-    console.error('[settings] Holidays list error:', err);
+    logger.error('[settings] Holidays list error:', err);
     internalError(res, 'fetching holidays');
   }
 });
@@ -218,7 +219,7 @@ router.post('/holidays', requireAdmin, async (req, res) => {
 
     res.status(201).json({ success: true, date, scope: isSystemScope ? 'system' : 'company' });
   } catch (err) {
-    console.error('[settings] Add holiday error:', err);
+    logger.error('[settings] Add holiday error:', err);
     internalError(res, 'adding holiday');
   }
 });
@@ -277,7 +278,7 @@ router.delete('/holidays/:date', requireAdmin, async (req, res) => {
 
     res.json({ success: true, removed: date });
   } catch (err) {
-    console.error('[settings] Remove holiday error:', err);
+    logger.error('[settings] Remove holiday error:', err);
     internalError(res, 'removing holiday');
   }
 });
@@ -360,7 +361,7 @@ router.get('/geofences/my', requireAuth, async (req, res) => {
       geofences,
     });
   } catch (err) {
-    console.error('[settings] My geofences error:', err);
+    logger.error('[settings] My geofences error:', err);
     internalError(res, 'fetching my geofences');
   }
 });
@@ -430,7 +431,7 @@ router.get('/geofences', requireAdminOrManager, async (req, res) => {
 
     res.json({ geofences: formatted });
   } catch (err) {
-    console.error('[settings] Geofences list error:', err);
+    logger.error('[settings] Geofences list error:', err);
     internalError(res, 'fetching geofences');
   }
 });
@@ -461,7 +462,7 @@ router.post('/geofences', requireAdmin, validate(createGeofenceSchema), async (r
 
     res.status(201).json({ geofence });
   } catch (err) {
-    console.error('[settings] Geofence create error:', err);
+    logger.error('[settings] Geofence create error:', err);
     internalError(res, 'creating geofence');
   }
 });
@@ -506,7 +507,7 @@ router.put('/geofences/:id', requireAdmin, validate(updateGeofenceSchema), async
 
     res.json({ geofence });
   } catch (err) {
-    console.error('[settings] Geofence update error:', err);
+    logger.error('[settings] Geofence update error:', err);
     internalError(res, 'updating geofence');
   }
 });
@@ -589,7 +590,7 @@ router.post('/geofences/test-distance', requireAuth, async (req, res) => {
         : '❌ Test position is outside all active geofences.',
     });
   } catch (err) {
-    console.error('[settings] Distance test error:', err);
+    logger.error('[settings] Distance test error:', err);
     internalError(res, 'testing geofence distance');
   }
 });
@@ -653,7 +654,7 @@ router.get('/geocode', requireAuth, async (req, res) => {
 
     res.json({ results });
   } catch (err) {
-    console.error('[settings] Geocode error:', err);
+    logger.error('[settings] Geocode error:', err);
     badGateway(res, 'Geocoding service unavailable. Please try again later.');
   }
 });
@@ -807,7 +808,7 @@ router.post('/geofences/:id/assign-employees', requireAdmin, async (req, res) =>
       mode: unassign ? 'unassign' : 'assign',
     });
   } catch (err) {
-    console.error('[settings] Assign employees error:', err);
+    logger.error('[settings] Assign employees error:', err);
     internalError(res, 'assigning employees to geofence');
   }
 });
@@ -859,7 +860,7 @@ router.get('/employees-for-geofence', requireAdminOrManager, async (req, res) =>
 
     res.json({ employees: shaped });
   } catch (err) {
-    console.error('[settings] Employees for geofence error:', err);
+    logger.error('[settings] Employees for geofence error:', err);
     internalError(res, 'fetching employees for geofence');
   }
 });
@@ -886,7 +887,7 @@ router.get('/location-presets', requireAdminOrManager, async (req, res) => {
 
     res.json({ presets });
   } catch (err) {
-    console.error('[settings] Location presets list error:', err);
+    logger.error('[settings] Location presets list error:', err);
     internalError(res, 'fetching location presets');
   }
 });
@@ -948,7 +949,7 @@ router.post('/location-presets', requireAdmin, async (req, res) => {
 
     res.status(201).json({ preset });
   } catch (err) {
-    console.error('[settings] Location preset create error:', err);
+    logger.error('[settings] Location preset create error:', err);
     internalError(res, 'creating location preset');
   }
 });
@@ -982,7 +983,7 @@ router.delete('/location-presets/:id', requireAdmin, async (req, res) => {
 
     res.json({ success: true, deleted: id });
   } catch (err) {
-    console.error('[settings] Location preset delete error:', err);
+    logger.error('[settings] Location preset delete error:', err);
     internalError(res, 'deleting location preset');
   }
 });
@@ -1053,7 +1054,7 @@ router.delete('/geofences/:id', requireAdmin, async (req, res) => {
 
     res.json({ success: true, deleted: id });
   } catch (err) {
-    console.error('[settings] Geofence delete error:', err);
+    logger.error('[settings] Geofence delete error:', err);
     internalError(res, 'deleting geofence');
   }
 });

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Geofence Validation Service
  * ---------------------------
  * Validates that clock-in/out events originate from within assigned geofence
@@ -18,6 +18,7 @@
  */
 
 import prisma from './prisma.js';
+import { logger } from './logger.js';
 import { normalizeEmployeeEmail } from './domain/employeeIdentity.js';
 
 const EARTH_RADIUS_METERS = 6_371_000;
@@ -38,7 +39,7 @@ const GPS_ACCURACY_BUFFER_METERS = 150;
 const STRICT_GEOFENCE = process.env.STRICT_GEOFENCE !== 'false';
 
 if (!STRICT_GEOFENCE) {
-  console.warn(
+  logger.warn(
     '[geo] ⚠️  STRICT_GEOFENCE is disabled — employees can clock in from any ' +
       'location regardless of geofence assignment. This should NEVER be used in production.',
   );

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Redis Client — Shared Connection for Rate Limiting & Caching
  * -------------------------------------------------------------
  * Provides a lazily-connected Redis client with graceful degradation:
@@ -14,6 +14,7 @@
  */
 
 import { Redis } from 'ioredis';
+import { logger } from './logger.js';
 import config from './config.js';
 
 const redisUrl = config.redisUrl;
@@ -46,12 +47,12 @@ if (redisUrl) {
 
     client.on('connect', () => {
       connected = true;
-      console.log('[redis] Connected — distributed rate limiting active.');
+      logger.info('[redis] Connected — distributed rate limiting active.');
     });
 
     client.on('error', (err) => {
       if (connected) {
-        console.warn('[redis] Connection error (falling back to in-memory):', err.message);
+        logger.warn('[redis] Connection error (falling back to in-memory):', err.message);
       }
       connected = false;
     });
@@ -62,14 +63,14 @@ if (redisUrl) {
 
     // Non-blocking connect
     client.connect().catch((err) => {
-      console.warn('[redis] Initial connection unavailable (in-memory fallback):', err.message);
+      logger.warn('[redis] Initial connection unavailable (in-memory fallback):', err.message);
     });
   } catch (err) {
-    console.warn('[redis] Setup failed (in-memory fallback):', err);
+    logger.warn('[redis] Setup failed (in-memory fallback):', err);
     client = null;
   }
 } else {
-  console.log('[redis] REDIS_URL not set — using in-memory rate limiting (single-instance mode).');
+  logger.info('[redis] REDIS_URL not set — using in-memory rate limiting (single-instance mode).');
 }
 
 /** Returns the Redis client if connected, otherwise null (caller falls back). */

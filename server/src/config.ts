@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Centralized Configuration
  * -------------------------
  * Fail-fast environment validation. The server refuses to boot if any
@@ -10,6 +10,7 @@
  */
 
 import 'dotenv/config';
+import { logger } from './logger.js';
 
 /** Known-insecure values that must never reach production. */
 const INSECURE_DEFAULTS = [
@@ -23,7 +24,7 @@ function isProduction(): boolean {
 }
 
 function fail(msg: string): never {
-  console.error(`[config] FATAL: ${msg}`);
+  logger.error(`[config] FATAL: ${msg}`);
   process.exit(1);
 }
 
@@ -42,7 +43,7 @@ function rejectInsecure(name: string, value: string): void {
         `Environment variable "${name}" is set to a known-insecure default. Rotate it before running in production.`,
       );
     } else {
-      console.warn(
+      logger.warn(
         `[config] WARNING: "${name}" uses a known-insecure default. This is only acceptable for local development.`,
       );
     }

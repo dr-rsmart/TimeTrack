@@ -1,3 +1,5 @@
+﻿import { logger } from './logger.js';
+
 /**
  * Production-Grade Circuit Breaker
  * --------------------------------
@@ -102,7 +104,7 @@ export class CircuitBreaker {
 
   private onSuccess(): void {
     if (this.state === 'HALF_OPEN') {
-      console.log(
+      logger.info(
         `[circuitBreaker:${this.name}] Recovery probe succeeded. Circuit reset to CLOSED.`,
       );
     }
@@ -112,7 +114,7 @@ export class CircuitBreaker {
 
   private onFailure(err: any): void {
     this.failureCount++;
-    console.warn(
+    logger.warn(
       `[circuitBreaker:${this.name}] Failure recorded (${this.failureCount}/${this.failureThreshold}):`,
       err?.message || err,
     );
@@ -120,7 +122,7 @@ export class CircuitBreaker {
     if (this.state === 'HALF_OPEN' || this.failureCount >= this.failureThreshold) {
       this.state = 'OPEN';
       this.nextAttempt = Date.now() + this.resetTimeoutMs;
-      console.error(
+      logger.error(
         `[circuitBreaker:${this.name}] Failure threshold reached. Circuit OPEN for ${this.resetTimeoutMs}ms.`,
       );
     }

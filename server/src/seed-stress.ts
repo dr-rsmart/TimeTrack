@@ -1,4 +1,4 @@
-/**
+﻿/**
  * TimeTrack — Stress Test Database Seeding Strategy
  * ==================================================
  * Generates synthetic workforce data for k6 load/stress testing phases:
@@ -18,6 +18,7 @@
  */
 
 import 'dotenv/config';
+import { logger } from './logger.js';
 import bcrypt from 'bcryptjs';
 import prisma from './prisma.js';
 import { hoursToMinutes } from './domain/duration.js';
@@ -121,15 +122,15 @@ async function main() {
   const employeeCount = customCount > 0 ? customCount : config.employees;
   const label = customCount > 0 ? `Custom (${customCount} employees)` : config.label;
 
-  console.log(`[seed-stress] ${label}`);
-  console.log(`[seed-stress] Target: ${employeeCount} employees + users + shifts + time entries`);
-  console.log('');
+  logger.info(`[seed-stress] ${label}`);
+  logger.info(`[seed-stress] Target: ${employeeCount} employees + users + shifts + time entries`);
+  logger.info('');
 
   const PASSWORD_HASH = bcrypt.hashSync('Password123', 10);
   const STRESS_TENANT_EMAIL = 'stress@timetrack.com';
 
   // ── Clean existing stress data only (preserve demo data) ──
-  console.log('[seed-stress] Cleaning previous stress test data...');
+  logger.info('[seed-stress] Cleaning previous stress test data...');
   const stressCompany = await prisma.companyProfile.findFirst({
     where: { name: 'Stress Test Corp' },
   });
@@ -146,7 +147,7 @@ async function main() {
     await prisma.geofence.deleteMany({ where: { companyProfileId: stressCompany.id } });
     await prisma.user.deleteMany({ where: { companyProfileId: stressCompany.id } });
     await prisma.companyProfile.delete({ where: { id: stressCompany.id } });
-    console.log('[seed-stress] Previous stress data removed.');
+    logger.info('[seed-stress] Previous stress data removed.');
   }
 
   // ── Create stress tenant ──
@@ -161,7 +162,7 @@ async function main() {
       primaryContactName: 'Load Tester',
     },
   });
-  console.log(`[seed-stress] Tenant created: ${company.name} (${company.id})`);
+  logger.info(`[seed-stress] Tenant created: ${company.name} (${company.id})`);
 
   // ── Admin user for stress tenant ──
   const adminUser = await prisma.user.create({
@@ -204,7 +205,7 @@ async function main() {
   });
 
   // ── Batch create employees + users ──
-  console.log(`[seed-stress] Creating ${employeeCount} employees...`);
+  logger.info(`[seed-stress] Creating ${employeeCount} employees...`);
   const BATCH_SIZE = 500;
   const employeeIds: string[] = [];
   const employeeEmails: string[] = [];
@@ -258,7 +259,7 @@ async function main() {
     }
 
     const created = await prisma.employee.createMany({ data: empData, skipDuplicates: true });
-    console.log(
+    logger.info(
       `[seed-stress]   Batch ${Math.floor(batch / BATCH_SIZE) + 1}: ${created.count} employees created`,
     );
   }
@@ -275,10 +276,10 @@ async function main() {
       department: true,
     },
   });
-  console.log(`[seed-stress] Total employees in DB: ${employees.length}`);
+  logger.info(`[seed-stress] Total employees in DB: ${employees.length}`);
 
   // ── Create User accounts for all employees ──
-  console.log(`[seed-stress] Creating ${employees.length} user accounts...`);
+  logger.info(`[seed-stress] Creating ${employees.length} user accounts...`);
   for (let batch = 0; batch < employees.length; batch += BATCH_SIZE) {
     const slice = employees.slice(batch, batch + BATCH_SIZE);
     await prisma.user.createMany({
@@ -293,10 +294,10 @@ async function main() {
       skipDuplicates: true,
     });
   }
-  console.log(`[seed-stress] User accounts created.`);
+  logger.info(`[seed-stress] User accounts created.`);
 
   // ── Generate shifts (last 7 days) ──
-  console.log('[seed-stress] Generating shifts (7 days)...');
+  logger.info('[seed-stress] Generating shifts (7 days)...');
   let shiftCount = 0;
   const SHIFT_BATCH = 1000;
   let shiftBatch: Array<{
@@ -359,10 +360,10 @@ async function main() {
   if (shiftBatch.length > 0) {
     await prisma.shift.createMany({ data: shiftBatch as never[], skipDuplicates: true });
   }
-  console.log(`[seed-stress] Created ${shiftCount} shifts`);
+  logger.info(`[seed-stress] Created ${shiftCount} shifts`);
 
   // ── Generate time entries (last 7 days) ──
-  console.log('[seed-stress] Generating time entries (7 days)...');
+  logger.info('[seed-stress] Generating time entries (7 days)...');
   let entryCount = 0;
   let entryBatch: Array<{
     employeeId: string;
@@ -430,30 +431,30 @@ async function main() {
   if (entryBatch.length > 0) {
     await prisma.timeEntry.createMany({ data: entryBatch as never[], skipDuplicates: true });
   }
-  console.log(`[seed-stress] Created ${entryCount} time entries`);
+  logger.info(`[seed-stress] Created ${entryCount} time entries`);
 
   // ── Summary ──
-  console.log('');
-  console.log('═══════════════════════════════════════════════════════');
-  console.log(`  STRESS SEED COMPLETE — ${label}`);
-  console.log('═══════════════════════════════════════════════════════');
-  console.log(`  Tenant:     Stress Test Corp (${company.id})`);
-  console.log(`  Employees:  ${employees.length}`);
-  console.log(`  Users:      ${employees.length + 1} (incl. admin)`);
-  console.log(`  Shifts:     ${shiftCount}`);
-  console.log(`  Entries:    ${entryCount}`);
-  console.log('');
-  console.log('  Login credentials for k6:');
-  console.log(`    Admin:  ${STRESS_TENANT_EMAIL} / Password123`);
-  console.log(
+  logger.info('');
+  logger.info('═══════════════════════════════════════════════════════');
+  logger.info(`  STRESS SEED COMPLETE — ${label}`);
+  logger.info('═══════════════════════════════════════════════════════');
+  logger.info(`  Tenant:     Stress Test Corp (${company.id})`);
+  logger.info(`  Employees:  ${employees.length}`);
+  logger.info(`  Users:      ${employees.length + 1} (incl. admin)`);
+  logger.info(`  Shifts:     ${shiftCount}`);
+  logger.info(`  Entries:    ${entryCount}`);
+  logger.info('');
+  logger.info('  Login credentials for k6:');
+  logger.info(`    Admin:  ${STRESS_TENANT_EMAIL} / Password123`);
+  logger.info(
     `    Users:  stress.user0@timetrack.com ... stress.user${employeeCount - 1}@timetrack.com / Password123`,
   );
-  console.log('═══════════════════════════════════════════════════════');
+  logger.info('═══════════════════════════════════════════════════════');
 }
 
 main()
   .catch((err) => {
-    console.error('[seed-stress] Fatal error:', err);
+    logger.error('[seed-stress] Fatal error:', err);
     process.exit(1);
   })
   .finally(async () => {

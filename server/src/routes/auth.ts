@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Auth Routes
  * -----------
  * POST /api/auth/login  — authenticate and issue JWT cookie
@@ -7,6 +7,7 @@
  */
 
 import { Router } from 'express';
+import { logger } from '../logger.js';
 import bcrypt from 'bcryptjs';
 import prisma from '../prisma.js';
 import {
@@ -68,13 +69,13 @@ router.post('/login', loginRateLimit, validate(loginSchema), async (req, res) =>
             where: { id: rescued[0].id },
             data: { email: normalizedEmail },
           });
-          console.log(
+          logger.info(
             `[auth] Self-healed login email for user ${rescued[0].id} -> ${normalizedEmail}`,
           );
         } catch (healErr) {
           // If the normalized email now collides with another row, fall back to
           // the original (un-normalized) record so login still works.
-          console.warn(
+          logger.warn(
             '[auth] Email self-heal update failed (possible duplicate); using original record:',
             healErr,
           );
@@ -222,7 +223,7 @@ router.post('/login', loginRateLimit, validate(loginSchema), async (req, res) =>
       token,
     });
   } catch (err) {
-    console.error('[auth] Login error:', err);
+    logger.error('[auth] Login error:', err);
     internalError(res, 'logging in');
   }
 });
@@ -247,7 +248,7 @@ router.post('/logout', async (req, res) => {
       invalidateLiveRoleCache(authUser.id);
       disconnectUserClusterWide(authUser.id);
     } catch (err) {
-      console.error('[auth] Logout revocation error:', err);
+      logger.error('[auth] Logout revocation error:', err);
       return internalError(res, 'ending session');
     }
   }
@@ -273,7 +274,7 @@ router.post('/native-token', requireAuth, async (req, res) => {
     const token = signToken({ ...authUser, pwdEpoch: user.pwdEpoch });
     res.json({ token });
   } catch (err) {
-    console.error('[auth] Native token error:', err);
+    logger.error('[auth] Native token error:', err);
     internalError(res, 'minting native token');
   }
 });
@@ -336,7 +337,7 @@ router.post('/forgot-password', loginRateLimit, async (req, res) => {
       adminName,
     });
   } catch (err) {
-    console.error('[auth] Forgot password error:', err);
+    logger.error('[auth] Forgot password error:', err);
     internalError(res, 'processing forgot-password request');
   }
 });
@@ -384,7 +385,7 @@ router.post('/keep-password', requireAuth, async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error('[auth] Keep password error:', err);
+    logger.error('[auth] Keep password error:', err);
     internalError(res, 'updating password status');
   }
 });
@@ -446,7 +447,7 @@ router.post('/change-password', requireAuth, validate(changePasswordSchema), asy
 
     res.json({ success: true });
   } catch (err) {
-    console.error('[auth] Change password error:', err);
+    logger.error('[auth] Change password error:', err);
     internalError(res, 'changing password');
   }
 });
@@ -551,7 +552,7 @@ router.get('/me', requireAuth, async (req, res) => {
       demoEmail: authUser.demoEmail ?? null,
     });
   } catch (err) {
-    console.error('[auth] Me error:', err);
+    logger.error('[auth] Me error:', err);
     internalError(res, 'fetching profile');
   }
 });

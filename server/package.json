@@ -45,6 +45,7 @@
     "express-rate-limit": "^8.6.0",
     "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.3",
+    "pino": "^10.3.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -72,6 +73,8 @@
   "allowScripts": {
     "@prisma/client": true,
     "@prisma/engines": true,
-    "prisma": true
+    "prisma": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true
   }
 }

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * TimeTrack API Server
  * -----------------------
  * Express 5 + Prisma + PostgreSQL + Server-Sent Events Real-time
@@ -7,6 +7,7 @@
 // config must be imported first: it validates required secrets and fails fast
 // before any other module touches the environment.
 import config from './config.js';
+import { logger } from './logger.js';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
@@ -290,7 +291,7 @@ app.use(errorHandler);
 // unique index moved to migration 8_active_entry_partial_unique_index.
 async function syncEmployeeUserAccounts() {
   if (process.env.AUTO_PROVISION_ACCOUNTS === 'false') {
-    console.log('[server] User account sync disabled (AUTO_PROVISION_ACCOUNTS=false).');
+    logger.info('[server] User account sync disabled (AUTO_PROVISION_ACCOUNTS=false).');
     return;
   }
 
@@ -313,7 +314,7 @@ async function syncEmployeeUserAccounts() {
     `;
 
     if (missing.length === 0) {
-      console.log(
+      logger.info(
         `[server] User account sync: all employees have login accounts (${Date.now() - syncStartedAt}ms).`,
       );
       return;
@@ -342,17 +343,17 @@ async function syncEmployeeUserAccounts() {
       });
       created += result.count;
     }
-    console.log(
+    logger.info(
       `[server] User account sync: created ${created} login account(s) with temporary password in ${Date.now() - syncStartedAt}ms.`,
     );
   } catch (err) {
-    console.error('[server] User account sync failed:', err);
+    logger.error('[server] User account sync failed:', err);
   }
 }
 
 // ── Start server ──
 server.listen(PORT, async () => {
-  console.log(`[server] TimeTrack API running on port ${PORT}`);
+  logger.info(`[server] TimeTrack API running on port ${PORT}`);
   await syncEmployeeUserAccounts();
   startCron();
 
@@ -362,12 +363,12 @@ server.listen(PORT, async () => {
   // SEED_ON_START variable is accidentally carried over from a dev config.
   if (process.env.SEED_ON_START === 'true') {
     if (config.isProduction) {
-      console.error(
+      logger.error(
         '[server] SEED_ON_START=true is IGNORED in production: the seed script deletes all data. ' +
           'Remove this variable from the production environment.',
       );
     } else {
-      console.log('[server] Running seed script (development only)...');
+      logger.info('[server] Running seed script (development only)...');
       try {
         // Resolve the server directory relative to this module so the seed
         // runs correctly whether executing from src/ (tsx) or dist/ (build).
@@ -376,10 +377,10 @@ server.listen(PORT, async () => {
           cwd: serverDir,
           timeout: 300_000,
         });
-        console.log('[server] Seed output:', stdout);
-        if (stderr) console.error('[server] Seed errors:', stderr);
+        logger.info('[server] Seed output:', stdout);
+        if (stderr) logger.error('[server] Seed errors:', stderr);
       } catch (err) {
-        console.error('[server] Seed failed:', err);
+        logger.error('[server] Seed failed:', err);
       }
     }
   }
@@ -393,7 +394,7 @@ let shuttingDown = false;
 async function gracefulShutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`[server] ${signal} received — starting graceful shutdown...`);
+  logger.info(`[server] ${signal} received — starting graceful shutdown...`);
 
   stopCron();
 
@@ -404,21 +405,21 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
   // Stop accepting new connections; existing in-flight requests get 10s to finish.
   server.close(() => {
-    console.log('[server] HTTP server closed.');
+    logger.info('[server] HTTP server closed.');
   });
 
   // Force-exit after 10s if connections refuse to drain.
   const forceExit = setTimeout(() => {
-    console.warn('[server] Forcing exit after 10s drain timeout.');
+    logger.warn('[server] Forcing exit after 10s drain timeout.');
     process.exit(1);
   }, 10_000);
   forceExit.unref();
 
   try {
     await prisma.$disconnect();
-    console.log('[server] Database disconnected.');
+    logger.info('[server] Database disconnected.');
   } catch (err) {
-    console.error('[server] Error disconnecting database:', err);
+    logger.error('[server] Error disconnecting database:', err);
   }
 
   process.exit(0);
@@ -428,11 +429,11 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('[server] Unhandled Promise Rejection at:', promise, 'reason:', reason);
+  logger.error('[server] Unhandled Promise Rejection at:', promise, 'reason:', reason);
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('[server] Uncaught Exception:', err);
+  logger.error('[server] Uncaught Exception:', err);
   // Uncaught exceptions leave the process in an undefined state; initiate shutdown
   gracefulShutdown('uncaughtException').catch(() => process.exit(1));
 });

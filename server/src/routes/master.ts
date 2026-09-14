@@ -1,10 +1,11 @@
-/**
+﻿/**
  * Master Platform Routes
  * ----------------------
  * Endpoints for Platform Master actions (cross-tenant statistics, listing tenants, registering new companies, etc.)
  */
 
 import { Router } from 'express';
+import { logger } from '../logger.js';
 import bcrypt from 'bcryptjs';
 import prisma from '../prisma.js';
 import {
@@ -104,7 +105,7 @@ router.get('/stats', async (req, res) => {
 
     res.json(data);
   } catch (err) {
-    console.error('[master] stats error:', err);
+    logger.error('[master] stats error:', err);
     internalError(res, 'retrieving platform statistics');
   }
 });
@@ -147,7 +148,7 @@ router.get('/companies', async (req, res) => {
 
     res.json({ items });
   } catch (err) {
-    console.error('[master] companies error:', err);
+    logger.error('[master] companies error:', err);
     internalError(res, 'retrieving companies');
   }
 });
@@ -270,7 +271,7 @@ router.post('/companies', async (req, res) => {
       note: 'Admin must change password on first login.',
     });
   } catch (err) {
-    console.error('[master] onboard error:', err);
+    logger.error('[master] onboard error:', err);
     internalError(res, 'onboarding tenant company');
   }
 });
@@ -509,7 +510,7 @@ router.put('/companies/:id', async (req, res) => {
         : {}),
     });
   } catch (err) {
-    console.error('[master] edit profile error:', err);
+    logger.error('[master] edit profile error:', err);
     internalError(res, 'updating company profile');
   }
 });
@@ -575,7 +576,7 @@ router.post('/companies/:id/toggle', async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('[master] toggle active error:', err);
+    logger.error('[master] toggle active error:', err);
     internalError(res, 'toggling tenant status');
   }
 });
@@ -636,7 +637,7 @@ router.delete('/companies/:id', async (req, res) => {
       message: 'Tenant company and all associated records permanently deleted.',
     });
   } catch (err) {
-    console.error('[master] delete company error:', err);
+    logger.error('[master] delete company error:', err);
     internalError(res, 'deleting tenant company');
   }
 });
@@ -666,7 +667,7 @@ router.get('/operators', async (req, res) => {
 
     res.json({ items });
   } catch (err) {
-    console.error('[master] get operators error:', err);
+    logger.error('[master] get operators error:', err);
     internalError(res, 'retrieving master accounts');
   }
 });
@@ -731,7 +732,7 @@ router.post('/operators', async (req, res) => {
       note: 'Operator must change password on first login.',
     });
   } catch (err) {
-    console.error('[master] create operator error:', err);
+    logger.error('[master] create operator error:', err);
     internalError(res, 'creating master account');
   }
 });
@@ -778,7 +779,7 @@ router.post('/operators/:id/reset-password', async (req, res) => {
       note: 'Operator must change password on first login.',
     });
   } catch (err) {
-    console.error('[master] reset operator password error:', err);
+    logger.error('[master] reset operator password error:', err);
     internalError(res, 'resetting operator password');
   }
 });
@@ -842,7 +843,7 @@ router.post('/demo-login', async (req, res) => {
       message: `Now simulating ${persona.fullName} (${persona.role})`,
     });
   } catch (err) {
-    console.error('[master] demo-login error:', err);
+    logger.error('[master] demo-login error:', err);
     internalError(res, 'launching demo persona');
   }
 });
@@ -897,7 +898,7 @@ router.post('/impersonate/:id', async (req, res) => {
       message: `Now impersonating ${company.name}`,
     });
   } catch (err) {
-    console.error('[master] impersonate error:', err);
+    logger.error('[master] impersonate error:', err);
     internalError(res, 'initiating impersonation');
   }
 });
@@ -943,7 +944,7 @@ router.post('/stop-impersonation', async (req, res) => {
       message: 'Exited impersonation. Restored Master Session.',
     });
   } catch (err) {
-    console.error('[master] stop-impersonation error:', err);
+    logger.error('[master] stop-impersonation error:', err);
     internalError(res, 'stopping impersonation');
   }
 });

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Audit Log Routes
  * ----------------
  * View audit trail with IP redaction for non-admin roles.
@@ -10,6 +10,7 @@
  */
 
 import { Router } from 'express';
+import { logger } from '../logger.js';
 import prisma from '../prisma.js';
 import { requireAuth, requireAdminOrManager } from '../middleware/auth.js';
 import { redactIp, logAudit, getClientIp } from '../audit.js';
@@ -231,7 +232,7 @@ router.get('/', requireAdminOrManager, async (req, res) => {
       hasMore,
     });
   } catch (err) {
-    console.error('[audit] List error:', err);
+    logger.error('[audit] List error:', err);
     internalError(res, 'fetching audit logs');
   }
 });
@@ -253,7 +254,7 @@ router.get('/entities', requireAuth, async (req, res) => {
     });
     res.json({ entities: entities.map((e) => ({ entity: e.entity, count: e._count.id })) });
   } catch (err) {
-    console.error('[audit] Entities error:', err);
+    logger.error('[audit] Entities error:', err);
     internalError(res, 'fetching audit entities');
   }
 });

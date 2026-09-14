@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Request Correlation ID & Structured Logging Middleware
  * --------------------------------------------------------
  * Assigns a unique X-Request-Id to every HTTP request, exposes it
@@ -7,6 +7,7 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
+import { logger } from '../logger.js';
 import crypto from 'crypto';
 
 export interface RequestWithId extends Request {
@@ -51,9 +52,9 @@ export function requestIdMiddleware(req: RequestWithId, res: Response, next: Nex
 
     if (process.env.NODE_ENV === 'production') {
       // Production: structured single-line JSON output for log collectors (Loki, Datadog, CloudWatch)
-      console.log(JSON.stringify(logEntry));
+      logger.info(logEntry);
     } else if (res.statusCode >= 400 || duration > 500) {
-      console.log(
+      logger.info(
         `[http] ${req.method} ${req.originalUrl || req.url} ${res.statusCode} in ${duration}ms (req: ${requestId.slice(0, 8)})`,
       );
     }

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * TimeTrack — Real-Time SSE Service & Distributed Pub/Sub Adapter
  * ---------------------------------------------------------------
  * High-performance Server-Sent Events broker tracking active clients by tenancy,
@@ -9,6 +9,7 @@
  */
 
 import type { Response } from 'express';
+import { logger } from './logger.js';
 import crypto from 'crypto';
 import { Redis } from 'ioredis';
 import config from './config.js';
@@ -123,22 +124,22 @@ if (redisUrl) {
     });
 
     redisPub.on('error', (err) => {
-      console.warn('[sse] Redis Pub error (falling back to in-memory broadcast):', err.message);
+      logger.warn('[sse] Redis Pub error (falling back to in-memory broadcast):', err.message);
     });
 
     redisSub.on('error', (err) => {
-      console.warn('[sse] Redis Sub error (falling back to in-memory broadcast):', err.message);
+      logger.warn('[sse] Redis Sub error (falling back to in-memory broadcast):', err.message);
     });
 
     redisPub.on('connect', () => {
-      console.log('[sse] Redis Pub adapter connected.');
+      logger.info('[sse] Redis Pub adapter connected.');
     });
 
     redisSub.on('connect', () => {
-      console.log('[sse] Redis Sub adapter connected, subscribing to channel:', SSE_REDIS_CHANNEL);
+      logger.info('[sse] Redis Sub adapter connected, subscribing to channel:', SSE_REDIS_CHANNEL);
       redisSub?.subscribe(SSE_REDIS_CHANNEL, (err) => {
         if (err) {
-          console.error('[sse] Failed to subscribe to Redis events channel:', err);
+          logger.error('[sse] Failed to subscribe to Redis events channel:', err);
         }
       });
     });
@@ -149,20 +150,20 @@ if (redisUrl) {
           const parsed: SSEEventMessage & { seq?: number } = JSON.parse(message);
           deliverToLocalClients(parsed.event, parsed.scope, parsed.seq);
         } catch (err) {
-          console.error('[sse] Failed to parse Redis SSE event message:', err);
+          logger.error('[sse] Failed to parse Redis SSE event message:', err);
         }
       }
     });
 
     // Asynchronously connect without blocking boot
     redisPub.connect().catch((err) => {
-      console.warn('[sse] Redis Pub initial connection unavailable:', err.message);
+      logger.warn('[sse] Redis Pub initial connection unavailable:', err.message);
     });
     redisSub.connect().catch((err) => {
-      console.warn('[sse] Redis Sub initial connection unavailable:', err.message);
+      logger.warn('[sse] Redis Sub initial connection unavailable:', err.message);
     });
   } catch (err) {
-    console.warn('[sse] Redis Pub/Sub adapter setup warning:', err);
+    logger.warn('[sse] Redis Pub/Sub adapter setup warning:', err);
   }
 }
 
@@ -208,7 +209,7 @@ export function addClient(
         }
       }
       if (missed.length > 0) {
-        console.log(
+        logger.info(
           `[sse] Replayed ${missed.length} buffered event(s) to reconnecting client ${info.id}.`,
         );
       }
@@ -228,7 +229,7 @@ export function addClient(
   }
 
   if (userConnectionCount >= MAX_CONCURRENT_PER_USER && oldestClientForUser) {
-    console.warn(
+    logger.warn(
       `[sse] User ${info.id} exceeded max concurrent connections (${MAX_CONCURRENT_PER_USER}). Pruning oldest stream.`,
     );
     removeClient(oldestClientForUser.id);
@@ -365,7 +366,7 @@ export function broadcastScoped(
   // a non-global entity is about to be delivered to every tenant — that
   // indicates a missing scope at the call site.
   if ((!scope || scope.companyProfileId == null) && !GLOBAL_SCOPE_ENTITIES.has(mappedEntity)) {
-    console.warn(
+    logger.warn(
       `[sse] broadcastScoped("${mappedEntity}", "${action}") has no tenant scope — ` +
         'the event will reach clients in ALL tenants. Pass a companyProfileId scope.',
     );
@@ -390,7 +391,7 @@ export function broadcastScoped(
 
   if (redisPub && (redisPub.status === 'ready' || redisPub.status === 'connect')) {
     redisPub.publish(SSE_REDIS_CHANNEL, JSON.stringify({ ...message, seq })).catch((err) => {
-      console.warn('[sse] Redis publish failed, falling back to local dispatch:', err.message);
+      logger.warn('[sse] Redis publish failed, falling back to local dispatch:', err.message);
       deliverToLocalClients(event, scope, seq);
     });
   } else {
@@ -425,7 +426,7 @@ export function disconnectTenantClients(companyProfileId: string): number {
     }
   }
   if (removed > 0) {
-    console.log(
+    logger.info(
       `[sse] Disconnected ${removed} client(s) for suspended tenant ${companyProfileId}.`,
     );
   }
@@ -457,7 +458,7 @@ export function closeAllClients(): number {
   const ids = [...clients.keys()];
   for (const id of ids) removeClient(id);
   if (ids.length > 0) {
-    console.log(`[sse] Closed ${ids.length} SSE stream(s).`);
+    logger.info(`[sse] Closed ${ids.length} SSE stream(s).`);
   }
   return ids.length;
 }

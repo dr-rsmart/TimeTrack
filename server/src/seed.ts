@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Seed Script
  * -----------
  * Populates the database with a realistic demo dataset:
@@ -10,6 +10,7 @@
  */
 
 import 'dotenv/config';
+import { logger } from './logger.js';
 import bcrypt from 'bcryptjs';
 import prisma from './prisma.js';
 import { hoursToMinutes } from './domain/duration.js';
@@ -27,7 +28,7 @@ function daysAgo(n: number): Date {
 }
 
 async function main() {
-  console.log('[seed] Starting database seed...');
+  logger.info('[seed] Starting database seed...');
 
   // ── Clean existing data (in dependency order) ──
   await prisma.retentionPolicy.deleteMany();
@@ -54,7 +55,7 @@ async function main() {
       primaryContactName: 'Diana Prince',
     },
   });
-  console.log(`[seed] Company created: ${company.name} (${company.id})`);
+  logger.info(`[seed] Company created: ${company.name} (${company.id})`);
 
   // ── Master user (platform owner) ──
   const masterUser = await prisma.user.create({
@@ -110,7 +111,7 @@ async function main() {
       companyProfileId: company.id,
     },
   });
-  console.log(
+  logger.info(
     `[seed] Geofence created: ${sitariGeofence.name} (${sitariGeofence.radiusMeters}m radius)`,
   );
 
@@ -357,7 +358,7 @@ async function main() {
       shiftCount++;
     }
   }
-  console.log(`[seed] Created ${shiftCount} shifts`);
+  logger.info(`[seed] Created ${shiftCount} shifts`);
 
   // ── Time Entries (past 14 days) ──
   let entryCount = 0;
@@ -407,7 +408,7 @@ async function main() {
       entryCount++;
     }
   }
-  console.log(`[seed] Created ${entryCount} time entries`);
+  logger.info(`[seed] Created ${entryCount} time entries`);
 
   // ── Employment history for a couple of employees ──
   await prisma.employmentHistory.createMany({
@@ -483,24 +484,24 @@ async function main() {
       { entity: 'AuditLog', retentionDays: 1825, autoPurge: false },
     ],
   });
-  console.log('[seed] Seed complete!');
-  console.log('');
-  console.log('  Demo accounts (password: Password123):');
-  console.log('  ─────────────────────────────────────────');
-  console.log('  master@smartpatel.co.za    → Platform Master (cross-tenant)');
-  console.log('  admin@timetrack.com   → Company Admin');
-  console.log('  thabo@timetrack.com   → Manager (Sandton HQ)');
-  console.log('  ayesha@timetrack.com  → Manager (Cape Town)');
-  console.log('  sipho@timetrack.com   → Employee (Sitari Country Estate)');
-  console.log('  lerato@timetrack.com  → Employee (Sandton HQ)');
-  console.log('  pieter@timetrack.com  → Employee (Sandton HQ)');
-  console.log('  naledi@timetrack.com  → Employee (Cape Town)');
-  console.log('  riaan@timetrack.com   → Employee (Cape Town)');
+  logger.info('[seed] Seed complete!');
+  logger.info('');
+  logger.info('  Demo accounts (password: Password123):');
+  logger.info('  ─────────────────────────────────────────');
+  logger.info('  master@smartpatel.co.za    → Platform Master (cross-tenant)');
+  logger.info('  admin@timetrack.com   → Company Admin');
+  logger.info('  thabo@timetrack.com   → Manager (Sandton HQ)');
+  logger.info('  ayesha@timetrack.com  → Manager (Cape Town)');
+  logger.info('  sipho@timetrack.com   → Employee (Sitari Country Estate)');
+  logger.info('  lerato@timetrack.com  → Employee (Sandton HQ)');
+  logger.info('  pieter@timetrack.com  → Employee (Sandton HQ)');
+  logger.info('  naledi@timetrack.com  → Employee (Cape Town)');
+  logger.info('  riaan@timetrack.com   → Employee (Cape Town)');
 }
 
 main()
   .catch((err) => {
-    console.error('[seed] Fatal error:', err);
+    logger.error('[seed] Fatal error:', err);
     process.exit(1);
   })
   .finally(async () => {

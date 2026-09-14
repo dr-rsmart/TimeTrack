@@ -25,6 +25,24 @@ export default tseslint.config(
       'no-empty': ['error', { allowEmptyCatch: true }],
       // Regex-heavy validation code contains harmless/useful escapes.
       'no-useless-escape': 'off',
+      // All server logging goes through the pino logger (src/logger.ts).
+      'no-console': 'error',
+    },
+  },
+  {
+    files: ['scripts/**/*.ts'],
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 2022,
+      globals: { ...globals.node },
+    },
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      // CLI maintenance scripts intentionally print to stdout/stderr.
+      'no-console': 'off',
+      'no-empty': ['error', { allowEmptyCatch: true }],
+      'no-useless-escape': 'off',
     },
   },
   {

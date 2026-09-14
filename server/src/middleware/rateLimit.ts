@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Rate Limit Middleware — Redis-Backed Distributed Sliding Window
  * ----------------------------------------------------------------
  * Protects clock-in/clock-out and login endpoints from rapid-fire abuse.
@@ -13,6 +13,7 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
+import { logger } from '../logger.js';
 import config from '../config.js';
 import { getRedis } from '../redis.js';
 
@@ -120,7 +121,7 @@ export function rateLimit(maxRequests: number, windowMs: number, label = 'Too ma
         result = await checkRedis(redis, key, maxRequests, windowMs, now);
       } catch (err: any) {
         // Redis failure → degrade gracefully to in-memory (never block requests)
-        console.warn(`[rateLimit] Redis error on ${key}, degrading to in-memory:`, err?.message);
+        logger.warn(`[rateLimit] Redis error on ${key}, degrading to in-memory:`, err?.message);
         result = checkMemory(key, maxRequests, windowMs, now);
       }
     } else {

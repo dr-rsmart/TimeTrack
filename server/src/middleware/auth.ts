@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Authentication Middleware
  * -------------------------
  * JWT verification from httpOnly cookie or Bearer header.
@@ -7,6 +7,7 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
+import { logger } from '../logger.js';
 import jwt from 'jsonwebtoken';
 import prisma from '../prisma.js';
 import config from '../config.js';
@@ -53,7 +54,7 @@ async function isCompanyActive(companyProfileId: string): Promise<boolean | null
     });
     active = company?.isActive ?? false;
   } catch (err) {
-    console.error('[auth] Failed to check company active status (fail-closed):', err);
+    logger.error('[auth] Failed to check company active status (fail-closed):', err);
     // Fail-closed: we cannot verify suspension state, so refuse the request.
     return null;
   }
@@ -113,7 +114,7 @@ async function isEmployeeTerminated(
     });
     terminated = employee?.status === 'terminated';
   } catch (err) {
-    console.error('[auth] Failed to check employee status (fail-closed):', err);
+    logger.error('[auth] Failed to check employee status (fail-closed):', err);
     // Fail-closed: cannot verify termination state, refuse the request.
     return null;
   }
@@ -337,7 +338,7 @@ async function getUserSessionState(
     });
     return { role: user.role, pwdEpoch: user.pwdEpoch };
   } catch (err) {
-    console.error('[auth] Failed to verify session state (fail-closed):', err);
+    logger.error('[auth] Failed to verify session state (fail-closed):', err);
     return null;
   }
 }

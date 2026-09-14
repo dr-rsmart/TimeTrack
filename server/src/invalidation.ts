@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Cluster-Wide Invalidation & Session Revocation Fan-Out
  * -------------------------------------------------------
  * Multi-instance deployments keep per-process caches (company-active,
@@ -17,6 +17,7 @@
  */
 
 import { Redis } from 'ioredis';
+import { logger } from './logger.js';
 import config from './config.js';
 
 const INVALIDATION_CHANNEL = 'timetrack:invalidation';
@@ -58,14 +59,14 @@ if (redisUrl) {
     sub = new Redis(redisUrl, commonOpts);
 
     pub.on('error', (err) => {
-      console.warn('[invalidation] Pub error (local-only fan-out until reconnect):', err.message);
+      logger.warn('[invalidation] Pub error (local-only fan-out until reconnect):', err.message);
     });
     sub.on('error', (err) => {
-      console.warn('[invalidation] Sub error (local-only fan-out until reconnect):', err.message);
+      logger.warn('[invalidation] Sub error (local-only fan-out until reconnect):', err.message);
     });
     sub.on('connect', () => {
       sub?.subscribe(INVALIDATION_CHANNEL, (err) => {
-        if (err) console.error('[invalidation] Failed to subscribe:', err.message);
+        if (err) logger.error('[invalidation] Failed to subscribe:', err.message);
       });
     });
     sub.on('message', (channel, message) => {
@@ -76,22 +77,22 @@ if (redisUrl) {
           try {
             h(cmd);
           } catch (err) {
-            console.error('[invalidation] Handler error:', err);
+            logger.error('[invalidation] Handler error:', err);
           }
         }
       } catch (err) {
-        console.error('[invalidation] Failed to parse command:', err);
+        logger.error('[invalidation] Failed to parse command:', err);
       }
     });
 
     pub.connect().catch((err) => {
-      console.warn('[invalidation] Pub initial connection unavailable (local-only):', err.message);
+      logger.warn('[invalidation] Pub initial connection unavailable (local-only):', err.message);
     });
     sub.connect().catch((err) => {
-      console.warn('[invalidation] Sub initial connection unavailable (local-only):', err.message);
+      logger.warn('[invalidation] Sub initial connection unavailable (local-only):', err.message);
     });
   } catch (err: any) {
-    console.warn('[invalidation] Setup failed (local-only fan-out):', err?.message);
+    logger.warn('[invalidation] Setup failed (local-only fan-out):', err?.message);
     pub = null;
     sub = null;
   }
@@ -107,7 +108,7 @@ function applyLocally(cmd: InvalidationCommand): void {
     try {
       h(cmd);
     } catch (err) {
-      console.error('[invalidation] Handler error:', err);
+      logger.error('[invalidation] Handler error:', err);
     }
   }
 }
@@ -121,7 +122,7 @@ export function publishInvalidation(cmd: InvalidationCommand): void {
   applyLocally(cmd);
   if (pub && (pub.status === 'ready' || pub.status === 'connect')) {
     pub.publish(INVALIDATION_CHANNEL, JSON.stringify(cmd)).catch((err) => {
-      console.warn('[invalidation] Redis publish failed (local apply already done):', err.message);
+      logger.warn('[invalidation] Redis publish failed (local apply already done):', err.message);
     });
   }
 }

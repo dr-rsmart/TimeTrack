@@ -1,10 +1,11 @@
-/**
+﻿/**
  * Employee Routes
  * ---------------
  * CRUD + RBAC-scoped employee directory management.
  */
 
 import { Router } from 'express';
+import { logger } from '../logger.js';
 import bcrypt from 'bcryptjs';
 import prisma from '../prisma.js';
 import { requireAuth, requireAdminOrManager, invalidateLiveRoleCache } from '../middleware/auth.js';
@@ -161,13 +162,13 @@ router.get('/', requireAuth, async (req, res) => {
       }));
     } catch (flagErr) {
       // Non-fatal: if the health check fails, serve the list without the flag.
-      console.warn('[employees] hasLoginAccount flag computation failed:', flagErr);
+      logger.warn('[employees] hasLoginAccount flag computation failed:', flagErr);
     }
 
     setPageHeaders(res, total, { limit, offset });
     res.json({ items: enrichedItems, total, limit, offset });
   } catch (err) {
-    console.error('[employees] List error:', err);
+    logger.error('[employees] List error:', err);
     internalError(res, 'fetching employees');
   }
 });
@@ -203,7 +204,7 @@ router.get('/managers', requireAuth, async (req, res) => {
 
     res.json({ managers });
   } catch (err) {
-    console.error('[employees] List managers error:', err);
+    logger.error('[employees] List managers error:', err);
     internalError(res, 'fetching manager options');
   }
 });
@@ -251,7 +252,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 
     res.json(item);
   } catch (err) {
-    console.error('[employees] Get error:', err);
+    logger.error('[employees] Get error:', err);
     internalError(res, 'fetching employee details');
   }
 });
@@ -346,7 +347,7 @@ router.post(
           );
           for (const r of found) existing.add(r.email);
         } catch (dupErr) {
-          console.warn(
+          logger.warn(
             '[employees] Bulk import duplicate pre-check failed; relying on unique constraint:',
             dupErr,
           );
@@ -434,7 +435,7 @@ router.post(
           if (code === 'P2002') {
             errors.push({ row: idx, message: `An employee with email ${email} already exists.` });
           } else {
-            console.error(
+            logger.error(
               `[employees] Bulk import failed for submitted row ${idx} (${email}):`,
               rowErr,
             );
@@ -474,7 +475,7 @@ router.post(
         errors,
       });
     } catch (err) {
-      console.error('[employees] Bulk import error:', err);
+      logger.error('[employees] Bulk import error:', err);
       internalError(res, 'processing the bulk import');
     }
   },
@@ -615,7 +616,7 @@ router.post('/', requireAdminOrManager, validate(createEmployeeSchema), async (r
 
     res.status(201).json(item);
   } catch (err) {
-    console.error('[employees] Create error:', err);
+    logger.error('[employees] Create error:', err);
     internalError(res, 'creating the employee');
   }
 });
@@ -769,7 +770,7 @@ router.put('/:id', requireAuth, validate(updateEmployeeSchema), async (req, res)
           },
         });
       } catch (histErr) {
-        console.error(
+        logger.error(
           '[employees] Failed to record employment history for manager change:',
           histErr,
         );
@@ -801,7 +802,7 @@ router.put('/:id', requireAuth, validate(updateEmployeeSchema), async (req, res)
 
     res.json(item);
   } catch (err) {
-    console.error('[employees] Update error:', err);
+    logger.error('[employees] Update error:', err);
     internalError(res, 'updating the employee');
   }
 });
@@ -884,7 +885,7 @@ router.post('/:id/reset-password', requireAdminOrManager, async (req, res) => {
         : `Password reset for ${existing.firstName} ${existing.surname}. Temporary password: ${DEFAULT_PASSWORD}. They must set a new password on next login (the default password cannot be kept).`,
     });
   } catch (err) {
-    console.error('[employees] Reset password error:', err);
+    logger.error('[employees] Reset password error:', err);
     internalError(res, 'resetting the employee password');
   }
 });
@@ -951,7 +952,7 @@ router.post('/:id/reactivate', requireAdminOrManager, async (req, res) => {
       employee: item,
     });
   } catch (err) {
-    console.error('[employees] Reactivate error:', err);
+    logger.error('[employees] Reactivate error:', err);
     internalError(res, 'reactivating the employee');
   }
 });
@@ -1036,7 +1037,7 @@ router.delete('/:id', requireAdminOrManager, async (req, res) => {
 
     res.json({ success: true, deleted: id, softDelete: !hardDelete });
   } catch (err) {
-    console.error('[employees] Delete error:', err);
+    logger.error('[employees] Delete error:', err);
     internalError(res, 'deleting the employee');
   }
 });

@@ -1,4 +1,5 @@
-# TimeTrack — Architecture Reference (Consolidated)
+﻿#**2026-09-14:** the authoritative issue register and remediation status now live in docs/AUDIT_REGISTER.md. All legacy audit reports below are historical artifacts; their scores and claims are superseded by the register, the OpenAPI contract, and the code itself.
+TimeTrack — Architecture Reference (Consolidated)
 
 **Version:** 2.0 · **Effective:** 2026-08-26 (Audit Cycle 15, post-remediation)
 **Status:** This document supersedes overlapping claims in the seven legacy audit

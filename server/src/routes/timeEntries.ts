@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Time Entry Routes
  * -----------------
  * Clock-in/out with geofence validation, manual overrides,
@@ -6,6 +6,7 @@
  */
 
 import { Router } from 'express';
+import { logger } from '../logger.js';
 import prisma from '../prisma.js';
 import { requireAuth, requireAdminOrManager } from '../middleware/auth.js';
 import { getManagerScopeFilter } from '../middleware/scope.js';
@@ -133,7 +134,7 @@ router.get('/', requireAuth, async (req, res) => {
     setPageHeaders(res, total, { limit, offset });
     res.json({ items, total, limit, offset });
   } catch (err) {
-    console.error('[timeEntries] List error:', err);
+    logger.error('[timeEntries] List error:', err);
     internalError(res, 'fetching time entries');
   }
 });
@@ -167,7 +168,7 @@ router.get('/active', requireAuth, async (req, res) => {
 
     res.json({ active });
   } catch (err) {
-    console.error('[timeEntries] Active error:', err);
+    logger.error('[timeEntries] Active error:', err);
     internalError(res, 'fetching active session');
   }
 });
@@ -186,7 +187,7 @@ function sendAttendanceUseCaseError(
     });
     return;
   }
-  console.error(`[timeEntries] ${context}:`, error);
+  logger.error(`[timeEntries] ${context}:`, error);
   internalError(res, context);
 }
 
