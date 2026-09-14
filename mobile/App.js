@@ -34,6 +34,7 @@ import {
   View,
   Text,
   Platform,
+  AppState,
   Linking,
   Alert,
   TouchableOpacity,
@@ -44,6 +45,30 @@ import * as TaskManager from 'expo-task-manager';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
+
+const NOTIFICATION_CHANNEL_ID = 'geofence-events';
+
+// Foreground notifications are hidden by default unless an explicit handler
+// opts into displaying them. Use the same channel and sound for every
+// automatic punch, whether the app is foregrounded or backgrounded.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
+async function configureNotifications() {
+  if (Platform.OS !== 'android') return;
+  await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNEL_ID, {
+    name: 'Geofence events',
+    importance: Notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 250, 250, 250],
+    sound: 'default',
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  });
+}
 
 // Production TimeTrack web app URL
 const TIMETRACK_URL = 'https://time-track.tech';
@@ -69,6 +94,8 @@ const GEOFENCE_KEY = 'timetrack_geofence';
 /** Multi-location: JSON array of ALL assigned geofences (new builds). */
 const GEOFENCE_LIST_KEY = 'timetrack_geofences';
 const CLOCKED_IN_KEY = 'timetrack_clocked_in';
+/** Mirrored web setting: false disables native automatic punches. */
+const AUTO_CLOCK_ENABLED_KEY = 'timetrack_auto_clock_enabled';
 const TOKEN_KEY = 'timetrack_auth_token';
 /** Persisted boundary state machine (zone, confirmation counters, cooldown). */
 const GEOFENCE_STATE_KEY = 'timetrack_geofence_state';
@@ -118,12 +145,17 @@ function distanceMetres(a, b) {
 }
 
 // ── API helpers: actually clock in/out against the TimeTrack backend ──
-async function apiClock(kind, pos) {
+async function apiClock(kind, pos, idempotencyKey) {
   const token = await AsyncStorage.getItem(TOKEN_KEY);
   if (!token) return { status: 401, data: {} };
 
   const isClockIn = kind === 'in';
   const url = `${TIMETRACK_URL}/api/time-entries/${isClockIn ? 'clock-in' : 'clock-out'}`;
+  // The caller persists this key before sending the request. If the OS
+  // interrupts the task after the server commits, the next invocation replays
+  // the same mutation instead of creating a second attendance record.
+  const requestKey =
+    idempotencyKey || `native-${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const body = isClockIn
     ? { latitude: pos.latitude, longitude: pos.longitude }
     : { breakMinutes: 0, latitude: pos.latitude, longitude: pos.longitude };
@@ -133,6 +165,7 @@ async function apiClock(kind, pos) {
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
+      'Idempotency-Key': requestKey,
     },
     body: JSON.stringify(body),
   });
@@ -142,12 +175,24 @@ async function apiClock(kind, pos) {
 
 async function notify(title, body) {
   try {
+    // Background tasks can start before the React component's permission
+    // effect has created the Android channel. Ensure the channel exists at the
+    // point of delivery as well as during app startup.
+    await configureNotifications();
     await Notifications.scheduleNotificationAsync({
-      content: { title, body },
+      content: {
+        title,
+        body,
+        sound: 'default',
+        data: { source: 'geofence' },
+        ...(Platform.OS === 'android' ? { channelId: NOTIFICATION_CHANNEL_ID } : {}),
+      },
       trigger: null,
     });
-  } catch {
-    // Never crash the background task on notification failures.
+    return true;
+  } catch (error) {
+    console.warn('[TimeTrack] Could not schedule geofence notification:', error?.message || error);
+    return false;
   }
 }
 
@@ -166,33 +211,58 @@ async function notify(title, body) {
 // boundary state says the employee clocked out while still on site
 // (st.clockedOutInside), auto clock-in is suppressed until a fix proves they
 // left every assigned location.
-TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
+async function processBackgroundLocation({ data, error }) {
   if (error) return;
   if (!data?.locations?.length) return;
 
   try {
+    // The WebView owns the user-facing setting. The native task must honor the
+    // same value or a disabled app can still clock the employee out in the
+    // background.
+    if ((await AsyncStorage.getItem(AUTO_CLOCK_ENABLED_KEY)) === 'false') return;
+
     const geofences = await readGeofences();
     if (geofences.length === 0) return;
 
     const stateRaw = await AsyncStorage.getItem(GEOFENCE_STATE_KEY);
     const st = stateRaw
       ? JSON.parse(stateRaw)
-      : { zone: null, pendingEnter: 0, pendingExit: 0, lastEventAt: 0, clockedOutInside: false };
+      : {
+          zone: null,
+          pendingEnter: 0,
+          pendingExit: 0,
+          lastEventAt: 0,
+          clockedOutInside: false,
+          pendingAction: null,
+          pendingNotification: null,
+        };
     if (typeof st.clockedOutInside !== 'boolean') st.clockedOutInside = false;
+    if (!st.pendingAction || typeof st.pendingAction !== 'object') st.pendingAction = null;
+    if (!st.pendingNotification || typeof st.pendingNotification !== 'object') st.pendingNotification = null;
 
     let clockedIn = (await AsyncStorage.getItem(CLOCKED_IN_KEY)) === 'true';
     // Seed the zone from clock state (mirrors web syncClockedIn). A clocked-in
     // user is treated as INSIDE so clock-out can fire on the first crossing.
-    // A NOT-clocked-in user with completely fresh state is conservatively
-    // seeded as "clocked out on site" (guard armed) — the first clearly
-    // outside fix releases it. This prevents phantom re-clock-ins after state
-    // loss while the employee never actually left.
+    // A NOT-clocked-in user with fresh state remains unseeded so the first
+    // confirmed inside fix can perform a legitimate auto clock-in. The
+    // clockedOutInside flag is only armed by the explicit CLOCK_STATE
+    // true -> false transition, which represents a real clock-out while the
+    // employee may still be on site.
     if (!st.zone) {
-      st.zone = 'inside';
-      if (!clockedIn) st.clockedOutInside = true;
+      st.zone = clockedIn ? 'inside' : null;
     }
 
     const now = Date.now();
+
+    // A successful attendance mutation must still produce its user-visible
+    // notification. Retry notification scheduling on the next location wake
+    // if the OS temporarily rejected the first scheduling attempt.
+    if (st.pendingNotification?.title && st.pendingNotification?.body) {
+      if (await notify(st.pendingNotification.title, st.pendingNotification.body)) {
+        st.pendingNotification = null;
+        await AsyncStorage.setItem(GEOFENCE_STATE_KEY, JSON.stringify(st));
+      }
+    }
 
     for (const loc of data.locations) {
       const accuracy = loc.coords?.accuracy;
@@ -248,7 +318,13 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
             // Do NOT re-clock-in until they leave every assigned location.
             continue;
           }
-          const { status, data: resBody } = await apiClock('in', pos);
+          const pendingAction =
+            st.pendingAction?.kind === 'in' && typeof st.pendingAction.key === 'string'
+              ? st.pendingAction
+              : { kind: 'in', key: `native-in-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+          st.pendingAction = pendingAction;
+          await AsyncStorage.setItem(GEOFENCE_STATE_KEY, JSON.stringify(st));
+          const { status, data: resBody } = await apiClock('in', pos, pendingAction.key);
           const reclockBlocked = status === 409 && resBody?.code === 'RECLOCK_GUARD';
           const alreadyActive =
             !reclockBlocked &&
@@ -258,10 +334,13 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
           if (status === 201 || status === 200 || alreadyActive) {
             st.zone = 'inside';
             st.lastEventAt = Date.now();
+            st.pendingAction = null;
             clockedIn = true;
             await AsyncStorage.setItem(CLOCKED_IN_KEY, 'true');
             if (!alreadyActive) {
-              await notify('Auto Clock In', `You entered "${nearest.name}". Shift started automatically.`);
+              const title = 'Auto Clock In';
+              const body = `You entered \"${nearest.name}\". Shift started automatically.`;
+              if (!(await notify(title, body))) st.pendingNotification = { title, body };
             }
           } else if (reclockBlocked) {
             // Server re-clock guard: too soon after the last clock-out. Leave
@@ -270,24 +349,46 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
           }
           // 401 (expired token) or 403: leave state untouched — the web app
           // will re-sync the token/state next time it runs.
+        } else if (st.pendingEnter >= CONFIRMATIONS && clockedIn) {
+          // The employee was clocked in by a manual/remote action while the
+          // native state machine was outside or unseeded. Advance the
+          // boundary state even though no clock-in API call is required, so a
+          // later exit can be detected normally.
+          st.pendingEnter = 0;
+          st.zone = 'inside';
         }
       } else if (outside && st.zone !== 'outside') {
         st.pendingEnter = 0;
         st.pendingExit += 1;
         if (st.pendingExit >= CONFIRMATIONS && clockedIn && now - st.lastEventAt >= EVENT_COOLDOWN_MS) {
           st.pendingExit = 0;
-          const { status, data: resBody } = await apiClock('out', pos);
+          const pendingAction =
+            st.pendingAction?.kind === 'out' && typeof st.pendingAction.key === 'string'
+              ? st.pendingAction
+              : { kind: 'out', key: `native-out-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+          st.pendingAction = pendingAction;
+          await AsyncStorage.setItem(GEOFENCE_STATE_KEY, JSON.stringify(st));
+          const { status, data: resBody } = await apiClock('out', pos, pendingAction.key);
           const noActive =
             status === 404 || String(resBody?.error || '').toLowerCase().includes('no active');
           if (status === 200 || noActive) {
             st.zone = 'outside';
             st.lastEventAt = Date.now();
+            st.pendingAction = null;
             clockedIn = false;
             await AsyncStorage.setItem(CLOCKED_IN_KEY, 'false');
             if (!noActive) {
-              await notify('Auto Clock Out', `You left "${nearest.name}". Shift ended automatically.`);
+              const title = 'Auto Clock Out';
+              const body = `You left \"${nearest.name}\". Shift ended automatically.`;
+              if (!(await notify(title, body))) st.pendingNotification = { title, body };
             }
           }
+        } else if (st.pendingExit >= CONFIRMATIONS && !clockedIn) {
+          // A signed-out employee can leave the site without needing an API
+          // call. Still commit the outside boundary so returning later is a
+          // real outside -> inside transition and can auto clock in.
+          st.pendingExit = 0;
+          st.zone = 'outside';
         }
       } else {
         // Approaching zone or no crossing in progress — reset pending counters.
@@ -300,7 +401,43 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
   } catch {
     // Never crash the background task
   }
+}
+
+// Expo may invoke a background task again before a previous invocation has
+// finished its network request. Serialize invocations so the persisted state
+// machine and its idempotency key are updated in order.
+let backgroundTaskQueue = Promise.resolve();
+TaskManager.defineTask(BACKGROUND_LOCATION_TASK, (payload) => {
+  const next = backgroundTaskQueue.then(() => processBackgroundLocation(payload));
+  backgroundTaskQueue = next.catch(() => undefined);
+  return next;
 });
+
+/**
+ * Start native background updates whenever permissions become available.
+ * Android/iOS may require the user to grant "Always"/background location from
+ * system Settings after the initial foreground permission prompt; callers
+ * retry this helper when the app returns to the foreground.
+ */
+async function ensureBackgroundLocationUpdates() {
+  const started = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+  if (started) return;
+
+  await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+    // High accuracy: Balanced (network-only) fixes frequently exceed
+    // the 150m accuracy gate, which previously prevented auto
+    // clock-out detection while driving away from the site.
+    accuracy: Location.Accuracy.High,
+    timeInterval: 30000,
+    distanceInterval: 50,
+    showsBackgroundLocationIndicator: true,
+    foregroundService: {
+      notificationTitle: 'TimeTrack',
+      notificationBody: 'Monitoring work location for auto clock-in/out',
+    },
+    pausesUpdatesAutomatically: false,
+  });
+}
 
 export default function App() {
   const webviewRef = useRef(null);
@@ -429,7 +566,16 @@ export default function App() {
             }
           }
         }
-        await Notifications.requestPermissionsAsync();
+        try {
+          await configureNotifications();
+        } catch (error) {
+          console.warn('[TimeTrack] Could not configure notification channel:', error?.message || error);
+        }
+        try {
+          await Notifications.requestPermissionsAsync();
+        } catch (error) {
+          console.warn('[TimeTrack] Could not request notification permission:', error?.message || error);
+        }
       } catch {
         // Continue regardless; WebView still functions
       }
@@ -440,33 +586,29 @@ export default function App() {
   // ── Start native background location updates ──
   useEffect(() => {
     if (!permissionsReady) return;
-    (async () => {
-      try {
-        const granted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
-        if (!granted) {
-          await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-            // High accuracy: Balanced (network-only) fixes frequently exceed
-            // the 150m accuracy gate, which previously prevented auto
-            // clock-out detection while driving away from the site.
-            accuracy: Location.Accuracy.High,
-            timeInterval: 30000,
-            distanceInterval: 50,
-            showsBackgroundLocationIndicator: true,
-            foregroundService: {
-              notificationTitle: 'TimeTrack',
-              notificationBody: 'Monitoring work location for auto clock-in/out',
-            },
-            pausesUpdatesAutomatically: false,
-          });
-        }
-      } catch {
-        // Background updates unavailable (e.g. simulator) — ignore
+    let cancelled = false;
+    const start = () => {
+      if (!cancelled) {
+        void ensureBackgroundLocationUpdates().catch(() => {
+          // Background updates unavailable (e.g. simulator or permission not
+          // granted yet). The app-resume listener below retries automatically.
+        });
       }
-    })();
+    };
+
+    start();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') start();
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
   }, [permissionsReady]);
 
   // ── Bridge messages from the web app (geofence assignment, clock state, auth token) ──
-  const onWebViewMessage = async (event) => {
+  const processWebViewMessage = async (event) => {
     try {
       const msg = JSON.parse(event.nativeEvent.data || '{}');
       if (msg.type === 'GEOFENCE_ASSIGNED') {
@@ -503,6 +645,8 @@ export default function App() {
                   lastEventAt: 0,
                   clockedOutInside: Boolean(st.clockedOutInside),
                   lastClockedIn: st.lastClockedIn,
+                  pendingAction: st.pendingAction ?? null,
+                  pendingNotification: st.pendingNotification ?? null,
                 }),
               );
             } catch {
@@ -510,6 +654,13 @@ export default function App() {
             }
           }
         }
+        // Assignment messages arrive after the WebView has authenticated and
+        // are another safe opportunity to recover a background task that was
+        // blocked by a temporary permission/provider failure.
+        void ensureBackgroundLocationUpdates().catch(() => undefined);
+      }
+      if (msg.type === 'AUTO_CLOCK_ENABLED' && typeof msg.enabled === 'boolean') {
+        await AsyncStorage.setItem(AUTO_CLOCK_ENABLED_KEY, String(msg.enabled));
       }
       if (msg.type === 'CLOCK_STATE' && typeof msg.clockedIn === 'boolean') {
         await AsyncStorage.setItem(CLOCKED_IN_KEY, String(msg.clockedIn));
@@ -522,7 +673,15 @@ export default function App() {
           const stateRaw = await AsyncStorage.getItem(GEOFENCE_STATE_KEY);
           const st = stateRaw
             ? JSON.parse(stateRaw)
-            : { zone: null, pendingEnter: 0, pendingExit: 0, lastEventAt: 0, clockedOutInside: false };
+            : {
+                zone: null,
+                pendingEnter: 0,
+                pendingExit: 0,
+                lastEventAt: 0,
+                clockedOutInside: false,
+                pendingAction: null,
+                pendingNotification: null,
+              };
           if (st.lastClockedIn === true && msg.clockedIn === false) {
             st.clockedOutInside = true;
           }
@@ -546,11 +705,22 @@ export default function App() {
           GEOFENCE_LIST_KEY,
           CLOCKED_IN_KEY,
           GEOFENCE_STATE_KEY,
+          AUTO_CLOCK_ENABLED_KEY,
         ]);
       }
     } catch {
       // Ignore malformed bridge messages
     }
+  };
+
+  // WebView messages are delivered independently and each handler performs
+  // asynchronous storage writes. Serialize them so CLOCK_STATE transitions
+  // (especially true -> false after clock-out) cannot commit out of order.
+  const bridgeQueueRef = useRef(Promise.resolve());
+  const onWebViewMessage = (event) => {
+    const next = bridgeQueueRef.current.then(() => processWebViewMessage(event));
+    bridgeQueueRef.current = next.catch(() => undefined);
+    return next;
   };
 
   return (

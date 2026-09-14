@@ -23,6 +23,7 @@ import Settings from './pages/Settings';
 import Register from './pages/Register';
 import Demo from './pages/Demo';
 import ProfilePage from './pages/Profile';
+import FAQ from './pages/FAQ';
 import ChangePasswordModal from './components/auth/ChangePasswordModal';
 import AutoGeofenceMonitor from './components/location/AutoGeofenceMonitor';
 import { Spinner } from './components/ui';
@@ -129,6 +130,7 @@ function AnimatedRoutes() {
             }
           />
           <Route path="/profile" element={<SlidePage><ProfilePage /></SlidePage>} />
+          <Route path="/faq" element={<SlidePage><FAQ /></SlidePage>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

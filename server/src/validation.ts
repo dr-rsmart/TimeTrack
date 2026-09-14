@@ -76,6 +76,7 @@ export const bulkEmployeeRowSchema = createEmployeeSchema.omit({
   employmentType: true,
   managerId: true,
   geofenceId: true,
+  geofenceIds: true,
 });
 
 /** Hard cap on rows per import request (keeps payloads well under the 1MB body limit). */
@@ -96,13 +97,74 @@ export const bulkCreateEmployeesSchema = z.object({
 });
 
 // ── Shifts ──
+export const shiftTypeSchema = z.enum(['full_day', 'half_day', 'Holiday', 'Leave', 'Sick', 'PTO', 'Unpaid']);
+
+export type ShiftType = z.infer<typeof shiftTypeSchema>;
+
+const WEEKDAY_KEYS = new Set(['0', '1', '2', '3', '4', '5', '6']);
+
+const weeklyScheduleDaySchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    startTime: timeStrSchema.nullish(),
+    endTime: timeStrSchema.nullish(),
+    shiftType: shiftTypeSchema.optional(),
+  })
+  .superRefine((day, ctx) => {
+    if (day.enabled !== false && day.startTime && day.endTime && day.endTime <= day.startTime) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['endTime'],
+        message: 'End time must be after start time.',
+      });
+    }
+  });
+
+/** Optional per-weekday hours. Keys use JavaScript's weekday numbering: 0 = Sunday, 6 = Saturday. */
+export const weeklyScheduleSchema = z.record(z.string(), weeklyScheduleDaySchema).superRefine((schedule, ctx) => {
+  for (const dayKey of Object.keys(schedule)) {
+    if (!WEEKDAY_KEYS.has(dayKey)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [dayKey],
+        message: 'Weekday must be a number from 0 (Sunday) through 6 (Saturday).',
+      });
+    }
+  }
+});
+
+export type WeeklySchedule = z.infer<typeof weeklyScheduleSchema>;
+
+export const bulkCreateShiftsSchema = z
+  .object({
+    employeeIds: z.array(z.string()).min(1).max(100),
+    date: dateStrSchema,
+    endDate: dateStrSchema.optional(),
+    startTime: timeStrSchema.nullish(),
+    endTime: timeStrSchema.nullish(),
+    shiftType: shiftTypeSchema.default('full_day'),
+    location: z.string().max(255).nullish(),
+    notes: z.string().max(2000).nullish(),
+    skipOverlaps: z.boolean().optional(),
+    weeklySchedule: weeklyScheduleSchema.optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.startTime && data.endTime && data.endTime <= data.startTime) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['endTime'],
+        message: 'End time must be after start time.',
+      });
+    }
+  });
+
+export type BulkCreateShifts = z.infer<typeof bulkCreateShiftsSchema>;
+
 export const createShiftSchema = z.object({
   date: dateStrSchema,
   startTime: timeStrSchema.nullish(),
   endTime: timeStrSchema.nullish(),
-  shiftType: z
-    .enum(['full_day', 'half_day', 'Holiday', 'Leave', 'Sick', 'PTO', 'Unpaid'])
-    .default('full_day'),
+  shiftType: shiftTypeSchema.default('full_day'),
   employeeId: z.string().nullish(),
   location: z.string().max(255).nullish(),
   notes: z.string().max(2000).nullish(),
@@ -115,20 +177,48 @@ export const createShiftSchema = z.object({
   /**
    * Optional custom hours by day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
    */
-  weeklySchedule: z
-    .record(
-      z.string(),
-      z.object({
-        enabled: z.boolean().default(true),
-        startTime: timeStrSchema.nullish(),
-        endTime: timeStrSchema.nullish(),
-        shiftType: z
-          .enum(['full_day', 'half_day', 'Holiday', 'Leave', 'Sick', 'PTO', 'Unpaid'])
-          .optional(),
-      }),
-    )
-    .optional(),
+  weeklySchedule: weeklyScheduleSchema.optional(),
 });
+
+export interface ResolvedDaySchedule {
+  enabled: boolean;
+  startTime: string | null;
+  endTime: string | null;
+  shiftType: string;
+}
+
+/**
+ * Resolve the configured hours for one calendar day. Missing weekday entries
+ * are treated as closed when a weekly schedule is supplied; this prevents an
+ * incomplete custom schedule from silently creating unwanted weekend shifts.
+ */
+export function resolveWeeklyScheduleDay(
+  dayStr: string,
+  weeklySchedule: WeeklySchedule | undefined,
+  defaults: { startTime?: string | null; endTime?: string | null; shiftType?: string | null },
+): ResolvedDaySchedule {
+  if (!weeklySchedule) {
+    return {
+      enabled: true,
+      startTime: defaults.startTime ?? null,
+      endTime: defaults.endTime ?? null,
+      shiftType: defaults.shiftType ?? 'full_day',
+    };
+  }
+
+  const dayOfWeek = new Date(`${dayStr}T12:00:00Z`).getUTCDay();
+  const dayConfig = weeklySchedule[String(dayOfWeek)];
+  if (!dayConfig || dayConfig.enabled === false) {
+    return { enabled: false, startTime: null, endTime: null, shiftType: 'full_day' };
+  }
+
+  return {
+    enabled: true,
+    startTime: dayConfig.startTime ?? defaults.startTime ?? null,
+    endTime: dayConfig.endTime ?? defaults.endTime ?? null,
+    shiftType: dayConfig.shiftType ?? defaults.shiftType ?? 'full_day',
+  };
+}
 
 export const updateShiftSchema = createShiftSchema.partial().extend({
   status: z.enum(['scheduled', 'active', 'completed', 'cancelled', 'no_show']).optional(),
@@ -229,6 +319,9 @@ export const createGeofenceSchema = z.object({
   latitude: latSchema,
   longitude: lngSchema,
   radiusMeters: z.number().int().min(10).max(100000).default(200),
+  workingStartTime: timeStrSchema.default('08:00'),
+  workingEndTime: timeStrSchema.default('17:00'),
+  workingDays: z.array(z.enum(['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'])).min(1).default(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']),
 });
 
 export const updateGeofenceSchema = createGeofenceSchema.partial();

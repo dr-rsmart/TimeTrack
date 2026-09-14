@@ -13,7 +13,7 @@
  * a 60s safety poll.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { timeEntryApi, type TimeEntry } from '../../services/api';
 import { useAutoGeofence, AUTO_CLOCK_EVENT, isAutoClockEligible } from '../../hooks/useAutoGeofence';
@@ -24,11 +24,16 @@ export default function AutoGeofenceMonitor() {
   const { user } = useAuth();
   const [activeEntry, setActiveEntry] = useState<TimeEntry | null>(null);
   const [gpsAvailable] = useState<boolean>(() => checkGpsAvailability().available);
+  const activeRequestIdRef = useRef(0);
 
   // ── Keep the active clock-in session fresh ──
   const loadActive = useCallback(async () => {
+    const requestId = ++activeRequestIdRef.current;
     try {
       const res = await timeEntryApi.active();
+      // Initial load, SSE refreshes, and the safety poll can overlap. Never
+      // let an older response restore a clock-in after a newer clock-out.
+      if (requestId !== activeRequestIdRef.current) return;
       setActiveEntry(res.active);
     } catch {
       /* Session probe failed (transient) — keep the last known state. */

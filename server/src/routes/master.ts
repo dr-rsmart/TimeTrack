@@ -13,8 +13,10 @@ import { disconnectTenantClients } from '../sse.js';
 import { DEFAULT_PASSWORD } from '../passwords.js';
 import { isMasterAuthorized } from '../masterAuth.js';
 import { disconnectUserClusterWide } from '../invalidation.js';
+import { AUTH_COOKIE_NAME, AUTH_COOKIE_OPTIONS } from '../authSession.js';
 import { getBusinessTimezone, businessNow } from '../timezone.js';
 import { parseDate } from '../overlap.js';
+import { storedDurationHours } from '../domain/duration.js';
 import {
   notFound,
   accessDenied,
@@ -24,15 +26,6 @@ import {
 } from '../errorResponse.js';
 
 const router = Router();
-
-const COOKIE_NAME = 'tt_token';
-const COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
-  maxAge: 8 * 60 * 60 * 1000, // 8 hours
-  path: '/',
-};
 
 // Middleware helper to ensure user is a platform master.
 // SECURITY (least privilege): impersonation/demo sessions carry
@@ -77,11 +70,14 @@ router.get('/stats', async (req, res) => {
           // the comparison is stable regardless of host timezone.
           date: parseDate(businessNow(getBusinessTimezone()).dateStr)
         },
-        select: { totalHours: true }
+        select: { totalMinutes: true, totalHours: true }
       })
     ]);
 
-    const totalHoursToday = completedToday.reduce((sum, e) => sum + (e.totalHours ?? 0), 0);
+    const totalHoursToday = completedToday.reduce(
+      (sum, e) => sum + storedDurationHours(e.totalMinutes, e.totalHours),
+      0,
+    );
 
     const data = {
       totalCompanies,
@@ -810,7 +806,7 @@ router.post('/demo-login', async (req, res) => {
       pwdEpoch: req.authUser!.pwdEpoch ?? 0,
     });
 
-    res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
+    res.cookie(AUTH_COOKIE_NAME, token, AUTH_COOKIE_OPTIONS);
     res.json({
       success: true,
       token,
@@ -865,7 +861,7 @@ router.post('/impersonate/:id', async (req, res) => {
       pwdEpoch: req.authUser!.pwdEpoch ?? 0,
     });
 
-    res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
+    res.cookie(AUTH_COOKIE_NAME, token, AUTH_COOKIE_OPTIONS);
     res.json({
       success: true,
       token,
@@ -911,7 +907,7 @@ router.post('/stop-impersonation', async (req, res) => {
       pwdEpoch: user.pwdEpoch,
     });
 
-    res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
+    res.cookie(AUTH_COOKIE_NAME, token, AUTH_COOKIE_OPTIONS);
     res.json({
       success: true,
       token,

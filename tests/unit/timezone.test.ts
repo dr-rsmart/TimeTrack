@@ -1,11 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import {
   businessNow,
+  getBusinessTimezone,
   timeStrToMinutes,
   isPastGraceDeadline,
 } from '../../server/src/timezone';
 
 describe('Business Timezone Rules (cron no-show safety)', () => {
+  it('defaults the South Africa deployment to Johannesburg time', () => {
+    const previous = process.env.CRON_TIMEZONE;
+    delete process.env.CRON_TIMEZONE;
+    try {
+      expect(getBusinessTimezone()).toBe('Africa/Johannesburg');
+    } finally {
+      if (previous === undefined) delete process.env.CRON_TIMEZONE;
+      else process.env.CRON_TIMEZONE = previous;
+    }
+  });
+
   // Fixed instant: 2026-08-17 09:30 UTC.
   const instant = new Date('2026-08-17T09:30:00Z');
 

@@ -72,7 +72,7 @@ const defaultWeeklySchedule: Record<number, DayScheduleConfig> = {
   3: { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Wed
   4: { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Thu
   5: { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Fri
-  6: { enabled: false, startTime: '08:00', endTime: '12:30', shiftType: 'half_day' }, // Sat (Closed)
+  6: { enabled: true, startTime: '08:00', endTime: '12:30', shiftType: 'half_day' }, // Sat
   0: { enabled: false, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Sun (Closed)
 };
 
@@ -88,7 +88,8 @@ const emptyForm = {
   endTime: '17:00',
   shiftType: 'full_day',
   notes: '',
-  useCustomDailyHours: false,
+  // Range schedules default to the common Mon-Sat/Sunday-closed template.
+  useCustomDailyHours: true,
   weeklySchedule: { ...defaultWeeklySchedule },
 };
 
@@ -261,7 +262,23 @@ export default function Shifts() {
 
   /** Bulk path = more than one employee or more than one day. */
   const isBulkCreate = !editing && ((rangeDays ?? 1) > 1 || form.employeeIds.length > 1);
-  const projectedShifts = Math.max(rangeDays ?? 0, 0) * form.employeeIds.length;
+  const scheduledDays = useMemo(() => {
+    if (!rangeDays) return 0;
+    if (!form.useCustomDailyHours || rangeDays <= 1) return rangeDays;
+
+    const start = parseInputDate(form.date);
+    if (!start) return rangeDays;
+
+    let openDays = 0;
+    for (let i = 0; i < rangeDays; i++) {
+      const day = new Date(start);
+      day.setDate(day.getDate() + i);
+      const config = form.weeklySchedule[day.getDay()];
+      if (config?.enabled) openDays++;
+    }
+    return openDays;
+  }, [form.date, form.useCustomDailyHours, form.weeklySchedule, rangeDays]);
+  const projectedShifts = scheduledDays * form.employeeIds.length;
 
   const openCreate = (dateStr?: string) => {
     setEditing(null);
@@ -298,6 +315,17 @@ export default function Shifts() {
       toast.error('End time must be after start time.');
       return;
     }
+    if (
+      !editing &&
+      (rangeDays ?? 1) > 1 &&
+      form.useCustomDailyHours &&
+      Object.values(form.weeklySchedule).some(
+        (config) => config.enabled && (!config.startTime || !config.endTime || config.endTime <= config.startTime),
+      )
+    ) {
+      toast.error('Each open day must have an end time after its start time.');
+      return;
+    }
     if (isBulkCreate && form.employeeIds.length === 0) {
       toast.error('Select at least one employee for a multi-day or multi-employee schedule.');
       return;
@@ -324,7 +352,7 @@ export default function Shifts() {
           endTime: form.endTime,
           shiftType: form.shiftType,
           notes: form.notes || undefined,
-          weeklySchedule: form.useCustomDailyHours ? form.weeklySchedule : undefined,
+          weeklySchedule: (rangeDays ?? 1) > 1 && form.useCustomDailyHours ? form.weeklySchedule : undefined,
         });
         toast.success(`Created ${res.created} shift${res.created === 1 ? '' : 's'}`);
         if (res.skipped > 0) {
@@ -622,8 +650,8 @@ export default function Shifts() {
                   <p className="rounded-lg bg-muted/70 px-3 py-2 text-sm text-muted-foreground">
                     <Info className="mr-1.5 inline h-3.5 w-3.5" />
                     {projectedShifts > 0
-                      ? <>Creates {projectedShifts} shift{projectedShifts === 1 ? '' : 's'}: {rangeDays} day{rangeDays === 1 ? '' : 's'} × {form.employeeIds.length} employee{form.employeeIds.length === 1 ? '' : 's'}.</>
-                      : <>Range covers {rangeDays} days — select employees above to include them.</>}
+                      ? <>Creates {projectedShifts} shift{projectedShifts === 1 ? '' : 's'}: {scheduledDays} open day{scheduledDays === 1 ? '' : 's'} of {rangeDays} × {form.employeeIds.length} employee{form.employeeIds.length === 1 ? '' : 's'}.</>
+                      : <>Range covers {rangeDays} days ({scheduledDays} open) — select employees above to include them.</>}
                   </p>
 
                   {/* Day-of-week customize toggle */}

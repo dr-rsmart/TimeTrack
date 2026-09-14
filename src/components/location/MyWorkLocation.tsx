@@ -139,8 +139,8 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
 
   // ── Calculate distance to allowed geofences using Haversine ──
   // Matches backend geoValidationService: assigned employees are validated
-  // against their assigned geofence ONLY; unassigned employees against all
-  // active company geofences.
+  // against their assigned geofences ONLY; unassigned employees have no
+  // location restriction and may view all active company geofences.
   const calculateDistances = useCallback(async () => {
     if (allGeofences.length === 0) return;
 
@@ -162,9 +162,9 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
 
       const { latitude, longitude, accuracy } = position.coords;
 
-      // Accuracy gate: never overwrite a good reading with an unreliable fix
-      // (matches AutoGeofenceService MAX_ACCURACY_METERS = 100)
-      if (typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > 100) {
+      // Accuracy gate: keep this aligned with AutoGeofenceService so the
+      // dashboard does not reject fixes that the active monitor accepts.
+      if (typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > 150) {
         setPoorSignal(true);
         return;
       }
@@ -176,7 +176,10 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
       const assignedGeofences = assignedGeofenceIds.length > 0
         ? activeGeofences.filter((g) => assignedGeofenceIds.includes(g.id))
         : [];
-      const allowedGeofences = assignedGeofences.length > 0 ? assignedGeofences : activeGeofences;
+      // Do not fall back to unrelated company locations when assignments exist
+      // but are inactive. The backend treats that state as assigned-only (and
+      // rejects strict clock-in until an admin reactivates or reassigns).
+      const allowedGeofences = assignedGeofenceIds.length > 0 ? assignedGeofences : activeGeofences;
 
       const results: DistanceResult[] = allowedGeofences.map((gf) => {
         const distance = haversineDistance(latitude, longitude, gf.latitude, gf.longitude);
@@ -214,11 +217,12 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
   }, [allGeofences, assignedGeofenceIds]);
 
   // Auto-calculate on first load once geofences are available
+  const assignedGeofenceIdsKey = assignedGeofenceIds.join('|');
   useEffect(() => {
     if (allGeofences.length > 0 && !loading) {
       calculateDistances();
     }
-  }, [allGeofences.length, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [allGeofences.length, loading, assignedGeofenceIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-refresh distance every 10 seconds
   useEffect(() => {
@@ -231,7 +235,11 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
   useSSE(
     useCallback(
       (event: { type?: string; entity?: string }) => {
-        if (event.type === 'entity_event' && event.entity === 'Geofence') {
+        if (
+          event.type === 'entity_event' &&
+          typeof event.entity === 'string' &&
+          ['geofence', 'employee'].includes(event.entity.toLowerCase())
+        ) {
           fetchData();
         }
       },

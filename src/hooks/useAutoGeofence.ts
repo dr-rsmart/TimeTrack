@@ -16,6 +16,7 @@ import {
 import { authApi, employeeApi, timeEntryApi, settingsApi } from '../services/api';
 import { getCurrentPosition } from '../utils/clockInHelper';
 import { useSSE } from './useSSE';
+import { getAutoClockRuntime } from '../utils/autoClockRuntime';
 
 /** How often the geofence assignment is re-fetched as a safety net (SSE covers most updates instantly). */
 const GEOFENCE_REFRESH_INTERVAL_MS = 5 * 60_000;
@@ -25,6 +26,7 @@ const GEOFENCE_REFRESH_INTERVAL_MS = 5 * 60_000;
 // ─────────────────────────────────────────────────────────────
 
 const AUTO_GEOFENCE_ENABLED_KEY = 'timetrack_auto_geofence_enabled';
+export const AUTO_GEOFENCE_SETTING_EVENT = 'timetrack:auto-geofence-setting';
 const LOCATION_PERMISSION_ASKED_KEY = 'timetrack_location_permission_asked';
 const LAST_AUTO_CLOCK_IN_KEY = 'timetrack_last_auto_clock_in';
 const LAST_AUTO_CLOCK_OUT_KEY = 'timetrack_last_auto_clock_out';
@@ -46,6 +48,9 @@ export function getAutoGeofenceEnabled(): boolean {
 export function setAutoGeofenceEnabled(enabled: boolean): void {
   try {
     localStorage.setItem(AUTO_GEOFENCE_ENABLED_KEY, String(enabled));
+  } catch { /* ignore */ }
+  try {
+    window.dispatchEvent(new CustomEvent(AUTO_GEOFENCE_SETTING_EVENT, { detail: { enabled } }));
   } catch { /* ignore */ }
 }
 
@@ -103,9 +108,16 @@ export function isAutoClockEligible(
 // Notification Helpers
 // ─────────────────────────────────────────────────────────────
 
-function sendNotification(title: string, body: string): void {
-  if ('Notification' in window && Notification.permission === 'granted') {
-    new Notification(title, { body, icon: '/favicon.ico', tag: `${title}-${Date.now()}` });
+async function sendNotification(title: string, body: string): Promise<void> {
+  if (!('Notification' in window)) return;
+  try {
+    let permission = Notification.permission;
+    if (permission === 'default') permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      new Notification(title, { body, icon: '/favicon.ico', tag: `${title}-${Date.now()}` });
+    }
+  } catch {
+    // Browser notification permission/delivery is best effort; the in-app toast remains.
   }
 }
 
@@ -192,6 +204,8 @@ export interface UseAutoGeofenceReturn {
 
 export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenceReturn {
   const { userEmail, isClockedIn, activeEntryId, activeEntry, onClockIn, onClockOut, enabled = true } = options;
+  const runtime = getAutoClockRuntime(enabled, isNativeShellPresent());
+  const webMonitoringEnabled = runtime === 'web';
 
   const [autoGeofenceEnabled, setAutoGeofenceEnabledState] = useState(() => getAutoGeofenceEnabled());
   /** All assigned work locations being monitored (multi-location employees). */
@@ -201,6 +215,18 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
   const [monitorState, setMonitorState] = useState<AutoGeofenceState | null>(null);
   const [isInsideGeofence, setIsInsideGeofence] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // `storage` events do not fire in the tab that changed localStorage. The
+  // settings screen therefore emits a same-tab event so the shell owner and
+  // read-only widgets all observe the toggle immediately.
+  useEffect(() => {
+    const handleSettingChange = (event: Event) => {
+      const enabled = (event as CustomEvent<{ enabled?: unknown }>).detail?.enabled;
+      if (typeof enabled === 'boolean') setAutoGeofenceEnabledState(enabled);
+    };
+    window.addEventListener(AUTO_GEOFENCE_SETTING_EVENT, handleSettingChange);
+    return () => window.removeEventListener(AUTO_GEOFENCE_SETTING_EVENT, handleSettingChange);
+  }, []);
 
   const isClockedInRef = useRef(isClockedIn);
   isClockedInRef.current = isClockedIn;
@@ -215,15 +241,25 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
 
   // ── Sync active clocked-in state with background service + native shell ──
   useEffect(() => {
-    autoGeofenceService.syncClockedIn(isClockedIn);
-    // Keep the native background task's clock state in sync so it knows
-    // whether to clock in or out on the next geofence boundary crossing.
-    // Only for eligible sessions — master/demo sessions never touch the
-    // native clocking state.
+    if (webMonitoringEnabled) {
+      autoGeofenceService.syncClockedIn(isClockedIn);
+    } else {
+      // The native shell owns location transitions inside the app. Stop any
+      // stale web watcher so the two implementations can never race a punch.
+      autoGeofenceService.stopMonitoring();
+    }
+    // Keep the native background task's clock state and feature toggle in sync
+    // so it knows whether to clock in or out on the next geofence boundary
+    // crossing. The native shell owns the background path, so a web-only
+    // localStorage toggle must be forwarded explicitly.
+    postToNativeShell({
+      type: 'AUTO_CLOCK_ENABLED',
+      enabled: enabled && autoGeofenceEnabled,
+    });
     if (enabled) {
       postToNativeShell({ type: 'CLOCK_STATE', clockedIn: isClockedIn });
     }
-  }, [isClockedIn, enabled]);
+  }, [isClockedIn, enabled, webMonitoringEnabled, autoGeofenceEnabled]);
 
   // ── Fetch the employee's assigned geofence(s) — multi-location aware ──
   //
@@ -236,8 +272,11 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
   const fetchGeofences = useCallback(async () => {
     if (!enabled || !userEmail) return;
     try {
-      // Employee-accessible endpoint /api/settings/geofences/my
-      const myData = await settingsApi.getMyGeofences().catch(() => null);
+      // Employee-accessible endpoint /api/settings/geofences/my. Do not turn
+      // transient network failures into an empty assignment: clearing the
+      // native shell's stored locations during an outage would disable the
+      // very background clock-out path that is meant to be resilient.
+      const myData = await settingsApi.getMyGeofences();
       let targets: GeofenceDefinition[] = [];
 
       if (myData && myData.geofences) {
@@ -303,7 +342,12 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
 
   // Realtime refresh: admin reassignment broadcasts (geofence entity).
   useSSE((event) => {
-    if (event.entity === 'geofence') void fetchGeofences();
+    if (
+      typeof event.entity === 'string' &&
+      ['geofence', 'employee'].includes(event.entity.toLowerCase())
+    ) {
+      void fetchGeofences();
+    }
   });
 
   // Safety-net periodic refresh in case SSE is unavailable.
@@ -320,12 +364,12 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
   const geofenceIdsKey = geofences.map((g) => g.id).join('|');
 
   useEffect(() => {
-    if (!enabled || geofences.length === 0 || !autoGeofenceEnabled) {
+    if (!webMonitoringEnabled || geofences.length === 0 || !autoGeofenceEnabled) {
       autoGeofenceService.stopMonitoring();
       return;
     }
     if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
+      void Notification.requestPermission().catch(() => undefined);
     }
     // startMonitoring seeds the boundary state from the live clock state:
     // clocked-in users are treated as INSIDE (reliable auto clock-out), and
@@ -334,7 +378,7 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
     autoGeofenceService.startMonitoring(geofences, isClockedInRef.current);
     return () => { autoGeofenceService.stopMonitoring(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, geofenceIdsKey, autoGeofenceEnabled]);
+  }, [webMonitoringEnabled, geofenceIdsKey, autoGeofenceEnabled]);
 
   // ── Listen for state changes ──
 
@@ -351,7 +395,7 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
 
   useEffect(() => {
     const unsubscribe = autoGeofenceService.onEvent(async (event: AutoGeofenceEvent) => {
-      if (!autoGeofenceEnabledRef.current) return;
+      if (!webMonitoringEnabled || !autoGeofenceEnabledRef.current) return;
 
       if (event.type === 'ENTERED_GEOFENCE' && event.geofence && !isClockedInRef.current) {
         try {
@@ -361,7 +405,7 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
             setLastAutoClockIn(result.id);
             await onClockInRef.current();
             dispatchAutoClockCompleted('in');
-            sendNotification('Auto Clock In', `You entered "${event.geofence.name}".`);
+            await sendNotification('Auto Clock In', `You entered \"${event.geofence.name}\".`);
             showToast('success', `Auto clocked in at "${event.geofence.name}"`, `~${event.distanceMetres ?? 0}m from centre.`);
           }
         } catch (err: unknown) {
@@ -377,7 +421,7 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
           setLastAutoClockOut();
           await onClockOutRef.current();
           dispatchAutoClockCompleted('out');
-          sendNotification('Auto Clock Out', `You left "${event.geofence.name}".`);
+          await sendNotification('Auto Clock Out', `You left \"${event.geofence.name}\".`);
           showToast('success', `Auto clocked out — left "${event.geofence.name}"`, `~${event.distanceMetres ?? 0}m from centre.`);
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -396,7 +440,7 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
       }
     });
     return unsubscribe;
-  }, [userEmail, onClockIn, onClockOut]);
+  }, [userEmail, onClockIn, onClockOut, webMonitoringEnabled]);
 
   // ── Toggle auto-geofence ──
 
@@ -452,7 +496,7 @@ export interface UseAutoGeofenceStateReturn {
 }
 
 export function useAutoGeofenceState(): UseAutoGeofenceStateReturn {
-  const [autoGeofenceEnabled] = useState(() => getAutoGeofenceEnabled());
+  const [autoGeofenceEnabled, setAutoGeofenceEnabledState] = useState(() => getAutoGeofenceEnabled());
   const [geofence, setGeofence] = useState<GeofenceDefinition | null>(
     () => autoGeofenceService.getState().geofence ?? null,
   );
@@ -461,6 +505,12 @@ export function useAutoGeofenceState(): UseAutoGeofenceStateReturn {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const handleSettingChange = (event: Event) => {
+      const enabled = (event as CustomEvent<{ enabled?: unknown }>).detail?.enabled;
+      if (typeof enabled === 'boolean') setAutoGeofenceEnabledState(enabled);
+    };
+    window.addEventListener(AUTO_GEOFENCE_SETTING_EVENT, handleSettingChange);
+
     // Hydrate from current service state first (monitoring may already run).
     const current = autoGeofenceService.getState();
     setGeofence(current.geofence ?? null);
@@ -478,7 +528,10 @@ export function useAutoGeofenceState(): UseAutoGeofenceStateReturn {
         setError(null);
       }
     });
-    return unsubscribe;
+    return () => {
+      window.removeEventListener(AUTO_GEOFENCE_SETTING_EVENT, handleSettingChange);
+      unsubscribe();
+    };
   }, []);
 
   return { isInsideGeofence, geofence, monitorState, autoGeofenceEnabled, error };

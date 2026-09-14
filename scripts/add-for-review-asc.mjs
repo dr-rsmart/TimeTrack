@@ -158,12 +158,57 @@ async function main() {
   });
   console.log('✅ Build attached to version.');
 
-  console.log('\n📤 Step 3/3: submitting for App Review…');
-  await api('/appStoreVersionSubmissions', 'POST', {
+  console.log('\n📤 Step 3/3: submitting for App Review (using App Store Connect Review Submissions API)…');
+  // 1. Check if there's an existing review submission in progress for iOS
+  const existingSubmissions = await api(`/apps/${APP_NUMERIC_ID}/reviewSubmissions?filter[platform]=IOS&filter[state]=READY_FOR_REVIEW`);
+  let submissionId;
+  if (existingSubmissions.data && existingSubmissions.data.length > 0) {
+    submissionId = existingSubmissions.data[0].id;
+    console.log(`Found existing READY_FOR_REVIEW submission: ${submissionId}`);
+  } else {
+    // Create a new review submission
+    const newSubmission = await api('/reviewSubmissions', 'POST', {
+      data: {
+        type: 'reviewSubmissions',
+        attributes: { platform: 'IOS' },
+        relationships: { app: { data: { type: 'apps', id: APP_NUMERIC_ID } } }
+      }
+    });
+    submissionId = newSubmission.data.id;
+    console.log(`Created new review submission: ${submissionId}`);
+  }
+
+  // 2. Check if the appStoreVersion is already added as an item
+  const submissionWithItems = await api(`/reviewSubmissions/${submissionId}?include=items`);
+  const hasItem = submissionWithItems.included?.some(
+    item => item.type === 'reviewSubmissionItems' && 
+            item.relationships?.appStoreVersion?.data?.id === version.id
+  );
+
+  if (!hasItem) {
+    console.log(`Adding App Store version ${version.attributes.versionString} to review submission…`);
+    await api('/reviewSubmissionItems', 'POST', {
+      data: {
+        type: 'reviewSubmissionItems',
+        relationships: {
+          reviewSubmission: { data: { type: 'reviewSubmissions', id: submissionId } },
+          appStoreVersion: { data: { type: 'appStoreVersions', id: version.id } }
+        }
+      }
+    });
+    console.log('✅ Version added to review submission.');
+  } else {
+    console.log('ℹ️ Version is already added to review submission.');
+  }
+
+  // 3. Submit the review submission
+  console.log('Submitting review submission to Apple…');
+  await api(`/reviewSubmissions/${submissionId}`, 'PATCH', {
     data: {
-      type: 'appStoreVersionSubmissions',
-      relationships: { appStoreVersion: { data: { type: 'appStoreVersions', id: version.id } } },
-    },
+      type: 'reviewSubmissions',
+      id: submissionId,
+      attributes: { submitted: true }
+    }
   });
   console.log('\n🎉 SUCCESS: TimeTrack is now "Waiting for Review" in App Store Connect.');
   console.log('Track progress at https://appstoreconnect.apple.com/apps/6803827296');

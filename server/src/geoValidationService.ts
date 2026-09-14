@@ -18,6 +18,7 @@
  */
 
 import prisma from './prisma.js';
+import { normalizeEmployeeEmail } from './domain/employeeIdentity.js';
 
 const EARTH_RADIUS_METERS = 6_371_000;
 
@@ -80,6 +81,7 @@ export interface GeoPosition {
 
 export interface GeoValidationResult {
   passed: boolean;
+  geofenceId?: string;
   distanceMetres?: number;
   geofenceName?: string;
   geofenceAddress?: string;
@@ -102,6 +104,8 @@ export interface GeoValidationOptions {
   isManualOverride?: boolean;
   /** The role of the user *performing* the action (for audit context). */
   requesterRole?: string;
+  /** Preferred stable employee identity; email remains the legacy fallback. */
+  employeeId?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -113,16 +117,14 @@ export interface GeoValidationOptions {
  * assigned work geofence.
  *
  * Enforcement rules:
- * - If the employee HAS an assigned geofence (geofenceId), validation is
- *   performed ONLY against that geofence. This prevents employees assigned
- *   to one location (e.g. Cape Town) from clocking in at another company
- *   site (e.g. Sitari Country Estate), which would produce inaccurate
- *   attendance reporting.
+ * - If the employee HAS assigned geofences (the join table and/or legacy
+ *   geofenceId), validation is performed ONLY against those geofences. This
+ *   prevents employees assigned to one set of locations from clocking in at
+ *   another company site, which would produce inaccurate attendance reporting.
  * - If the assigned geofence is inactive, clock-in is rejected in strict
  *   mode with a message asking the admin to reactivate or reassign it.
- * - If the employee has NO assigned geofence, validation falls back to
- *   checking ALL active company geofences (unassigned employees may work
- *   at any site until an admin pins them to a location).
+ * - If the employee has NO assigned geofences, no location restriction is
+ *   applied ("Not Assigned" means the employee may clock in from anywhere).
  *
  * Validation order:
  * 1. Role-based bypass (admin/master manual override)
@@ -151,7 +153,9 @@ export async function validateClockInLocation(
   try {
     // ── Defensive lookup (camelCase Prisma schema) ──
     const employee = await prisma.employee.findFirst({
-      where: { email: email.toLowerCase() },
+      where: options?.employeeId
+        ? { id: options.employeeId }
+        : { email: normalizeEmployeeEmail(email) },
       select: {
         id: true,
         geofenceId: true,
@@ -327,6 +331,7 @@ export async function validateClockInLocation(
         // ✅ PASSED — employee is within this geofence
         return {
           passed: true,
+          geofenceId: gf.id,
           distanceMetres: Math.round(distance),
           geofenceName: gf.name,
           geofenceAddress: gf.address ?? undefined,
@@ -350,6 +355,7 @@ export async function validateClockInLocation(
 
     return {
       passed: false,
+      geofenceId: closest.id,
       distanceMetres: distRound,
       geofenceName: closest.name,
       geofenceAddress: closest.address ?? undefined,
@@ -394,7 +400,9 @@ export async function validateClockOutLocation(
 
   try {
     const employee = await prisma.employee.findFirst({
-      where: { email: email.toLowerCase() },
+      where: options?.employeeId
+        ? { id: options.employeeId }
+        : { email: normalizeEmployeeEmail(email) },
       select: {
         id: true,
         geofenceId: true,
@@ -466,21 +474,13 @@ export async function validateClockOutLocation(
       assignedList.push(employee.geofence);
     }
 
-    let allowedGeofences = assignedList.filter((g) => g.isActive);
-    if (allowedGeofences.length === 0 && employee?.companyProfileId) {
-      allowedGeofences = await prisma.geofence.findMany({
-        where: { companyProfileId: employee.companyProfileId, isActive: true },
-        select: {
-          id: true,
-          name: true,
-          address: true,
-          latitude: true,
-          longitude: true,
-          radiusMeters: true,
-          isActive: true,
-        },
-      }).catch(() => []);
-    }
+    // Clock-out remains intentionally exit-friendly: an employee may finish a
+    // session while leaving or already outside the perimeter. When location
+    // details are available, resolve them only from the employee's assigned
+    // locations. Never fall back to every company location, because an
+    // assigned employee must not appear associated with an unrelated site and
+    // an unassigned employee has no location restriction.
+    const allowedGeofences = assignedList.filter((g) => g.isActive);
 
     if (allowedGeofences.length > 0) {
       let closestGf = allowedGeofences[0];

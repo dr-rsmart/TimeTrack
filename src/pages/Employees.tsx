@@ -113,7 +113,11 @@ export default function Employees() {
   useSSE(
     useCallback(
       (event) => {
-        if (event.type === 'entity_event' && event.entity === 'Employee') load();
+        if (
+          event.type === 'entity_event' &&
+          typeof event.entity === 'string' &&
+          ['employee', 'geofence'].includes(event.entity.toLowerCase())
+        ) load();
       },
       [load],
     ),

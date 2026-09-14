@@ -61,8 +61,8 @@ The following improvements were implemented in this session to raise all scores 
 
 | Method | Path | Auth | State Change | Audit | SSE |
 |--------|------|------|--------------|-------|-----|
-| POST | `/login` | Public (rate-limited) | Sets httpOnly JWT cookie (8h) | ✅ `login` | ❌ |
-| POST | `/logout` | None | Clears cookie | ❌ | ❌ |
+| POST | `/login` | Public (rate-limited) | Sets persistent httpOnly JWT cookie; no product expiry | ✅ `login` | ❌ |
+| POST | `/logout` | None | Clears cookie and revokes the token epoch | ❌ | ❌ |
 | POST | `/forgot-password` | Public (rate-limited) | None (returns admin contact) | ✅ `password_reset_requested` | ❌ |
 | POST | `/keep-password` | requireAuth | Clears `mustChangePassword` flag | ✅ `password_change_skipped` | ❌ |
 | POST | `/change-password` | requireAuth + validation | Updates `passwordHash`, clears flag | ✅ `password_change` | ❌ |
@@ -493,7 +493,7 @@ graph TD
 | Realtime | Native SSE | — | Server→client push | ✅ Fixed lifecycle |
 | Cache | In-process Map | — | Authz enforcement | ⚠️ Single-instance only |
 | Distributed lock | CronLock table | — | Cron exclusivity | ✅ Cluster-safe |
-| Session | JWT 8h httpOnly cookie | — | Identity | ⚠️ No revocation |
+| Session | Non-expiring JWT, persistent httpOnly cookie, `pwdEpoch` revocation | — | Identity | ✅ |
 | Rate limiting | express-rate-limit (memory) | — | Abuse prevention | ⚠️ Per-instance |
 | Password hashing | bcryptjs | — | Credential storage | ✅ |
 | Validation | Zod | — | Input validation | ✅ |
@@ -558,7 +558,7 @@ graph TD
 | L9 | EmploymentHistory backend-only, no UI viewer | Data exists but inaccessible to users | P3 | ❌ Open |
 | L10 | Settings change audit has no before/after diff | Compliance gap | P2 | ✅ Fixed (R4: computeChanges diff) |
 | L11 | Bulk shift assign no per-employee targeting | Employees not individually notified | P2 | ❌ Open |
-| L12 | Password reset not enforced mid-session | Existing 8h JWT stays valid | P1 | ⚠️ Mitigated (30s role check) |
+| L12 | Password reset not enforced mid-session | Existing token is rejected when its `pwdEpoch` is stale | P1 | ✅ Fixed (epoch revocation) |
 
 ### F.2 Bottlenecks (System Stress Points)
 
@@ -580,7 +580,7 @@ graph TD
 | Event eavesdrop cross-tenant | Scope filter in SSE delivery | LOW |
 | Stale-privilege exploitation | Live role re-verify (30s cache) | LOW (was MEDIUM) |
 | Scope enumeration via /time-entries | Unified getManagerScopeFilter() | LOW (was MEDIUM) |
-| Replay of revoked session | 8h expiry + live role check | LOW-MEDIUM |
+| Replay of revoked session | `pwdEpoch` revocation + live role check | LOW |
 | SSE injection | Server-originated only; cookie auth | LOW |
 | Audit blind spot | Access logged (throttled) | LOW (was MEDIUM) |
 | Default password exploitation | mustChangePassword flag + keep-password block | LOW |

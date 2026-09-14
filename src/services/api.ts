@@ -5,9 +5,29 @@
  * and typed helpers for all backend endpoints.
  */
 
+import type {
+  ApiErrorCode,
+  BulkClockInResponse,
+  BulkClockOutResponse,
+  CurrentUser,
+  SessionErrorCode,
+  TimeEntry,
+  UpdateTimeEntryRequest,
+} from '../../contracts/index.js';
+
+export type {
+  ApiErrorCode,
+  BulkClockInResponse,
+  BulkClockOutResponse,
+  CurrentUser,
+  SessionErrorCode,
+  TimeEntry,
+  UpdateTimeEntryRequest,
+} from '../../contracts/index.js';
+
 export class ApiError extends Error {
   status: number;
-  code?: string;
+  code?: ApiErrorCode | string;
   details?: { path: string; message: string }[];
 
   constructor(message: string, status: number, code?: string, details?: { path: string; message: string }[]) {
@@ -25,13 +45,6 @@ export class ApiError extends Error {
 // longer viable. We notify a registered handler (AuthContext) so the UI can
 // force logout and show the appropriate screen instead of leaving the user
 // stranded with failing widgets.
-export type SessionErrorCode =
-  | 'COMPANY_SUSPENDED'
-  | 'EMPLOYEE_TERMINATED'
-  | 'ROLE_REVOKED'
-  | 'UNAUTHENTICATED'
-  /** Voluntary session end after a successful password rotation (friendly re-login notice). */
-  | 'PASSWORD_CHANGED';
 type SessionHandler = (code: SessionErrorCode, message: string) => void;
 let sessionHandler: SessionHandler | null = null;
 
@@ -39,6 +52,13 @@ let sessionHandler: SessionHandler | null = null;
 // "Session ended" banner from appearing after a voluntary sign-out, where
 // in-flight requests or SSE reconnects may still return 401.
 let suppressUnauthenticated = false;
+
+/** Generate a unique key for one logical clocking request. */
+function createIdempotencyKey(action: 'clock-in' | 'clock-out'): string {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi?.randomUUID) return `${action}-${cryptoApi.randomUUID()}`;
+  return `${action}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 export function registerSessionHandler(handler: SessionHandler | null): void {
   sessionHandler = handler;
@@ -62,13 +82,14 @@ function notifySessionError(code: SessionErrorCode, message: string): void {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const { headers: optionHeaders, ...requestOptions } = options;
   const res = await fetch(`/api${path}`, {
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(options.headers || {}),
+      ...(optionHeaders || {}),
     },
-    ...options,
+    ...requestOptions,
   });
 
   if (!res.ok) {
@@ -117,41 +138,24 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),
+  post: <T>(path: string, body?: unknown, headers?: HeadersInit) =>
+    request<T>(path, {
+      method: 'POST',
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      headers,
+    }),
   put: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };
 
 // ── Auth ──
-export interface CurrentUser {
-  id: string;
-  email: string;
-  fullName: string;
-  role: string;
-  companyProfileId: string | null;
-  companyProfile?: { id: string; name: string } | null;
-  branch?: string | null;
-  department?: string | null;
-  position?: string | null;
-  employeeId?: string | null;
-  /** Human-readable staff number for display (e.g. on the staff dashboard). */
-  employeeNumber?: string | null;
-  originalRole?: string | null;
-  /** True when the account is still on the default password — user must change it. */
-  mustChangePassword?: boolean;
-  /** True when the stored hash matches the default password — "keep current password" is forbidden. */
-  usingDefaultPassword?: boolean;
-  /** Set during a Master demo session — the email of the persona being simulated. */
-  demoEmail?: string | null;
-}
 
 export const authApi = {
   login: (email: string, password: string) =>
     api.post<{ user: CurrentUser; token: string }>('/auth/login', { email, password }),
   logout: () => api.post<{ success: boolean }>('/auth/logout'),
-  /** Re-mint a fresh 8h bearer token for the current session (mobile native shell bridge). */
+  /** Re-mint a fresh non-expiring bearer token for the current session (mobile native shell bridge). */
   nativeToken: () => api.post<{ token: string }>('/auth/native-token'),
   me: () => api.get<CurrentUser>('/auth/me'),
   changePassword: (currentPassword: string, newPassword: string) =>
@@ -413,25 +417,6 @@ export const shiftApi = {
 };
 
 // ── Time Entries ──
-export interface TimeEntry {
-  id: string;
-  employeeId: string | null;
-  employeeEmail: string;
-  employeeName: string | null;
-  branch: string | null;
-  department: string | null;
-  clockIn: string;
-  clockOut: string | null;
-  date: string;
-  totalHours: number | null;
-  status: string;
-  breakMinutes: number | null;
-  isManualOverride: boolean;
-  isManuallyAdjusted: boolean;
-  adjustedByName: string | null;
-  adjustmentReason: string | null;
-  geofenceName: string | null;
-}
 
 export const timeEntryApi = {
   list: (params: { date?: string; from?: string; to?: string; employeeEmail?: string; status?: string; limit?: number } = {}) => {
@@ -449,35 +434,36 @@ export const timeEntryApi = {
     return api.get<{ active: TimeEntry | null }>(`/time-entries/active${qs}`);
   },
   clockIn: (latitude?: number, longitude?: number, employeeEmail?: string, justification?: string) =>
-    api.post<TimeEntry>('/time-entries/clock-in', {
-      latitude,
-      longitude,
-      employee_email: employeeEmail,
-      justification,
-    }),
+    api.post<TimeEntry>(
+      '/time-entries/clock-in',
+      {
+        latitude,
+        longitude,
+        employee_email: employeeEmail,
+        justification,
+      },
+      { 'Idempotency-Key': createIdempotencyKey('clock-in') },
+    ),
   clockOut: (breakMinutes?: number, latitude?: number, longitude?: number, employeeEmail?: string) =>
-    api.post<TimeEntry>('/time-entries/clock-out', {
-      breakMinutes,
-      latitude,
-      longitude,
-      employee_email: employeeEmail,
-    }),
-  manual: (data: Record<string, unknown>) => api.post<TimeEntry>('/time-entries/manual', data),
+    api.post<TimeEntry>(
+      '/time-entries/clock-out',
+      {
+        breakMinutes,
+        latitude,
+        longitude,
+        employee_email: employeeEmail,
+      },
+      { 'Idempotency-Key': createIdempotencyKey('clock-out') },
+    ),
+  manual: (data: import('../../contracts/index.js').ManualTimeEntryRequest) =>
+    api.post<TimeEntry>('/time-entries/manual', data),
   bulkClockIn: (employeeEmails: string[], justification?: string) =>
-    api.post<{
-      success: boolean;
-      clockedIn: Array<{ email: string; id: string; employeeName: string | null }>;
-      skipped: Array<{ email: string; reason: string }>;
-    }>('/time-entries/bulk-clock-in', { employeeEmails, justification }),
+    api.post<BulkClockInResponse>('/time-entries/bulk-clock-in', { employeeEmails, justification }),
   bulkClockOut: (employeeEmails: string[], breakMinutes?: number) =>
-    api.post<{
-      success: boolean;
-      clockedOut: Array<{ email: string; id: string; employeeName: string | null; totalHours: number | null }>;
-      skipped: Array<{ email: string; reason: string }>;
-    }>('/time-entries/bulk-clock-out', { employeeEmails, breakMinutes }),
+    api.post<BulkClockOutResponse>('/time-entries/bulk-clock-out', { employeeEmails, breakMinutes }),
   remove: (id: string) => api.delete<{ success: boolean }>(`/time-entries/${id}`),
   /** Admin/Manager: edit an existing time entry (manual adjustment). */
-  update: (id: string, data: { date?: string; clockIn?: string; clockOut?: string; breakMinutes?: number | null; reason: string }) =>
+  update: (id: string, data: UpdateTimeEntryRequest) =>
     api.put<TimeEntry>(`/time-entries/${id}`, data),
 };
 
@@ -541,6 +527,9 @@ export interface Geofence {
   longitude: number;
   radiusMeters: number;
   isActive: boolean;
+  workingStartTime: string;
+  workingEndTime: string;
+  workingDays: string[];
 }
 
 export const settingsApi = {

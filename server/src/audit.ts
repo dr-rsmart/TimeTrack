@@ -7,6 +7,7 @@
 import type { Request } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from './prisma.js';
+import { recordAuditWriteFailure } from './metrics.js';
 
 export function getClientIp(req: Request): string {
   const forwarded = req.headers['x-forwarded-for'];
@@ -63,6 +64,8 @@ export interface AuditEntry {
    * events (master operators) intentionally remain null.
    */
   companyProfileId?: string | null;
+  /** Compliance-critical callers emit an operationally visible failure metric. */
+  required?: boolean;
 }
 
 export async function logAudit(entry: AuditEntry): Promise<void> {
@@ -97,5 +100,6 @@ export async function logAudit(entry: AuditEntry): Promise<void> {
     });
   } catch (err) {
     console.error('[audit] Failed to write audit log:', err);
+    if (entry.required) recordAuditWriteFailure();
   }
 }

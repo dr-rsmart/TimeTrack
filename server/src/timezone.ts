@@ -7,14 +7,17 @@
  * values. Comparing them against server-local time silently breaks when the
  * host moves timezone (container re-scheduling, region change). All cron and
  * "today" computations must go through these helpers with an explicit IANA
- * timezone (CRON_TIMEZONE env, default = process timezone).
+ * timezone (CRON_TIMEZONE env, default = Africa/Johannesburg for this
+ * South Africa-based deployment).
  */
+
+const DEFAULT_BUSINESS_TIMEZONE = 'Africa/Johannesburg';
 
 /** Resolve the configured business timezone (IANA name). */
 export function getBusinessTimezone(): string {
   const configured = process.env.CRON_TIMEZONE?.trim();
   if (configured) return configured;
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return DEFAULT_BUSINESS_TIMEZONE;
 }
 
 export interface BusinessNow {

@@ -18,6 +18,12 @@
     "db:migrate:dev": "prisma migrate dev --schema=prisma/schema.prisma",
     "db:migrate:status": "prisma migrate status --schema=prisma/schema.prisma",
     "db:backup": "node backup_db.mjs",
+    "identity:preflight": "node identity_preflight.mjs",
+    "identity:resolve": "node resolve_employee_identity.mjs",
+    "duration:preflight": "node duration_preflight.mjs",
+    "duration:backfill": "node backfill_time_entry_minutes.mjs",
+    "tenant:preflight": "node tenant_rls_preflight.mjs",
+    "tenant:rls:enable": "node enable_tenant_rls.mjs",
     "prisma:generate": "prisma generate --schema=prisma/schema.prisma"
   },
   "dependencies": {

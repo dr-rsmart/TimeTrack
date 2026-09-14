@@ -2,13 +2,14 @@
  * Reports Page
  * ------------
  * Payroll/overtime report with date range, branch/department filters,
- * and CSV export. Includes two tabs:
+ * and CSV export. Includes three tabs:
  * - Payroll Summary: aggregated per-employee totals
  * - Time Entries: detailed clock-in/out breakdown
+ * - Grouped Daily Totals: all filtered entries combined by date
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Clock, Download, FileBarChart, Pencil } from 'lucide-react';
+import { CalendarDays, Clock, Download, FileBarChart, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import { reportApi, timeEntryApi, type PayrollRow, type TimeEntry } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -31,6 +32,7 @@ export default function Reports() {
   const [to, setTo] = useState(toDateStr(new Date()));
   const [branch, setBranch] = useState('');
   const [department, setDepartment] = useState('');
+  const [employeeEmail, setEmployeeEmail] = useState('');
   const [rows, setRows] = useState<PayrollRow[]>([]);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -66,6 +68,7 @@ export default function Reports() {
       const res = await timeEntryApi.list({
         from,
         to,
+        employeeEmail: employeeEmail || undefined,
         limit: 1000,
       });
       // Filter by branch/department client-side since the API doesn't support these filters
@@ -84,15 +87,26 @@ export default function Reports() {
     } finally {
       setLoadingEntries(false);
     }
-  }, [from, to, branch, department]);
+  }, [from, to, branch, department, employeeEmail]);
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  useEffect(() => {
     loadTimeEntries();
-  }, [load, loadTimeEntries]);
+  }, [loadTimeEntries]);
 
   const branches = [...new Set(rows.map((r) => r.branch))];
   const departments = [...new Set(rows.map((r) => r.department))];
+  const employees = [...rows].sort((a, b) => a.name.localeCompare(b.name));
+
+  // Keep the employee selection valid when branch or department filters change.
+  useEffect(() => {
+    if (employeeEmail && !rows.some((row) => row.email === employeeEmail)) {
+      setEmployeeEmail('');
+    }
+  }, [employeeEmail, rows]);
 
   // Employee number / position lookup built from the payroll summary rows so
   // the Time Entries tab and its CSV export align with the payroll report.
@@ -135,16 +149,17 @@ export default function Reports() {
   const handleExportEntries = () => {
     const headers = [
       'Employee Number', 'Employee', 'Position', 'Email', 'Branch', 'Geofence Location', 'Department',
-      'Date', 'Clock In', 'Clock Out', 'Break (min)', 'Total Hours',
+      'Date', 'Clock In', 'Clock Out', 'Break (min)', 'Entry Hours', 'Day Total Hours',
       'Status', 'Manual Override',
     ];
     const data = timeEntries.map((e) => {
       const info = employeeInfoByEmail.get(e.employeeEmail);
+      const dayTotal = employeeDayTotals.get(getEmployeeDayKey(e)) ?? 0;
       return [
         info?.employeeNumber ?? '', e.employeeName ?? '', info?.position ?? '',
         e.employeeEmail, e.branch ?? '', e.geofenceName ?? '', e.department ?? '',
         formatDate(e.date), formatTime(e.clockIn), e.clockOut ? formatTime(e.clockOut) : '',
-        e.breakMinutes ?? '', e.totalHours ?? '', e.status,
+        e.breakMinutes ?? '', e.totalHours ?? '', dayTotal, e.status,
         e.isManualOverride ? 'Yes' : 'No',
       ];
     });
@@ -163,6 +178,37 @@ export default function Reports() {
     { ordinary: 0, overtime: 0, weighted: 0, total: 0 },
   );
 
+  // Per-employee/day totals make multiple entries on the same date easy to
+  // reconcile without changing the existing detailed-entry rows.
+  const getEmployeeDayKey = (entry: TimeEntry) =>
+    `${entry.employeeId ?? entry.employeeEmail.toLowerCase()}|${entry.date.slice(0, 10)}`;
+  const employeeDayTotals = new Map<string, number>();
+  const groupedDailyTotals = new Map<string, { employees: Set<string>; entries: number; hours: number }>();
+  for (const entry of timeEntries) {
+    const hours = entry.totalHours ?? 0;
+    const dayKey = entry.date.slice(0, 10);
+    const employeeDayKey = getEmployeeDayKey(entry);
+    employeeDayTotals.set(employeeDayKey, (employeeDayTotals.get(employeeDayKey) ?? 0) + hours);
+
+    const day = groupedDailyTotals.get(dayKey) ?? { employees: new Set<string>(), entries: 0, hours: 0 };
+    day.employees.add(entry.employeeId ?? entry.employeeEmail.toLowerCase());
+    day.entries += 1;
+    day.hours += hours;
+    groupedDailyTotals.set(dayKey, day);
+  }
+  const dailyTotals = [...groupedDailyTotals.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([date, total]) => ({ date, employees: total.employees.size, entries: total.entries, hours: total.hours }));
+
+  const handleExportDailyTotals = () => {
+    const headers = ['Date', 'Employees', 'Entries', 'Total Hours'];
+    const data = dailyTotals.map((day) => [
+      formatDate(day.date), day.employees, day.entries, day.hours,
+    ]);
+    downloadCsv(`grouped-daily-totals-${from}-to-${to}.csv`, headers, data);
+    toast.success('Grouped daily totals CSV exported');
+  };
+
   // Totals for time entries
   const entryTotals = timeEntries.reduce(
     (acc, e) => ({
@@ -171,6 +217,13 @@ export default function Reports() {
     }),
     { hours: 0, count: 0 },
   );
+
+  const exportDisabled =
+    activeTab === 'summary'
+      ? rows.length === 0
+      : activeTab === 'entries'
+        ? timeEntries.length === 0
+        : dailyTotals.length === 0;
 
   return (
     <div className="space-y-6">
@@ -184,8 +237,14 @@ export default function Reports() {
           <p className="text-sm text-muted-foreground">Precision overtime computation · {rows.length} employees in range</p>
         </div>
         <Button
-          onClick={activeTab === 'summary' ? handleExportSummary : handleExportEntries}
-          disabled={activeTab === 'summary' ? rows.length === 0 : timeEntries.length === 0}
+          onClick={
+            activeTab === 'summary'
+              ? handleExportSummary
+              : activeTab === 'entries'
+                ? handleExportEntries
+                : handleExportDailyTotals
+          }
+          disabled={exportDisabled}
           className="bg-brand hover:bg-brand-dark text-white shadow-lg shadow-brand/20 rounded-xl"
         >
           <Download className="h-4 w-4" /> Export CSV
@@ -217,6 +276,24 @@ export default function Reports() {
               {departments.map((d) => <option key={d} value={d}>{d}</option>)}
             </Select>
           </div>
+          {(activeTab === 'entries' || activeTab === 'daily') && (
+            <div className="space-y-1">
+              <Label htmlFor="r-employee">Employee</Label>
+              <Select
+                id="r-employee"
+                className="w-56"
+                value={employeeEmail}
+                onChange={(e) => setEmployeeEmail(e.target.value)}
+              >
+                <option value="">All employees</option>
+                {employees.map((employee) => (
+                  <option key={employee.email} value={employee.email}>
+                    {employee.name} ({employee.email})
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -225,6 +302,7 @@ export default function Reports() {
         tabs={[
           { id: 'summary', label: 'Payroll Summary', icon: <FileBarChart className="w-4 h-4" /> },
           { id: 'entries', label: 'Time Entries', icon: <Clock className="w-4 h-4" /> },
+          { id: 'daily', label: 'Grouped Daily Totals', icon: <CalendarDays className="w-4 h-4" /> },
         ]}
         active={activeTab}
         onChange={setActiveTab}
@@ -324,59 +402,112 @@ export default function Reports() {
               <EmptyState message={entriesLoaded ? 'No time entries for this period' : 'Loading…'} />
             ) : (
               <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Branch</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Clock In</TableHead>
+                      <TableHead>Clock Out</TableHead>
+                      <TableHead className="text-right">Break</TableHead>
+                      <TableHead className="text-right">Entry Hours</TableHead>
+                      <TableHead className="text-right">Day Total</TableHead>
+                      <TableHead>Status</TableHead>
+                      {canEdit && <TableHead className="text-right">Actions</TableHead>}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {timeEntries.map((e) => (
+                      <TableRow key={e.id}>
+                        <TableCell>
+                          <p className="font-medium">{e.employeeName || e.employeeEmail}</p>
+                          <p className="text-xs text-muted-foreground">{e.employeeEmail}</p>
+                        </TableCell>
+                        <TableCell>{e.branch || '—'}</TableCell>
+                        <TableCell>{formatDate(e.date)}</TableCell>
+                        <TableCell>{formatTime(e.clockIn)}</TableCell>
+                        <TableCell>{e.clockOut ? formatTime(e.clockOut) : '—'}</TableCell>
+                        <TableCell className="text-right">{e.breakMinutes != null ? `${e.breakMinutes}m` : '—'}</TableCell>
+                        <TableCell className="text-right font-medium">{formatHours(e.totalHours)}</TableCell>
+                        <TableCell className="text-right font-semibold">{formatHours(employeeDayTotals.get(getEmployeeDayKey(e)) ?? 0)}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5">
+                            <Badge variant={e.status === 'active' ? 'success' : 'secondary'}>{e.status}</Badge>
+                            {e.isManualOverride && <Badge variant="warning">Manual</Badge>}
+                          </div>
+                        </TableCell>
+                        {canEdit && (
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-muted-foreground hover:text-brand"
+                              title="Edit time entry"
+                              onClick={() => setEditEntry(e)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    ))}
+                    {/* Totals row */}
+                    <TableRow className="bg-muted/50 font-semibold">
+                      <TableCell colSpan={6}>Totals ({entryTotals.count} entries)</TableCell>
+                      <TableCell className="text-right">{formatHours(entryTotals.hours)}</TableCell>
+                      <TableCell className="text-right">—</TableCell>
+                      <TableCell>{''}</TableCell>
+                      {canEdit && <TableCell>{''}</TableCell>}
+                    </TableRow>
+                  </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Grouped Daily Totals Tab */}
+      {activeTab === 'daily' && (
+        <Card className="border-border/50 overflow-hidden">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <CalendarDays className="w-4 h-4 text-brand" />
+                Grouped Daily Totals ({from} → {to})
+              </CardTitle>
+              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                <span>{dailyTotals.length} days</span>
+                <span className="font-semibold text-foreground">{formatHours(entryTotals.hours)} total</span>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {loadingEntries ? (
+              <div className="flex h-48 items-center justify-center"><Spinner className="h-8 w-8" /></div>
+            ) : dailyTotals.length === 0 ? (
+              <EmptyState message={entriesLoaded ? 'No time entries for this period' : 'Loading…'} />
+            ) : (
+              <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Employee</TableHead>
-                    <TableHead>Branch</TableHead>
                     <TableHead>Date</TableHead>
-                    <TableHead>Clock In</TableHead>
-                    <TableHead>Clock Out</TableHead>
-                    <TableHead className="text-right">Break</TableHead>
+                    <TableHead className="text-right">Employees</TableHead>
+                    <TableHead className="text-right">Entries</TableHead>
                     <TableHead className="text-right">Total Hours</TableHead>
-                    <TableHead>Status</TableHead>
-                    {canEdit && <TableHead className="text-right">Actions</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {timeEntries.map((e) => (
-                    <TableRow key={e.id}>
-                      <TableCell>
-                        <p className="font-medium">{e.employeeName || e.employeeEmail}</p>
-                        <p className="text-xs text-muted-foreground">{e.employeeEmail}</p>
-                      </TableCell>
-                      <TableCell>{e.branch || '—'}</TableCell>
-                      <TableCell>{formatDate(e.date)}</TableCell>
-                      <TableCell>{formatTime(e.clockIn)}</TableCell>
-                      <TableCell>{e.clockOut ? formatTime(e.clockOut) : '—'}</TableCell>
-                      <TableCell className="text-right">{e.breakMinutes != null ? `${e.breakMinutes}m` : '—'}</TableCell>
-                      <TableCell className="text-right font-medium">{formatHours(e.totalHours)}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1.5">
-                          <Badge variant={e.status === 'active' ? 'success' : 'secondary'}>{e.status}</Badge>
-                          {e.isManualOverride && <Badge variant="warning">Manual</Badge>}
-                        </div>
-                      </TableCell>
-                      {canEdit && (
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0 text-muted-foreground hover:text-brand"
-                            title="Edit time entry"
-                            onClick={() => setEditEntry(e)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      )}
+                  {dailyTotals.map((day) => (
+                    <TableRow key={day.date}>
+                      <TableCell>{formatDate(day.date)}</TableCell>
+                      <TableCell className="text-right">{day.employees}</TableCell>
+                      <TableCell className="text-right">{day.entries}</TableCell>
+                      <TableCell className="text-right font-semibold">{formatHours(day.hours)}</TableCell>
                     </TableRow>
                   ))}
-                  {/* Totals row */}
                   <TableRow className="bg-muted/50 font-semibold">
-                    <TableCell colSpan={6}>Totals ({entryTotals.count} entries)</TableCell>
+                    <TableCell colSpan={3}>Period total</TableCell>
                     <TableCell className="text-right">{formatHours(entryTotals.hours)}</TableCell>
-                    <TableCell>{''}</TableCell>
-                    {canEdit && <TableCell>{''}</TableCell>}
                   </TableRow>
                 </TableBody>
               </Table>

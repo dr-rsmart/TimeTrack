@@ -9,6 +9,7 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
   let testEmployeeEmail: string;
   let createdShiftId: string;
   let createdGeofenceId: string;
+  let createdSecondGeofenceId: string;
   let createdPresetId: string;
 
   test.beforeAll(async ({ request }) => {
@@ -311,6 +312,104 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
     });
     expect(assignRes.status()).toBe(200);
 
+    // The Workforce edit form uses the employee endpoint to persist the
+    // complete multi-location selection. Verify that path as well as the
+    // Settings assignment endpoint below.
+    const currentEmployeeRes = await request.get(`${API_BASE}/api/employees/${createdEmployeeId}`, {
+      headers: authHeader(),
+    });
+    expect(currentEmployeeRes.status()).toBe(200);
+    const currentEmployee = await currentEmployeeRes.json();
+    const workforceAssignmentRes = await request.put(`${API_BASE}/api/employees/${createdEmployeeId}`, {
+      headers: authHeader(),
+      data: {
+        geofenceIds: [createdGeofenceId],
+        version: currentEmployee.version,
+      },
+    });
+    expect(workforceAssignmentRes.status()).toBe(200);
+
+    // An employee may be assigned to more than one work location.
+    const secondGfRes = await request.post(`${API_BASE}/api/settings/geofences`, {
+      headers: authHeader(),
+      data: {
+        name: 'Sandton Annex Second Worksite',
+        address: '16 Rivonia Rd, Sandton',
+        latitude: -26.1200,
+        longitude: 28.0575,
+        radiusMeters: 350,
+      },
+    });
+    expect(secondGfRes.status()).toBe(201);
+    const secondGfData = await secondGfRes.json();
+    createdSecondGeofenceId = secondGfData.geofence.id;
+
+    const secondAssignRes = await request.post(`${API_BASE}/api/settings/geofences/${createdSecondGeofenceId}/assign-employees`, {
+      headers: authHeader(),
+      data: { employeeIds: [createdEmployeeId] },
+    });
+    expect(secondAssignRes.status()).toBe(200);
+
+    const assignmentListRes = await request.get(`${API_BASE}/api/settings/employees-for-geofence`, {
+      headers: authHeader(),
+    });
+    expect(assignmentListRes.status()).toBe(200);
+    const assignmentList = await assignmentListRes.json();
+    const assignedEmployee = assignmentList.employees.find((e: { id: string }) => e.id === createdEmployeeId);
+    expect(assignedEmployee.geofenceIds).toEqual(expect.arrayContaining([createdGeofenceId, createdSecondGeofenceId]));
+
+    // Verify the employee can actually clock in and out while standing at the
+    // second assigned location. This uses the employee's own session rather
+    // than an admin proxy punch, so geofence enforcement is exercised.
+    const employeeLoginRes = await request.post(`${API_BASE}/api/auth/login`, {
+      headers: PERF_BYPASS,
+      data: { email: testEmployeeEmail, password: 'Password123' },
+    });
+    expect(employeeLoginRes.status()).toBe(200);
+    const employeeLogin = await employeeLoginRes.json();
+    const employeeAuthHeader = () => ({
+      Authorization: `Bearer ${employeeLogin.token}`,
+      ...PERF_BYPASS,
+    });
+    const secondLocationClockIn = await request.post(`${API_BASE}/api/time-entries/clock-in`, {
+      headers: employeeAuthHeader(),
+      data: { latitude: -26.1200, longitude: 28.0575 },
+    });
+    expect(secondLocationClockIn.status()).toBe(201);
+    const secondLocationEntry = await secondLocationClockIn.json();
+    expect(secondLocationEntry.status).toBe('active');
+    expect(secondLocationEntry.geofenceName).toBe('Sandton Annex Second Worksite');
+
+    const secondLocationClockOut = await request.post(`${API_BASE}/api/time-entries/clock-out`, {
+      headers: employeeAuthHeader(),
+      data: { latitude: -26.1200, longitude: 28.0575, breakMinutes: 0 },
+    });
+    expect(secondLocationClockOut.status()).toBe(200);
+    expect((await secondLocationClockOut.json()).status).toBe('completed');
+
+    // Removing the primary location promotes the remaining assignment rather
+    // than leaving the employee in a stale or unassigned state.
+    const unassignFirstRes = await request.post(`${API_BASE}/api/settings/geofences/${createdGeofenceId}/assign-employees`, {
+      headers: authHeader(),
+      data: { employeeIds: [createdEmployeeId], mode: 'unassign' },
+    });
+    expect(unassignFirstRes.status()).toBe(200);
+    const afterFirstRemoval = await (await request.get(`${API_BASE}/api/settings/employees-for-geofence`, { headers: authHeader() })).json();
+    const afterFirstEmployee = afterFirstRemoval.employees.find((e: { id: string }) => e.id === createdEmployeeId);
+    expect(afterFirstEmployee.geofenceIds).toEqual([createdSecondGeofenceId]);
+    expect(afterFirstEmployee.geofenceId).toBe(createdSecondGeofenceId);
+
+    // Removing the last assignment restores the explicit "Not Assigned" state.
+    const unassignSecondRes = await request.post(`${API_BASE}/api/settings/geofences/${createdSecondGeofenceId}/assign-employees`, {
+      headers: authHeader(),
+      data: { employeeIds: [createdEmployeeId], mode: 'unassign' },
+    });
+    expect(unassignSecondRes.status()).toBe(200);
+    const afterAllRemoved = await (await request.get(`${API_BASE}/api/settings/employees-for-geofence`, { headers: authHeader() })).json();
+    const unassignedEmployee = afterAllRemoved.employees.find((e: { id: string }) => e.id === createdEmployeeId);
+    expect(unassignedEmployee.geofenceIds).toEqual([]);
+    expect(unassignedEmployee.geofenceId).toBeNull();
+
     // 4. Create Location Preset
     const presetRes = await request.post(`${API_BASE}/api/settings/location-presets`, {
       headers: authHeader(),
@@ -366,6 +465,9 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
     // Cleanup created geofence, preset, and employee
     if (createdGeofenceId) {
       await request.delete(`${API_BASE}/api/settings/geofences/${createdGeofenceId}`, { headers: authHeader() });
+    }
+    if (createdSecondGeofenceId) {
+      await request.delete(`${API_BASE}/api/settings/geofences/${createdSecondGeofenceId}`, { headers: authHeader() });
     }
     if (createdPresetId) {
       await request.delete(`${API_BASE}/api/settings/location-presets/${createdPresetId}`, { headers: authHeader() });

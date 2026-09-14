@@ -20,8 +20,9 @@ Express 5 API (single process)
   ├─ CORS (explicit origins) · 1MB body cap · security headers
   ├─ Rate limits: /api 500/min, /api/auth 100/15min (Redis sliding window
   │  with in-memory fallback; perf bypass DISABLED in production)
-  ├─ Auth: JWT 8h (httpOnly cookie-first) · pwdEpoch revocation ·
-  │  fail-closed company-active / employee-status / session-state caches
+  ├─ Auth: non-expiring JWT (persistent httpOnly cookie-first) · pwdEpoch
+  │  logout/password revocation · fail-closed company-active / employee-status /
+  │  session-state caches
   ├─ Routes: auth · employees · shifts · time-entries · dashboard ·
   │  reports · settings · audit · master · health · metrics
   ├─ SSE broker: scoped registry · 30s heartbeats · 500-event replay
@@ -41,7 +42,7 @@ PostgreSQL (Prisma 6, pool 50)   Redis (optional: rate limits · SSE fan-out
 | Control | Mechanism | Where |
 |---|---|---|
 | Secret boot gate | Fail-fast on missing/insecure `JWT_SECRET`, `DATABASE_URL`, `CORS_ORIGIN` (HTTPS-only in prod); perf bypass null in prod | `server/src/config.ts` |
-| Session revocation | `User.pwdEpoch` bumped on every password change/reset; JWT claim compared against live value (30s cached, fail-closed); SSE streams closed cluster-wide | `middleware/auth.ts`, `passwords.ts`, `invalidation.ts` |
+| Session revocation | `User.pwdEpoch` bumped on explicit logout and every password change/reset; JWT claim compared against live value (30s cached, fail-closed); SSE streams closed cluster-wide | `middleware/auth.ts`, `passwords.ts`, `invalidation.ts`, `routes/auth.ts` |
 | Default-password lifecycle | Provisioned/reset accounts get `mustChangePassword`; `/keep-password` rejects default hashes; UI hides the keep option (`usingDefaultPassword`) | `routes/auth.ts`, `ChangePasswordModal.tsx` |
 | Tenant isolation | App-level: `tenantWhere()` + `AsyncLocalStorage` context + Prisma auto-stamp + `assertTenantMatch()` backstop; manager scope via `scopeRules.ts` with default-value bridge guard | `tenantContext.ts`, `prisma.ts`, `scopeRules.ts` |
 | Suspension/termination | Enforced on every request, fail-closed, invalidated cluster-wide via Redis command channel | `middleware/auth.ts`, `invalidation.ts` |
@@ -68,8 +69,9 @@ PostgreSQL (Prisma 6, pool 50)   Redis (optional: rate limits · SSE fan-out
 
 - DATE columns (`Shift.date`, `TimeEntry.date`) are stored at **UTC noon**
   (`parseDate`) — never construct them with local midnight.
-- All wall-clock comparisons (cron no-show, "today" stats) run in the
-  **business timezone**: `CRON_TIMEZONE` (IANA), defaulting to process TZ.
+- All wall-clock comparisons and manual attendance times run in the
+  **business timezone**: `CRON_TIMEZONE` (IANA), defaulting to
+  `Africa/Johannesburg` for the South Africa deployment.
   See `server/src/timezone.ts` (unit-tested).
 
 ## 5. Observability

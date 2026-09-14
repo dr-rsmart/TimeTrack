@@ -7,6 +7,8 @@ test.describe('Authentication & Session Management', () => {
     await page.goto('/login');
     await expect(page.locator('input[type="email"]')).toBeVisible();
     await expect(page.locator('input[type="password"]')).toBeVisible();
+    await expect(page.getByText('Your session stays active until you sign out.')).toBeVisible();
+    await expect(page.getByText('Remember me for 30 days')).toHaveCount(0);
 
     const submitBtn = page.locator('button[type="submit"]');
     await expect(submitBtn).toBeVisible();
@@ -82,6 +84,40 @@ test.describe('Authentication & Session Management', () => {
     expect(meRes.status()).toBe(200);
     const me = await meRes.json();
     expect(me.email || me.user?.email).toBe('admin@timetrack.com');
+  });
+
+  test('should keep the session persistent and revoke it on explicit logout', async ({ request }) => {
+    const loginRes = await request.post(`${API_BASE}/api/auth/login`, {
+      data: { email: 'admin@timetrack.com', password: 'Password123' },
+      headers: { 'x-perf-bypass': 'tt_perf_bench_2026' },
+    });
+    expect(loginRes.status()).toBe(200);
+
+    const body = await loginRes.json();
+    const claims = JSON.parse(Buffer.from(body.token.split('.')[1], 'base64url').toString('utf8'));
+    expect(claims.exp).toBeUndefined();
+
+    const setCookie = loginRes.headers()['set-cookie'] || '';
+    expect(setCookie).toContain('tt_token=');
+    expect(setCookie).toContain('Expires=Fri, 31 Dec 9999');
+    expect(setCookie).not.toContain('Max-Age=28800');
+
+    const logoutRes = await request.post(`${API_BASE}/api/auth/logout`, {
+      headers: {
+        Authorization: `Bearer ${body.token}`,
+        'x-perf-bypass': 'tt_perf_bench_2026',
+      },
+    });
+    expect(logoutRes.status()).toBe(200);
+
+    const revokedRes = await request.get(`${API_BASE}/api/auth/me`, {
+      headers: {
+        Authorization: `Bearer ${body.token}`,
+        'x-perf-bypass': 'tt_perf_bench_2026',
+      },
+    });
+    expect(revokedRes.status()).toBe(401);
+    expect((await revokedRes.json()).code).toBe('SESSION_REVOKED');
   });
 
   test('should reject API access without valid token', async ({ request }) => {

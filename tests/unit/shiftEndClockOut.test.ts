@@ -92,6 +92,14 @@ describe('Shift-end auto clock-out helpers', () => {
   });
 
   describe('businessTimeToDate', () => {
+    it('preserves a South African manual clock-out wall time when persisted as UTC', () => {
+      // A form value of 16:30 in Johannesburg is 14:30 UTC, and must render
+      // back as 16:30 in the business timezone rather than 18:30.
+      const instant = businessTimeToDate('Africa/Johannesburg', '2026-08-17', 16 * 60 + 30);
+      expect(instant.toISOString()).toBe('2026-08-17T14:30:00.000Z');
+      expect(businessNow('Africa/Johannesburg', instant).minutesOfDay).toBe(16 * 60 + 30);
+    });
+
     it('converts fixed-offset zones exactly', () => {
       // Africa/Johannesburg is UTC+2 year-round (no DST).
       expect(businessTimeToDate('Africa/Johannesburg', '2026-08-17', 17 * 60).toISOString())

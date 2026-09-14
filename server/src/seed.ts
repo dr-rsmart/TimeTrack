@@ -12,6 +12,7 @@
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import prisma from './prisma.js';
+import { hoursToMinutes } from './domain/duration.js';
 
 const PASSWORD_HASH = bcrypt.hashSync('Password123', 10);
 function toDateStr(d: Date): string {
@@ -374,6 +375,7 @@ async function main() {
           clockIn,
           clockOut,
           date,
+          totalMinutes: hoursToMinutes(totalHours),
           totalHours,
           status: 'completed',
           breakMinutes,

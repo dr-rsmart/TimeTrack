@@ -141,16 +141,20 @@ export function computeOvertime(
       holidayOvertimeHours = holidayOvertimeHours.plus(dayHours);
     } else if (isSunday && sundayOvertimeEnabled) {
       sundayOvertimeHours = sundayOvertimeHours.plus(dayHours);
+    } else if (useMonthlyOvertimeThreshold) {
+      // Monthly mode intentionally ignores the daily threshold: every regular
+      // workday hour remains ordinary until the calendar month's ordinary-hour
+      // cap is reached. Sundays and public holidays were classified above.
+      ordinaryHours = ordinaryHours.plus(dayHours);
+      monthlyOrdinary[monthKey] = monthlyOrdinary[monthKey].plus(dayHours);
+    } else if (dayHours.lte(threshold)) {
+      ordinaryHours = ordinaryHours.plus(dayHours);
+      monthlyOrdinary[monthKey] = monthlyOrdinary[monthKey].plus(dayHours);
     } else {
-      if (dayHours.lte(threshold)) {
-        ordinaryHours = ordinaryHours.plus(dayHours);
-        monthlyOrdinary[monthKey] = monthlyOrdinary[monthKey].plus(dayHours);
-      } else {
-        ordinaryHours = ordinaryHours.plus(threshold);
-        monthlyOrdinary[monthKey] = monthlyOrdinary[monthKey].plus(threshold);
-        const diff = dayHours.minus(threshold);
-        dailyOvertimeHours = dailyOvertimeHours.plus(diff);
-      }
+      ordinaryHours = ordinaryHours.plus(threshold);
+      monthlyOrdinary[monthKey] = monthlyOrdinary[monthKey].plus(threshold);
+      const diff = dayHours.minus(threshold);
+      dailyOvertimeHours = dailyOvertimeHours.plus(diff);
     }
   }
 

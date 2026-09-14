@@ -9,12 +9,13 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import prisma from '../prisma.js';
-import { signToken, requireAuth, invalidateLiveRoleCache } from '../middleware/auth.js';
+import { signToken, verifyToken, requireAuth, invalidateLiveRoleCache } from '../middleware/auth.js';
 import { loginRateLimit } from '../middleware/rateLimit.js';
 import { validate, loginSchema, changePasswordSchema } from '../validation.js';
 import { logAudit, getClientIp } from '../audit.js';
 import { DEFAULT_PASSWORD, isDefaultPasswordHash } from '../passwords.js';
 import { disconnectUserClusterWide } from '../invalidation.js';
+import { AUTH_COOKIE_NAME, AUTH_COOKIE_OPTIONS, getAuthToken } from '../authSession.js';
 import {
   badRequest,
   unauthorized,
@@ -34,15 +35,6 @@ const router = Router();
 async function resolveMustChangePassword(user: { mustChangePassword: boolean; passwordHash: string | null }): Promise<boolean> {
   return user.mustChangePassword;
 }
-
-const COOKIE_NAME = 'tt_token';
-const COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
-  maxAge: 8 * 60 * 60 * 1000, // 8 hours
-  path: '/',
-};
 
 // ── POST /login ── (rate-limited to slow brute-force attempts)
 router.post('/login', loginRateLimit, validate(loginSchema), async (req, res) => {
@@ -183,7 +175,7 @@ router.post('/login', loginRateLimit, validate(loginSchema), async (req, res) =>
       pwdEpoch: user.pwdEpoch,
     });
 
-    res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
+    res.cookie(AUTH_COOKIE_NAME, token, AUTH_COOKIE_OPTIONS);
 
     logAudit({
       entity: 'User',
@@ -216,13 +208,35 @@ router.post('/login', loginRateLimit, validate(loginSchema), async (req, res) =>
 });
 
 // ── POST /logout ──
-router.post('/logout', (_req, res) => {
-  res.clearCookie(COOKIE_NAME, { path: '/' });
+// Logout is intentionally not protected by requireAuth: a password change may
+// have already revoked the current JWT, but the client still needs to clear its
+// cookie. When a signed token is present, bump pwdEpoch so the token and every
+// other token for this user stop working immediately (including Bearer tokens).
+router.post('/logout', async (req, res) => {
+  const token = getAuthToken(req);
+  const authUser = token ? verifyToken(token) : null;
+
+  res.clearCookie(AUTH_COOKIE_NAME, { path: '/' });
+
+  if (authUser?.id) {
+    try {
+      await prisma.user.update({
+        where: { id: authUser.id },
+        data: { pwdEpoch: { increment: 1 } },
+      });
+      invalidateLiveRoleCache(authUser.id);
+      disconnectUserClusterWide(authUser.id);
+    } catch (err) {
+      console.error('[auth] Logout revocation error:', err);
+      return internalError(res, 'ending session');
+    }
+  }
+
   res.json({ success: true });
 });
 
 // ── POST /native-token ──
-// Re-mints a fresh 8h JWT for the CURRENT session. Used by the mobile app's
+// Re-mints a fresh non-expiring JWT for the CURRENT session. Used by the mobile app's
 // native shell: the WebView authenticates with an httpOnly cookie that native
 // code cannot read, so the web app forwards this token to the shell and the
 // background geofence task uses it (Authorization: Bearer) to clock in/out

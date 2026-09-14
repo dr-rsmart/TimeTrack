@@ -24,6 +24,9 @@ import {
   businessTimeToDate,
 } from './timezone.js';
 import { parseDate } from './overlap.js';
+import { singleEmployeeIdentityFilter } from './domain/employeeIdentity.js';
+import { calculateWorkedDuration } from './domain/duration.js';
+import { resolveLocationWorkingEnd } from './locationWorkingHours.js';
 
 const INSTANCE_ID = randomUUID();
 const NO_SHOW_GRACE_MINUTES = 120; // 2 hours
@@ -124,16 +127,15 @@ async function closeStaleActiveTimeEntries(): Promise<void> {
 
     for (const entry of stale) {
       const clockOut = new Date(entry.clockIn.getTime() + STALE_ACTIVE_ENTRY_MAX_HOURS * 3_600_000);
-      const rawHours = (clockOut.getTime() - entry.clockIn.getTime()) / 3_600_000;
-      const breakHours = (entry.breakMinutes ?? 0) / 60;
-      const totalHours = Math.max(0, Math.round((rawHours - breakHours) * 100) / 100);
+      const actualDuration = calculateWorkedDuration(entry.clockIn, clockOut, entry.breakMinutes ?? 0);
 
       await prisma.timeEntry.update({
         where: { id: entry.id },
         data: {
           status: 'completed',
           clockOut,
-          totalHours,
+          totalMinutes: actualDuration.totalMinutes,
+          totalHours: actualDuration.totalHours,
           isManualOverride: true,
           updatedBy: 'system:cron',
         },
@@ -142,7 +144,12 @@ async function closeStaleActiveTimeEntries(): Promise<void> {
       broadcastScoped(
         'TimeEntry',
         'auto_closed',
-        { id: entry.id, employeeEmail: entry.employeeEmail, totalHours },
+        {
+          id: entry.id,
+          employeeEmail: entry.employeeEmail,
+          totalMinutes: actualDuration.totalMinutes,
+          totalHours: actualDuration.totalHours,
+        },
         {
           companyProfileId: entry.companyProfileId,
           branch: entry.branch,
@@ -167,8 +174,8 @@ async function closeStaleActiveTimeEntries(): Promise<void> {
  * delayed (cron cadence, instance restart). This captures accurate hours: an
  * employee who forgets to logout cannot claim time beyond the scheduled end.
  *
- * Employees without a scheduled shift (or whose shift has not ended yet) are
- * untouched — the standard auto/manual clock-out flows remain in force.
+ * Employees without a scheduled shift use the working hours configured on the
+ * location where they clocked in. Assigned shift end times take precedence.
  */
 async function autoClockOutAtShiftEnd(): Promise<void> {
   const jobName = 'shift-end-auto-clock-out';
@@ -191,12 +198,12 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
         status: { in: ['scheduled', 'active'] },
         date: { in: [parseDate(biz.dateStr), parseDate(yesterdayBiz.dateStr)] },
         endTime: { not: null },
-        employeeEmail: { not: null },
+        OR: [{ employeeId: { not: null } }, { employeeEmail: { not: null } }],
       },
     });
 
     for (const shift of candidates) {
-      if (!shift.employeeEmail) continue;
+      if (!shift.employeeId && !shift.employeeEmail) continue;
       const endMinutes = timeStrToMinutes(shift.endTime);
       if (endMinutes === null) continue;
 
@@ -219,7 +226,13 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
       }
 
       const activeEntry = await prisma.timeEntry.findFirst({
-        where: { employeeEmail: shift.employeeEmail, status: 'active' },
+        where: {
+          ...(shift.employeeId
+            ? { employeeId: shift.employeeId }
+            : { employeeId: null, employeeEmail: shift.employeeEmail! }),
+          ...(shift.companyProfileId ? { companyProfileId: shift.companyProfileId } : {}),
+          status: 'active',
+        },
         orderBy: { clockIn: 'desc' },
       });
       if (!activeEntry) continue;
@@ -234,9 +247,7 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
       // bounded by the shift; leave it to the standard clock-out flows.
       if (activeEntry.clockIn.getTime() >= clockOut.getTime()) continue;
 
-      const breakHours = (activeEntry.breakMinutes ?? 0) / 60;
-      const rawHours = (clockOut.getTime() - activeEntry.clockIn.getTime()) / 3_600_000;
-      const totalHours = Math.max(0, Math.round((rawHours - breakHours) * 100) / 100);
+      const actualDuration = calculateWorkedDuration(activeEntry.clockIn, clockOut, activeEntry.breakMinutes ?? 0);
 
       // Optimistic guard: only close if still active — a concurrent manual
       // clock-out must never be overwritten.
@@ -245,7 +256,8 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
         data: {
           clockOut,
           status: 'completed',
-          totalHours,
+          totalMinutes: actualDuration.totalMinutes,
+          totalHours: actualDuration.totalHours,
           isManualOverride: true,
           updatedBy: 'system:cron',
         },
@@ -268,7 +280,8 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
           id: activeEntry.id,
           employeeEmail: activeEntry.employeeEmail,
           clockOut: clockOut.toISOString(),
-          totalHours,
+          totalMinutes: actualDuration.totalMinutes,
+          totalHours: actualDuration.totalHours,
           status: 'completed',
           autoClockOutAtShiftEnd: true,
         },
@@ -281,6 +294,86 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
 
       console.log(
         `[cron] Auto clock-out at shift end: entry ${activeEntry.id} (${activeEntry.employeeEmail}) closed at ${shift.endTime} for shift ${shift.id}.`
+      );
+    }
+
+    // Employees without a scheduled shift use the working hours configured on
+    // the exact location where they clocked in. A shift remains authoritative;
+    // this fallback is skipped whenever an open scheduled/active shift with an
+    // end time exists for the employee on the current business day.
+    const locationEntries = await prisma.timeEntry.findMany({
+      where: { status: 'active', geofenceId: { not: null } },
+      include: { geofence: true },
+    });
+    const candidateDates = [
+      parseDate(biz.dateStr),
+      parseDate(yesterdayBiz.dateStr),
+    ];
+
+    for (const entry of locationEntries) {
+      const location = entry.geofence;
+      if (!location || !entry.geofenceId) continue;
+      if (!location.workingStartTime || !location.workingEndTime || location.workingDays.length === 0) continue;
+
+      const openShift = await prisma.shift.findFirst({
+        where: {
+          status: { in: ['scheduled', 'active'] },
+          date: { in: candidateDates },
+          endTime: { not: null },
+          OR: entry.employeeId
+            ? [{ employeeId: entry.employeeId }, { employeeEmail: entry.employeeEmail }]
+            : [{ employeeEmail: entry.employeeEmail }],
+          ...(entry.companyProfileId ? { companyProfileId: entry.companyProfileId } : {}),
+        },
+        select: { id: true },
+      });
+      if (openShift) continue;
+
+      const clockOut = resolveLocationWorkingEnd({
+        clockIn: entry.clockIn,
+        timezone: tz,
+        workingStartTime: location.workingStartTime,
+        workingEndTime: location.workingEndTime,
+        workingDays: location.workingDays,
+      });
+      if (!clockOut || clockOut.getTime() > now.getTime()) continue;
+
+      const actualDuration = calculateWorkedDuration(entry.clockIn, clockOut, entry.breakMinutes ?? 0);
+      const closed = await prisma.timeEntry.updateMany({
+        where: { id: entry.id, status: 'active' },
+        data: {
+          clockOut,
+          status: 'completed',
+          totalMinutes: actualDuration.totalMinutes,
+          totalHours: actualDuration.totalHours,
+          isManualOverride: true,
+          updatedBy: 'system:cron',
+        },
+      });
+      if (closed.count === 0) continue;
+
+      broadcastScoped(
+        'timeEntry',
+        'clockOut',
+        {
+          id: entry.id,
+          employeeEmail: entry.employeeEmail,
+          clockOut: clockOut.toISOString(),
+          totalMinutes: actualDuration.totalMinutes,
+          totalHours: actualDuration.totalHours,
+          status: 'completed',
+          autoClockOutAtLocationWorkingEnd: true,
+          geofenceId: entry.geofenceId,
+        },
+        {
+          companyProfileId: entry.companyProfileId,
+          branch: entry.branch,
+          department: entry.department,
+        },
+      );
+
+      console.log(
+        `[cron] Auto clock-out at location working end: entry ${entry.id} (${entry.employeeEmail}) closed at ${clockOut.toISOString()} for ${location.name}.`,
       );
     }
   } catch (err) {
@@ -298,7 +391,7 @@ async function detectNoShows(): Promise<void> {
     const now = new Date();
 
     // All wall-clock comparisons happen in the configured business timezone
-    // (CRON_TIMEZONE; defaults to the process timezone). This keeps no-show
+    // (CRON_TIMEZONE; defaults to Africa/Johannesburg). This keeps no-show
     // detection correct even if the host/container timezone differs from the
     // business locale. Dates are stored at UTC noon (parseDate convention),
     // so the query uses the same convention to avoid day shifting.
@@ -335,9 +428,15 @@ async function detectNoShows(): Promise<void> {
 
       // Guard: if the employee already has a time entry on this date they
       // DID show up — a stale 'scheduled' shift row must not become no_show.
-      if (shift.employee?.email) {
+      if (shift.employeeId || shift.employee?.email) {
         const worked = await prisma.timeEntry.findFirst({
-          where: { employeeEmail: shift.employee.email, date: shift.date },
+          where: {
+            ...(shift.employeeId
+              ? { employeeId: shift.employeeId }
+              : { employeeId: null, employeeEmail: shift.employee!.email }),
+            date: shift.date,
+            ...(shift.companyProfileId ? { companyProfileId: shift.companyProfileId } : {}),
+          },
           select: { id: true },
         });
         if (worked) continue;

@@ -53,6 +53,50 @@ function toDateField(v: unknown): Date | undefined {
     : undefined;
 }
 
+/**
+ * Resolve the submitted location assignment into a unique list. `geofenceIds`
+ * is the canonical multi-location field; the legacy `geofenceId` remains a
+ * compatibility fallback for older clients that only submit one location.
+ */
+function getRequestedGeofenceIds(data: Record<string, unknown>): string[] | undefined {
+  if (Array.isArray(data.geofenceIds)) {
+    return [
+      ...new Set(
+        data.geofenceIds
+          .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+          .map((id) => id.trim()),
+      ),
+    ];
+  }
+
+  if (Object.prototype.hasOwnProperty.call(data, 'geofenceId')) {
+    return typeof data.geofenceId === 'string' && data.geofenceId.trim().length > 0
+      ? [data.geofenceId.trim()]
+      : [];
+  }
+
+  return undefined;
+}
+
+/** Ensure selected locations belong to the employee's tenant. */
+async function assertGeofencesBelongToCompany(
+  geofenceIds: string[],
+  companyProfileId: string | null | undefined,
+): Promise<void> {
+  if (geofenceIds.length === 0) return;
+  if (!companyProfileId) {
+    throw new Error('A company context is required when assigning work locations.');
+  }
+
+  const locations = await prisma.geofence.findMany({
+    where: { id: { in: geofenceIds }, companyProfileId },
+    select: { id: true },
+  });
+  if (locations.length !== geofenceIds.length) {
+    throw new Error('One or more selected work locations do not belong to this company.');
+  }
+}
+
 // ── GET / (List employees) ──
 router.get('/', requireAuth, async (req, res) => {
   try {
@@ -439,6 +483,17 @@ router.post('/', requireAdminOrManager, validate(createEmployeeSchema), async (r
     }
     const hd = toDateField(data.hireDate);
     if (hd) data.hireDate = hd;
+    const geofenceIds = getRequestedGeofenceIds(data) ?? [];
+    delete data.geofenceIds;
+    // Keep the old single-location mirror aligned with the first selected
+    // location. The join table remains the source of truth for multi-location
+    // access, but older clients and reports still read geofenceId.
+    data.geofenceId = geofenceIds[0] ?? null;
+    try {
+      await assertGeofencesBelongToCompany(geofenceIds, companyProfileId);
+    } catch (assignmentError) {
+      return badRequest(res, assignmentError instanceof Error ? assignmentError.message : 'Invalid work location assignment.');
+    }
     const normalizedEmail = data.email as string;
 
     // Check duplicate email within tenant case-insensitively
@@ -468,6 +523,16 @@ router.post('/', requireAdminOrManager, validate(createEmployeeSchema), async (r
           updatedBy: authUser.id,
         } as unknown as Parameters<typeof prisma.employee.create>[0]['data'],
       });
+
+      if (geofenceIds.length > 0) {
+        await tx.employeeGeofence.createMany({
+          data: geofenceIds.map((geofenceId) => ({
+            employeeId: emp.id,
+            geofenceId,
+            companyProfileId: emp.companyProfileId,
+          })),
+        });
+      }
 
       const existingUser = await tx.user.findUnique({ where: { email: emp.email.toLowerCase().trim() } });
       if (!existingUser) {
@@ -579,8 +644,18 @@ router.put('/:id', requireAuth, validate(updateEmployeeSchema), async (req, res)
     const hd = toDateField(data.hireDate);
     if (hd) data.hireDate = hd;
 
-    const geofenceIds = Array.isArray(data.geofenceIds) ? (data.geofenceIds as string[]) : undefined;
+    const geofenceIds = getRequestedGeofenceIds(data);
     delete data.geofenceIds;
+
+    if (geofenceIds !== undefined) {
+      try {
+        await assertGeofencesBelongToCompany(geofenceIds, existing.companyProfileId);
+      } catch (assignmentError) {
+        return badRequest(res, assignmentError instanceof Error ? assignmentError.message : 'Invalid work location assignment.');
+      }
+      // Keep the legacy primary mirror synchronized with the canonical list.
+      data.geofenceId = geofenceIds[0] ?? null;
+    }
 
     const item = await prisma.$transaction(async (tx) => {
       const emp = await tx.employee.update({

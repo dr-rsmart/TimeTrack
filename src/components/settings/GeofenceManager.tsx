@@ -23,6 +23,9 @@ interface Geofence {
   longitude: number;
   radiusMeters: number;
   isActive: boolean;
+  workingStartTime: string;
+  workingEndTime: string;
+  workingDays: string[];
   employeeCount: number;
 }
 
@@ -85,6 +88,9 @@ export function GeofenceManager({ hideAssignEmployees = false }: { hideAssignEmp
     longitude: 28.0473,
     radiusMeters: 200,
     isActive: true,
+    workingStartTime: '08:00',
+    workingEndTime: '17:00',
+    workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
   });
 
   // ── Preset Management State ──
@@ -216,6 +222,9 @@ export function GeofenceManager({ hideAssignEmployees = false }: { hideAssignEmp
       longitude: preset.longitude,
       radiusMeters: preset.radiusMeters,
       isActive: true,
+      workingStartTime: '08:00',
+      workingEndTime: '17:00',
+      workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
     });
     setSearchQuery(preset.name);
   };
@@ -285,6 +294,9 @@ export function GeofenceManager({ hideAssignEmployees = false }: { hideAssignEmp
       longitude: form.longitude,
       radiusMeters: form.radiusMeters,
       isActive: form.isActive,
+      workingStartTime: form.workingStartTime,
+      workingEndTime: form.workingEndTime,
+      workingDays: form.workingDays,
     };
     const url = editingId ? `/api/settings/geofences/${editingId}` : '/api/settings/geofences';
     const method = editingId ? 'PUT' : 'POST';
@@ -443,7 +455,7 @@ export function GeofenceManager({ hideAssignEmployees = false }: { hideAssignEmp
               👥 Assign Employees
             </button>
           )}
-          <button onClick={() => { setForm({ name: '', address: '', latitude: -26.2041, longitude: 28.0473, radiusMeters: 200, isActive: true }); setEditingId(null); setShowForm(true); setSearchQuery(''); setSearchResults([]); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+          <button onClick={() => { setForm({ name: '', address: '', latitude: -26.2041, longitude: 28.0473, radiusMeters: 200, isActive: true, workingStartTime: '08:00', workingEndTime: '17:00', workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] }); setEditingId(null); setShowForm(true); setSearchQuery(''); setSearchResults([]); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
             + Add Location
           </button>
         </div>
@@ -733,6 +745,27 @@ Automatically clocks user in upon sign-in/entry within allocated radius, and aut
                 </div>
               </div>
 
+              <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50/50 p-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">Global working hours</p>
+                  <p className="text-xs text-slate-500">Used to auto clock out employees who do not have an assigned shift.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="text-xs text-slate-500">Start time
+                    <input type="time" value={form.workingStartTime} onChange={(e) => setForm({ ...form, workingStartTime: e.target.value })} className="mt-1 w-full rounded-lg border px-3 py-2 text-sm text-slate-700" />
+                  </label>
+                  <label className="text-xs text-slate-500">End time
+                    <input type="time" value={form.workingEndTime} onChange={(e) => setForm({ ...form, workingEndTime: e.target.value })} className="mt-1 w-full rounded-lg border px-3 py-2 text-sm text-slate-700" />
+                  </label>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((day) => {
+                    const checked = form.workingDays.includes(day);
+                    return <label key={day} className="flex items-center gap-1 text-xs text-slate-600"><input type="checkbox" checked={checked} onChange={() => setForm({ ...form, workingDays: checked ? form.workingDays.filter((d) => d !== day) : [...form.workingDays, day] })} />{day.slice(0, 3)}</label>;
+                  })}
+                </div>
+              </div>
+
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} />
                 <span className="text-sm">Active (employees can clock in here)</span>
@@ -783,6 +816,7 @@ Automatically clocks user in upon sign-in/entry within allocated radius, and aut
                   <div className="flex gap-4 mt-2 text-xs text-slate-400">
                     <span>📍 {g.latitude.toFixed(5)}, {g.longitude.toFixed(5)}</span>
                     <span>⌀ {formatRadius(g.radiusMeters)}</span>
+                    <span>🕒 {g.workingStartTime}–{g.workingEndTime}</span>
                     <span>👥 {g.employeeCount} employee{g.employeeCount !== 1 ? 's' : ''} assigned</span>
                   </div>
                 </div>
@@ -790,7 +824,7 @@ Automatically clocks user in upon sign-in/entry within allocated radius, and aut
                   <button onClick={() => toggleActive(g)} className={`px-3 py-1 text-xs rounded-full border ${g.isActive ? 'hover:bg-orange-50 text-orange-600 border-orange-200' : 'hover:bg-green-50 text-green-600 border-green-200'}`}>
                     {g.isActive ? 'Deactivate' : 'Activate'}
                   </button>
-                  <button onClick={() => { setForm({ name: g.name, address: g.address ?? '', latitude: g.latitude, longitude: g.longitude, radiusMeters: g.radiusMeters, isActive: g.isActive }); setEditingId(g.id); setShowForm(true); setSearchQuery(g.name); }} className="px-3 py-1 text-xs rounded-full border hover:bg-slate-50">Edit</button>
+                  <button onClick={() => { setForm({ name: g.name, address: g.address ?? '', latitude: g.latitude, longitude: g.longitude, radiusMeters: g.radiusMeters, isActive: g.isActive, workingStartTime: g.workingStartTime, workingEndTime: g.workingEndTime, workingDays: g.workingDays }); setEditingId(g.id); setShowForm(true); setSearchQuery(g.name); }} className="px-3 py-1 text-xs rounded-full border hover:bg-slate-50">Edit</button>
                   <button onClick={() => remove(g.id)} className="px-3 py-1 text-xs rounded-full border border-red-200 text-red-600 hover:bg-red-50">Delete</button>
                 </div>
               </div>

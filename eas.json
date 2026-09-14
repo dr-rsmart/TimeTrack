@@ -9,13 +9,38 @@
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal"
+      "android": {
+        "buildType": "apk"
+      },
+      "distribution": "internal",
+      "ios": {
+        "simulator": false
+      }
     },
     "production": {
-      "autoIncrement": true
+      "android": {
+        "autoIncrement": true,
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "autoIncrement": true,
+        "image": "macos-sequoia-15.6-xcode-26.2"
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./google-service-account.json",
+        "track": "internal"
+      },
+      "ios": {
+        "appleId": "ricardovsmart@gmail.com",
+        "ascApiKeyId": "T7F5PP484B",
+        "ascApiKeyIssuerId": "910ea587-6238-4237-892d-8b8adf531d71",
+        "ascApiKeyPath": "./asc-api-key.p8",
+        "ascAppId": "6803827296"
+      }
+    }
   }
 }

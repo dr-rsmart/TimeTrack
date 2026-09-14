@@ -19,6 +19,7 @@ const http: HttpCounters = {
 };
 
 const startedAt = Date.now();
+let auditWriteFailures = 0;
 
 /** Record a completed HTTP response (called once per request via middleware). */
 export function recordHttpRequest(statusCode: number): void {
@@ -30,6 +31,11 @@ export function recordHttpRequest(statusCode: number): void {
   else if (statusCode >= 500) http.byClass['5xx'] += 1;
 }
 
+/** Record a compliance-audit persistence failure for operational alerting. */
+export function recordAuditWriteFailure(): void {
+  auditWriteFailures += 1;
+}
+
 /** Snapshot of current counter values (for tests/health surfaces). */
 export function getMetricSnapshot() {
   return {
@@ -37,6 +43,7 @@ export function getMetricSnapshot() {
     httpRequestsTotal: http.total,
     httpErrorsTotal: http.errors,
     httpByStatusClass: { ...http.byClass },
+    auditWriteFailures,
   };
 }
 
@@ -68,6 +75,10 @@ export function renderMetrics(extra: { name: string; help: string; type: string;
   lines.push('# HELP http_errors_total Total HTTP responses with status >= 500.');
   lines.push('# TYPE http_errors_total counter');
   lines.push(`http_errors_total ${http.errors}`);
+
+  lines.push('# HELP timetrack_audit_write_failures_total Failed audit persistence attempts.');
+  lines.push('# TYPE timetrack_audit_write_failures_total counter');
+  lines.push(`timetrack_audit_write_failures_total ${auditWriteFailures}`);
 
   lines.push('# HELP http_responses_total Completed HTTP responses by status class.');
   lines.push('# TYPE http_responses_total counter');

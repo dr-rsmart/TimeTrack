@@ -9,7 +9,15 @@ import { Router } from 'express';
 import prisma from '../prisma.js';
 import { requireAuth, requireAdminOrManager } from '../middleware/auth.js';
 import { getManagerScopeFilter, isEmployeeInManagerScope } from '../middleware/scope.js';
-import { validate, createShiftSchema, updateShiftSchema, expandShiftDateRange } from '../validation.js';
+import {
+  validate,
+  createShiftSchema,
+  updateShiftSchema,
+  bulkCreateShiftsSchema,
+  expandShiftDateRange,
+  resolveWeeklyScheduleDay,
+  type BulkCreateShifts,
+} from '../validation.js';
 import { logAudit, getClientIp, computeChanges } from '../audit.js';
 import { broadcastScoped } from '../sse.js';
 import {
@@ -22,6 +30,7 @@ import {
   sendError,
 } from '../errorResponse.js';
 import { countOverlaps, parseDate, type ShiftTimeWindow } from '../overlap.js';
+import { employeeIdentityFilter } from '../domain/employeeIdentity.js';
 
 const router = Router();
 
@@ -73,7 +82,14 @@ router.get('/', requireAuth, async (req, res) => {
 
     // Employee sees own shifts only
     if (authUser.role === 'employee') {
-      where.employeeEmail = authUser.email;
+      const employee = await prisma.employee.findFirst({
+        where: {
+          ...tenantWhere(authUser),
+          email: { equals: authUser.email, mode: 'insensitive' },
+        },
+        select: { id: true, email: true },
+      });
+      Object.assign(where, employee ? employeeIdentityFilter([employee]) : { employeeId: '__none__' });
     } else if (authUser.role === 'manager') {
       const scopeFilter = await getManagerScopeFilter(authUser);
       // Scope via employee relation
@@ -194,8 +210,8 @@ router.put('/:id', requireAdminOrManager, validate(updateShiftSchema), async (re
     if (authUser.role !== 'master' && existing.companyProfileId !== authUser.companyProfileId) {
       return accessDenied(res, 'Shift belongs to a different company.');
     }
-    if (authUser.role === 'manager' && existing.employeeEmail) {
-      const inScope = await isEmployeeInManagerScope(authUser, existing.employeeEmail);
+    if (authUser.role === 'manager' && (existing.employeeId || existing.employeeEmail)) {
+      const inScope = await isEmployeeInManagerScope(authUser, existing.employeeEmail ?? '', existing.employeeId);
       if (!inScope) return outsideScope(res, 'Employee');
     }
 
@@ -267,8 +283,8 @@ router.delete('/:id', requireAdminOrManager, async (req, res) => {
     if (authUser.role !== 'master' && existing.companyProfileId !== authUser.companyProfileId) {
       return accessDenied(res, 'Shift belongs to a different company.');
     }
-    if (authUser.role === 'manager' && existing.employeeEmail) {
-      const inScope = await isEmployeeInManagerScope(authUser, existing.employeeEmail);
+    if (authUser.role === 'manager' && (existing.employeeId || existing.employeeEmail)) {
+      const inScope = await isEmployeeInManagerScope(authUser, existing.employeeEmail ?? '', existing.employeeId);
       if (!inScope) return outsideScope(res, 'Employee');
     }
 
@@ -304,8 +320,9 @@ router.delete('/:id', requireAdminOrManager, async (req, res) => {
 // is provided, the template is applied to EVERY day in [date, endDate] —
 // one shift per employee per day (bulk schedule generation).
 // Body: { employeeIds: string[], date: string, endDate?: string, startTime?: string,
-//         endTime?: string, shiftType?: string, location?: string, notes?: string, skipOverlaps?: boolean }
-router.post('/bulk', requireAdminOrManager, async (req, res) => {
+//         endTime?: string, shiftType?: string, location?: string, notes?: string,
+//         skipOverlaps?: boolean, weeklySchedule?: Record<weekday, day hours> }
+router.post('/bulk', requireAdminOrManager, validate(bulkCreateShiftsSchema), async (req, res) => {
   try {
     const authUser = req.authUser!;
     const {
@@ -319,32 +336,7 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
       notes,
       skipOverlaps,
       weeklySchedule,
-    } = req.body as {
-      employeeIds?: string[];
-      date?: string;
-      endDate?: string;
-      startTime?: string;
-      endTime?: string;
-      shiftType?: string;
-      location?: string;
-      notes?: string;
-      skipOverlaps?: boolean;
-      weeklySchedule?: Record<string, { enabled?: boolean; startTime?: string; endTime?: string; shiftType?: string }>;
-    };
-
-    // Validate required fields
-    if (!Array.isArray(employeeIds) || employeeIds.length === 0) {
-      return badRequest(res, 'At least one employee ID is required for bulk assignment.', { field: 'employeeIds' });
-    }
-    if (employeeIds.length > 100) {
-      return badRequest(res, 'Bulk assignment is limited to 100 employees at a time.', { field: 'employeeIds', max: 100 });
-    }
-    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return badRequest(res, 'A valid date (YYYY-MM-DD) is required.', { field: 'date' });
-    }
-    if (endDate != null && !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
-      return badRequest(res, 'A valid end date (YYYY-MM-DD) is required.', { field: 'endDate' });
-    }
+    } = req.body as BulkCreateShifts;
 
     // Expand the date range (single day when endDate is omitted)
     const range = expandShiftDateRange(date, endDate ?? undefined);
@@ -374,30 +366,6 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
         return accessDenied(res, `Employee ${employee.firstName} ${employee.surname} belongs to a different company.`);
       }
     }
-
-    // Helper: resolve hours & shift type for a specific calendar day
-    const resolveDayConfig = (dayStr: string) => {
-      if (!weeklySchedule) {
-        return {
-          enabled: true,
-          startTime: defaultStartTime ?? null,
-          endTime: defaultEndTime ?? null,
-          shiftType: defaultShiftType ?? 'full_day',
-        };
-      }
-      const dayDate = parseDate(dayStr);
-      const dayOfWeek = dayDate.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-      const dayConfig = weeklySchedule[String(dayOfWeek)] ?? weeklySchedule[dayOfWeek];
-      if (!dayConfig || dayConfig.enabled === false) {
-        return { enabled: false, startTime: null, endTime: null, shiftType: 'full_day' };
-      }
-      return {
-        enabled: true,
-        startTime: dayConfig.startTime ?? defaultStartTime ?? null,
-        endTime: dayConfig.endTime ?? defaultEndTime ?? null,
-        shiftType: dayConfig.shiftType ?? defaultShiftType ?? 'full_day',
-      };
-    };
 
     // Overlap detection per employee × day (unless skipOverlaps is true).
     // All conflicting shifts across the whole range are fetched in ONE query
@@ -434,7 +402,11 @@ router.post('/bulk', requireAdminOrManager, async (req, res) => {
     }> = [];
 
     for (const day of dates) {
-      const dayConfig = resolveDayConfig(day);
+      const dayConfig = resolveWeeklyScheduleDay(day, weeklySchedule, {
+        startTime: defaultStartTime,
+        endTime: defaultEndTime,
+        shiftType: defaultShiftType,
+      });
       if (!dayConfig.enabled) {
         // Day is marked closed (e.g. Sunday)
         continue;

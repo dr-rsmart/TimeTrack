@@ -20,6 +20,7 @@
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import prisma from './prisma.js';
+import { hoursToMinutes } from './domain/duration.js';
 
 // ── Phase Configuration ──
 const PHASE_CONFIG: Record<string, { employees: number; label: string }> = {
@@ -286,7 +287,7 @@ async function main() {
   let entryBatch: Array<{
     employeeId: string; employeeEmail: string; employeeName: string;
     branch: string; department: string; clockIn: Date; clockOut: Date;
-    date: Date; totalHours: number; status: string; breakMinutes: number;
+    date: Date; totalMinutes: number; totalHours: number; status: string; breakMinutes: number;
     geofenceName: string; isAutoGeofence: boolean; companyProfileId: string;
     createdBy: string; updatedBy: string;
   }> = [];
@@ -316,6 +317,7 @@ async function main() {
         clockIn,
         clockOut,
         date,
+        totalMinutes: hoursToMinutes(totalHours) ?? 0,
         totalHours,
         status: 'completed',
         breakMinutes,

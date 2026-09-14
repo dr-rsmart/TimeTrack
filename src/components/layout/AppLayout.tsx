@@ -23,6 +23,7 @@ import {
   ShieldAlert,
   Sparkles,
   User,
+  HelpCircle,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -43,6 +44,7 @@ const allNavItems = [
   { path: '/audit', label: 'Audit', icon: ScrollText, roles: ['admin', 'manager'] },
   { path: '/settings', label: 'Settings', icon: Settings, roles: ['admin', 'master'] },
   { path: '/demo', label: 'Demo', icon: Sparkles, roles: ['master'] },
+  { path: '/faq', label: 'FAQ', icon: HelpCircle, roles: ['master', 'admin', 'manager', 'employee'] },
   { path: '/profile', label: 'Profile', icon: User, roles: ['master', 'admin', 'manager', 'employee'] },
 ];
 
@@ -221,6 +223,18 @@ export default function AppLayout() {
               >
                 {resolvedTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </button>
+
+              {/* FAQ shortcut remains available on narrow screens even when
+                  the role has more than five bottom-navigation items. */}
+              <Link
+                to="/faq"
+                data-testid="mobile-nav-faq"
+                aria-label="FAQ"
+                title="Frequently Asked Questions"
+                className="md:hidden flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary/50 hover:text-foreground transition-colors"
+              >
+                <HelpCircle className="h-4 w-4" />
+              </Link>
 
               {/* User Profile — avatar only; clicking opens the Profile page */}
               {user && (

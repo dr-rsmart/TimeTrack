@@ -281,7 +281,13 @@ router.get('/geofences/my', requireAuth, async (req, res) => {
 
     // Find the employee record for this user
     const employee = await prisma.employee.findFirst({
-      where: { email: authUser.email.toLowerCase() },
+      where: {
+        email: { equals: authUser.email, mode: 'insensitive' },
+        // Email is a legacy identity field and is not sufficient to select an
+        // employee safely when historical data contains the same address in
+        // more than one company. Keep the assignment response tenant-bound.
+        companyProfileId: authUser.companyProfileId ?? '__none__',
+      },
       select: {
         id: true,
         firstName: true,
@@ -312,6 +318,9 @@ router.get('/geofences/my', requireAuth, async (req, res) => {
         longitude: true,
         radiusMeters: true,
         isActive: true,
+        workingStartTime: true,
+        workingEndTime: true,
+        workingDays: true,
       },
     });
 
@@ -400,6 +409,9 @@ router.get('/geofences', requireAdminOrManager, async (req, res) => {
       longitude: g.longitude,
       radiusMeters: g.radiusMeters,
       isActive: g.isActive,
+      workingStartTime: g.workingStartTime,
+      workingEndTime: g.workingEndTime,
+      workingDays: g.workingDays,
       companyProfileId: g.companyProfileId,
       createdAt: g.createdAt,
       updatedAt: g.updatedAt,
@@ -578,7 +590,7 @@ router.get('/geocode', requireAuth, async (req, res) => {
 
     for (let i = 0; i < retries; i++) {
       try {
-        const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`;
+        const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=za&q=${encodeURIComponent(q)}`;
         response = await fetch(url, {
           headers: {
             'User-Agent': 'TimeTrack-App/1.0 (contact@timetrack.co)',
@@ -625,8 +637,8 @@ router.get('/geocode', requireAuth, async (req, res) => {
 // Multi-location aware: assignments are stored in the EmployeeGeofence join
 // table (additive). `mode: 'unassign'` removes the assignment. The legacy
 // Employee.geofenceId column is kept in sync as the "primary" location mirror
-// (set when null on assign, cleared when it matches on unassign) so older
-// clients and reports keep working.
+// (set to the first/remaining assignment) so older clients and reports keep
+// working.
 router.post('/geofences/:id/assign-employees', requireAdmin, async (req, res) => {
   try {
     const authUser = req.authUser!;
@@ -636,6 +648,20 @@ router.post('/geofences/:id/assign-employees', requireAdmin, async (req, res) =>
 
     if (!Array.isArray(employeeIds) || employeeIds.length === 0) {
       return badRequest(res, 'employeeIds array is required.');
+    }
+    if (mode !== undefined && mode !== 'assign' && mode !== 'unassign') {
+      return badRequest(res, 'mode must be either assign or unassign.');
+    }
+
+    const uniqueEmployeeIds = [
+      ...new Set(
+        employeeIds.filter(
+          (employeeId): employeeId is string => typeof employeeId === 'string' && employeeId.trim().length > 0,
+        ),
+      ),
+    ];
+    if (uniqueEmployeeIds.length === 0) {
+      return badRequest(res, 'employeeIds must contain at least one valid employee ID.');
     }
 
     const geofence = await prisma.geofence.findUnique({ where: { id } });
@@ -653,13 +679,16 @@ router.post('/geofences/:id/assign-employees', requireAdmin, async (req, res) =>
     // Restrict to employees of the geofence's tenant
     const employees = await prisma.employee.findMany({
       where: {
-        id: { in: employeeIds },
-        companyProfileId: geofence.companyProfileId ?? undefined,
+        id: { in: uniqueEmployeeIds },
+        // A global geofence is not assignable to tenant employees. Using a
+        // sentinel rather than `undefined` avoids selecting every employee
+        // when companyProfileId is null.
+        companyProfileId: geofence.companyProfileId ?? '__none__',
       },
       select: { id: true, geofenceId: true },
     });
-    if (employees.length === 0) {
-      return badRequest(res, 'None of the given employees belong to this company.');
+    if (employees.length !== uniqueEmployeeIds.length) {
+      return badRequest(res, 'All selected employees must belong to this company.');
     }
     const empIds = employees.map((e) => e.id);
 
@@ -669,11 +698,28 @@ router.post('/geofences/:id/assign-employees', requireAdmin, async (req, res) =>
         await tx.employeeGeofence.deleteMany({
           where: { employeeId: { in: empIds }, geofenceId: id },
         });
-        // …and clear the legacy mirror when it points at this geofence.
-        await tx.employee.updateMany({
-          where: { id: { in: empIds }, geofenceId: id },
-          data: { geofenceId: null },
+        // If the removed location was the legacy primary mirror, promote the
+        // oldest remaining assignment. If none remain, the employee is
+        // explicitly "Not Assigned". Preserve a different legacy primary
+        // location for older records that pre-date the join-table migration.
+        const remaining = await tx.employeeGeofence.findMany({
+          where: { employeeId: { in: empIds } },
+          orderBy: { createdAt: 'asc' },
+          select: { employeeId: true, geofenceId: true },
         });
+        const primaryByEmployee = new Map<string, string>();
+        for (const row of remaining) {
+          if (!primaryByEmployee.has(row.employeeId)) primaryByEmployee.set(row.employeeId, row.geofenceId);
+        }
+        for (const employee of employees) {
+          const nextPrimary = employee.geofenceId !== id
+            ? employee.geofenceId
+            : primaryByEmployee.get(employee.id) ?? null;
+          await tx.employee.update({
+            where: { id: employee.id },
+            data: { geofenceId: nextPrimary },
+          });
+        }
       } else {
         // Additive assignment (skipDuplicates keeps it idempotent).
         await tx.employeeGeofence.createMany({
@@ -907,7 +953,31 @@ router.delete('/geofences/:id', requireAdmin, async (req, res) => {
       return accessDenied(res);
     }
 
-    await prisma.geofence.delete({ where: { id } });
+    // The join rows cascade at the database level, but the legacy primary
+    // mirror does not. Repair it in the same transaction so deleting a
+    // location cannot leave stale access metadata on an employee.
+    await prisma.$transaction(async (tx) => {
+      const affectedEmployees = await tx.employee.findMany({
+        where: { geofenceId: id },
+        select: { id: true },
+      });
+      const remaining = await tx.employeeGeofence.findMany({
+        where: { employeeId: { in: affectedEmployees.map((employee) => employee.id) }, geofenceId: { not: id } },
+        orderBy: { createdAt: 'asc' },
+        select: { employeeId: true, geofenceId: true },
+      });
+      const primaryByEmployee = new Map<string, string>();
+      for (const row of remaining) {
+        if (!primaryByEmployee.has(row.employeeId)) primaryByEmployee.set(row.employeeId, row.geofenceId);
+      }
+      for (const employee of affectedEmployees) {
+        await tx.employee.update({
+          where: { id: employee.id },
+          data: { geofenceId: primaryByEmployee.get(employee.id) ?? null },
+        });
+      }
+      await tx.geofence.delete({ where: { id } });
+    });
 
     logAudit({
       entity: 'Geofence',

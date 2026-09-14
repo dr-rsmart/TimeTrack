@@ -15,6 +15,7 @@
 import prisma from '../prisma.js';
 import type { AuthUser } from './auth.js';
 import { buildManagerScopeClauses, isTargetInManagerScope } from '../scopeRules.js';
+import { normalizeEmployeeEmail } from '../domain/employeeIdentity.js';
 
 /**
  * Build a Prisma `where` filter for employees within a manager's scope.
@@ -30,7 +31,7 @@ export async function getManagerScopeFilter(
 
   // Find the manager's employee record
   const managerEmployee = await prisma.employee.findFirst({
-    where: { email: { equals: authUser.email.toLowerCase().trim(), mode: 'insensitive' }, companyProfileId: authUser.companyProfileId ?? undefined },
+    where: { email: { equals: normalizeEmployeeEmail(authUser.email), mode: 'insensitive' }, companyProfileId: authUser.companyProfileId ?? undefined },
     select: { id: true, branch: true, department: true },
   });
 
@@ -45,18 +46,21 @@ export async function getManagerScopeFilter(
 export async function isEmployeeInManagerScope(
   authUser: AuthUser,
   employeeEmail: string,
+  employeeId?: string | null,
 ): Promise<boolean> {
   if (authUser.role !== 'manager') return true;
 
   const managerEmployee = await prisma.employee.findFirst({
-    where: { email: { equals: authUser.email.toLowerCase().trim(), mode: 'insensitive' }, companyProfileId: authUser.companyProfileId ?? undefined },
+    where: { email: { equals: normalizeEmployeeEmail(authUser.email), mode: 'insensitive' }, companyProfileId: authUser.companyProfileId ?? undefined },
     select: { id: true, branch: true, department: true },
   });
 
   if (!managerEmployee) return false;
 
   const target = await prisma.employee.findFirst({
-    where: { email: { equals: employeeEmail.toLowerCase().trim(), mode: 'insensitive' }, companyProfileId: authUser.companyProfileId ?? undefined },
+    where: employeeId
+      ? { id: employeeId, companyProfileId: authUser.companyProfileId ?? undefined }
+      : { email: { equals: normalizeEmployeeEmail(employeeEmail), mode: 'insensitive' }, companyProfileId: authUser.companyProfileId ?? undefined },
     select: { id: true, managerId: true, branch: true, department: true },
   });
 

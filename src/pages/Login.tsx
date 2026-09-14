@@ -22,7 +22,6 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // Forgot password state
@@ -346,19 +345,9 @@ export default function Login() {
                   </div>
                 </div>
 
-                {/* Remember Me */}
-                <div className="flex items-center gap-2.5 pt-1">
-                  <input
-                    id="remember"
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="w-4.5 h-4.5 rounded-md border-slate-300 text-blue-600 focus:ring-blue-500 transition-colors"
-                  />
-                  <label htmlFor="remember" className="text-sm font-semibold text-slate-600 select-none cursor-pointer">
-                    Remember me for 30 days
-                  </label>
-                </div>
+                <p className="pt-1 text-sm font-semibold text-slate-500">
+                  Your session stays active until you sign out.
+                </p>
 
                 {/* Sign In Button */}
                 <Button

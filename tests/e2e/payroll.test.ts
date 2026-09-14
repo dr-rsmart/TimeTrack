@@ -369,18 +369,38 @@ describe('Payroll Engine', () => {
       // July weekdays: 2026-07-27 (Mon), 2026-07-28 (Tue) = 2 days
       // August weekdays: 2026-08-03 (Mon), 2026-08-04 (Tue) = 2 days
       const byDate = {
-        '2026-07-27': 12, // July: 8 ord + 4 daily OT
-        '2026-07-28': 12, // July: 8 ord + 4 daily OT -> July ordinary = 16
-        '2026-08-03': 12, // August: 8 ord + 4 daily OT
-        '2026-08-04': 12, // August: 8 ord + 4 daily OT -> August ordinary = 16
+        '2026-07-27': 12,
+        '2026-07-28': 12,
+        '2026-08-03': 12,
+        '2026-08-04': 12,
       };
       const result = computeOvertime(byDate, undefined, settings);
 
-      // July ordinary = 16, threshold = 20 -> no monthly OT
-      // August ordinary = 16, threshold = 20 -> no monthly OT
+      // Each month has 24 ordinary hours; only 4h per month is monthly OT.
+      expect(result.monthlyOvertimeHours).toBe(8);
+      expect(result.ordinaryHours).toBe(40);
+      expect(result.dailyOvertimeHours).toBe(0);
+    });
+
+    it('should keep regular workday hours ordinary in monthly mode even above the daily threshold', () => {
+      const settings: PayrollSettings = {
+        ...defaultSettings(),
+        useMonthlyOvertimeThreshold: true,
+        monthlyOvertimeThresholdHours: 20,
+      };
+      const result = computeOvertime(
+        {
+          '2026-08-17': 10, // Monday: all 10h remain ordinary in monthly mode
+          '2026-08-18': 10, // Tuesday: monthly cap is reached exactly
+        },
+        undefined,
+        settings,
+      );
+
+      expect(result.ordinaryHours).toBe(20);
+      expect(result.dailyOvertimeHours).toBe(0);
       expect(result.monthlyOvertimeHours).toBe(0);
-      expect(result.ordinaryHours).toBe(32); // 4 days x 8h
-      expect(result.dailyOvertimeHours).toBe(16); // 4 days x 4h
+      expect(result.totalHours).toBe(20);
     });
 
     it('should treat all non-Sunday/non-holiday hours as ordinary at exactly the 195h threshold', () => {

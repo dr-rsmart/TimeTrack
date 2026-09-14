@@ -10,6 +10,8 @@ import { requireAuth } from '../middleware/auth.js';
 import { getManagerScopeFilter } from '../middleware/scope.js';
 import { computeOvertime, defaultSettings, type PayrollSettings } from '../payroll.js';
 import { badRequest, internalError } from '../errorResponse.js';
+import { employeeIdentityFilter, identityKey } from '../domain/employeeIdentity.js';
+import { storedDurationHours } from '../domain/duration.js';
 
 const router = Router();
 
@@ -101,25 +103,25 @@ router.get('/payroll', requireAuth, async (req, res) => {
     const toDate = new Date(to + 'T23:59:59.999Z');
 
     // Fetch all completed time entries in range for these employees
-    const emails = employees.map((e) => e.email);
+    const identityFilter = employeeIdentityFilter(employees);
     const entries = await prisma.timeEntry.findMany({
       where: {
         ...tenantWhere,
-        employeeEmail: { in: emails },
+        ...identityFilter,
         date: { gte: fromDate, lte: toDate },
         status: 'completed',
       },
-      select: { employeeEmail: true, date: true, totalHours: true },
+      select: { employeeId: true, employeeEmail: true, date: true, totalMinutes: true, totalHours: true },
     });
 
     // Fetch shifts in range for leave-type exclusion
     const shifts = await prisma.shift.findMany({
       where: {
         ...tenantWhere,
-        employeeEmail: { in: emails },
+        ...identityFilter,
         date: { gte: fromDate, lte: toDate },
       },
-      select: { employeeEmail: true, date: true, shiftType: true },
+      select: { employeeId: true, employeeEmail: true, date: true, shiftType: true },
     });
 
     const settings = await getPayrollSettings(authUser.companyProfileId);
@@ -127,24 +129,26 @@ router.get('/payroll', requireAuth, async (req, res) => {
     // Group entries by employee+date
     const hoursByEmailDate: Record<string, Record<string, number>> = {};
     for (const e of entries) {
-      const key = e.employeeEmail;
+      const key = identityKey(e.employeeId, e.employeeEmail);
       const dateKey = toDateStr(e.date);
       if (!hoursByEmailDate[key]) hoursByEmailDate[key] = {};
-      hoursByEmailDate[key][dateKey] = (hoursByEmailDate[key][dateKey] ?? 0) + (e.totalHours ?? 0);
+      hoursByEmailDate[key][dateKey] =
+        (hoursByEmailDate[key][dateKey] ?? 0) + storedDurationHours(e.totalMinutes, e.totalHours);
     }
 
     const shiftTypeByEmailDate: Record<string, Record<string, string>> = {};
     for (const s of shifts) {
       if (!s.employeeEmail) continue;
-      const key = s.employeeEmail;
+      const key = identityKey(s.employeeId, s.employeeEmail ?? '');
       const dateKey = toDateStr(s.date);
       if (!shiftTypeByEmailDate[key]) shiftTypeByEmailDate[key] = {};
       shiftTypeByEmailDate[key][dateKey] = s.shiftType;
     }
 
     const rows = employees.map((emp) => {
-      const byDate = hoursByEmailDate[emp.email] ?? {};
-      const shiftTypes = shiftTypeByEmailDate[emp.email] ?? {};
+      const employeeKey = identityKey(emp.id, emp.email);
+      const byDate = hoursByEmailDate[employeeKey] ?? {};
+      const shiftTypes = shiftTypeByEmailDate[employeeKey] ?? {};
       const overtime = computeOvertime(byDate, shiftTypes, settings);
       const daysWorked = Object.keys(byDate).filter((d) => byDate[d] > 0).length;
       return {
@@ -181,12 +185,22 @@ router.get('/attendance', requireAuth, async (req, res) => {
     const tenantWhere =
       authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 
-    const emailFilter = authUser.role === 'employee' ? { employeeEmail: authUser.email } : {};
+    let identityFilter: Record<string, unknown> = {};
+    if (authUser.role === 'employee') {
+      const employee = await prisma.employee.findFirst({
+        where: {
+          companyProfileId: authUser.companyProfileId ?? undefined,
+          email: { equals: authUser.email, mode: 'insensitive' },
+        },
+        select: { id: true, email: true },
+      });
+      identityFilter = employee ? employeeIdentityFilter([employee]) : { employeeId: '__none__' };
+    }
 
     const entries = await prisma.timeEntry.findMany({
       where: {
         ...tenantWhere,
-        ...emailFilter,
+        ...identityFilter,
         date: { gte: new Date(from + 'T00:00:00Z'), lte: new Date(to + 'T23:59:59.999Z') },
       },
       orderBy: { clockIn: 'desc' },

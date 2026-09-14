@@ -60,6 +60,7 @@ export const TENANT_SCOPED_MODELS = new Set([
   'TimeEntry',
   'CompanySettings',
   'Geofence',
+  'EmployeeGeofence',
   'LocationPreset',
   'AuditLog',
 ]);

@@ -1,0 +1,14 @@
+{
+  "timeEntries": [
+    {
+      "id": "time-entry-id",
+      "employeeId": "approved-employee-id",
+      "sourceEmail": "legacy-email@example.com",
+      "targetEmail": "current-email@example.com",
+      "companyProfileId": "tenant-id-required-for-legacy-orphan",
+      "approvedBy": "data-owner@example.com",
+      "reason": "Confirmed against signed employment record and tenant roster."
+    }
+  ],
+  "shifts": []
+}

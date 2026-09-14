@@ -83,3 +83,33 @@ case (entry 001 below), which motivates this register.
 - **Roll-forward:** nothing extra needed; history is now canonical. Future schema changes go through `prisma migrate dev` locally + `migrate deploy` on start.
 - **Rollback path:** the column is additive with default 0 and would only need removal if the pwdEpoch code were reverted (not planned). `_prisma_migrations` rows can be dropped to revert to db-push mode if ever required.
 - **Status:** deployment fb4de3ee (commit 99d1e07) is healthy; `/ping` returns 200 from public and Railway healthcheck.
+
+## 004 — Railway production snapshot restored to local production clone
+
+- **Date:** 2026-09-07
+- **Author:** operator + Cline
+- **Target:** local PostgreSQL database `timetrack_prod` on `localhost:5433`
+- **Source:** Railway production PostgreSQL database `railway`, accessed through Railway's public TCP proxy using runtime environment variables only
+- **What changed:**
+  1. Created a custom-format rollback dump of the pre-refresh local database at `backups/timetrack_prod-before-railway-20260907-062718.dump` (SHA-256: `7B1A624D2EBC3BAD064F8E2114C8D8EEA0824D127586418520B112FD08D65E1B`).
+  2. Created a custom-format snapshot of Railway production with `pg_dump --no-owner --no-privileges`.
+  3. Replaced the local `timetrack_prod` contents with `pg_restore --clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction`.
+  4. Removed the temporary production snapshot and retained the local rollback dump under the git-ignored `backups/` directory.
+- **Why:** refresh the local production clone with the current Railway production data for local investigation/development.
+- **Verification:** all 14 public tables and their row counts matched between Railway production and local `timetrack_prod`: `AuditLog` 2,837; `CompanyProfile` 4; `CompanySettings` 5; `CronLock` 0; `Employee` 85; `EmployeeGeofence` 1; `EmploymentHistory` 168; `Geofence` 19; `LocationPreset` 0; `RetentionPolicy` 3; `Shift` 144; `TimeEntry` 380; `User` 90; `_prisma_migrations` 3.
+- **Rollback path:** restore `backups/timetrack_prod-before-railway-20260907-062718.dump` into local `timetrack_prod` with PostgreSQL `pg_restore --clean --if-exists`; the archive was verified readable and is git-ignored.
+
+## 005 — Local production clone restored to local pre-production database
+
+- **Date:** 2026-09-07
+- **Author:** operator + Cline
+- **Target:** local PostgreSQL database `timetrack_pre-prod` on `localhost:5433`
+- **Source:** local PostgreSQL database `timetrack_prod` on the same PostgreSQL instance
+- **What changed:**
+  1. Created a custom-format rollback dump of the pre-refresh `timetrack_pre-prod` database at `backups/timetrack_pre-prod-before-prod-sync-20260907-063236.dump` (SHA-256: `E09EF08DDE58C3C54CB046481A2678DFE2058750BF67040D04A56E66DC436228`).
+  2. Created a custom-format snapshot of local `timetrack_prod` with `pg_dump --no-owner --no-privileges`.
+  3. Replaced the local `timetrack_pre-prod` contents with `pg_restore --clean --if-exists --no-owner --no-privileges --exit-on-error --single-transaction`.
+  4. Removed the temporary `timetrack_prod` source snapshot and retained the pre-production rollback dump under the git-ignored `backups/` directory.
+- **Why:** refresh local pre-production with the current local production clone for local testing and investigation.
+- **Verification:** all 14 public tables and their row counts match between `timetrack_prod` and `timetrack_pre-prod`: `AuditLog` 2,837; `CompanyProfile` 4; `CompanySettings` 5; `CronLock` 0; `Employee` 85; `EmployeeGeofence` 1; `EmploymentHistory` 168; `Geofence` 19; `LocationPreset` 0; `RetentionPolicy` 3; `Shift` 144; `TimeEntry` 380; `User` 90; `_prisma_migrations` 3.
+- **Rollback path:** restore `backups/timetrack_pre-prod-before-prod-sync-20260907-063236.dump` into local `timetrack_pre-prod` with PostgreSQL `pg_restore --clean --if-exists`; the archive was verified readable and is git-ignored.

@@ -174,6 +174,7 @@ model Shift {
   @@index([status])
   @@index([date, employeeId])
   @@index([employeeId, status])
+  @@index([companyProfileId, employeeId, date])
   @@index([companyProfileId])
   @@index([employeeEmail, date, status])
   @@index([companyProfileId, date])
@@ -189,6 +190,9 @@ model TimeEntry {
   clockIn            DateTime
   clockOut           DateTime?
   date               DateTime        @db.Date
+  // Exact persisted payable duration. Nullable during the controlled
+  // backfill; totalHours remains for API and legacy-row compatibility.
+  totalMinutes       Int?
   totalHours         Float?
   status             String          @default("completed") // completed | active
   breakMinutes       Int?
@@ -204,7 +208,12 @@ model TimeEntry {
   geofenceLatitude   Float?
   geofenceLongitude  Float?
   geofenceRadius     Int?
+  geofenceId         String?
   isAutoGeofence     Boolean         @default(false)
+  // Retry-safe mutation keys. Nullable for legacy rows; unique indexes are
+  // created by migration 3_attendance_idempotency.
+  clockInIdempotencyKey  String?       @unique
+  clockOutIdempotencyKey String?       @unique
   companyProfileId   String?
   createdBy          String?
   updatedBy          String?
@@ -212,6 +221,7 @@ model TimeEntry {
   updatedAt          DateTime        @updatedAt
 
   employee           Employee?       @relation(fields: [employeeId], references: [id])
+  geofence           Geofence?       @relation(fields: [geofenceId], references: [id], onDelete: SetNull)
   companyProfile     CompanyProfile? @relation(fields: [companyProfileId], references: [id])
 
   @@index([date])
@@ -219,7 +229,10 @@ model TimeEntry {
   @@index([status])
   @@index([date, employeeEmail])
   @@index([status, date])
+  @@index([employeeId, status, date])
+  @@index([geofenceId])
   @@index([companyProfileId])
+  @@index([companyProfileId, employeeId, date])
   @@index([employeeEmail, date, status])
   @@index([companyProfileId, date])
 }
@@ -257,12 +270,16 @@ model Geofence {
   longitude        Float
   radiusMeters     Int             @default(200)
   isActive         Boolean         @default(true)
+  workingStartTime String          @default("08:00")
+  workingEndTime   String          @default("17:00")
+  workingDays      String[]        @default(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
   companyProfileId String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
   employees        Employee[]
   employeeGeofences EmployeeGeofence[]
+  timeEntries      TimeEntry[]
   companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id])
 
   @@index([companyProfileId])

@@ -11,6 +11,8 @@ import { getManagerScopeFilter } from '../middleware/scope.js';
 import { internalError } from '../errorResponse.js';
 import { getBusinessTimezone, businessNow, addBusinessDays } from '../timezone.js';
 import { parseDate } from '../overlap.js';
+import { employeeIdentityFilter, identityKey } from '../domain/employeeIdentity.js';
+import { storedDurationHours } from '../domain/duration.js';
 
 const router = Router();
 
@@ -23,7 +25,7 @@ function toDateStr(d: Date): string {
  *
  * TIMEZONE SAFETY (Audit Cycle 16 / NB5): every date-bucketed dashboard query
  * must flow through the configured business timezone (CRON_TIMEZONE, default
- * = process TZ) — same convention as the no-show cron and master stats.
+ * = Africa/Johannesburg) — same convention as the no-show cron and master stats.
  * Using UTC/server-local "today" skewed KPIs by one day for SAST tenants in
  * the early morning hours after the Cycle-15 cron fix landed.
  *
@@ -65,10 +67,9 @@ router.get('/summary', requireAuth, async (req, res) => {
     if (authUser.role === 'manager' || authUser.role === 'employee') {
       const scopedEmployees = await prisma.employee.findMany({
         where: employeeWhere,
-        select: { email: true },
+        select: { id: true, email: true },
       });
-      const emails = scopedEmployees.map((e) => e.email);
-      emailFilter = emails.length > 0 ? { employeeEmail: { in: emails } } : { employeeEmail: '__none__' };
+      emailFilter = employeeIdentityFilter(scopedEmployees);
     }
 
     const [totalEmployees, activeClockIns, todayShifts, todayEntries, presentToday] = await Promise.all([
@@ -87,8 +88,7 @@ router.get('/summary', requireAuth, async (req, res) => {
       // Unique employees with any time entry today (active or completed)
       prisma.timeEntry.findMany({
         where: { ...tenantWhere, ...emailFilter, date: { in: dateValues } },
-        select: { employeeEmail: true },
-        distinct: ['employeeEmail'],
+        select: { employeeId: true, employeeEmail: true },
       }),
     ]);
 
@@ -171,14 +171,12 @@ router.get('/attendance-detail', requireAuth, async (req, res) => {
       },
     });
 
-    const emails = employees.map((e) => e.email);
-    const entryEmailFilter =
-      emails.length > 0 ? { employeeEmail: { in: emails } } : { employeeEmail: '__none__' };
+    const entryIdentityFilter = employeeIdentityFilter(employees);
 
     // Today's entries (active + completed) for the scoped roster
     const entries = await prisma.timeEntry.findMany({
-      where: { ...tenantWhere, ...entryEmailFilter, date: { in: dateValues } },
-      select: { employeeEmail: true, clockIn: true, clockOut: true, status: true, totalHours: true },
+      where: { ...tenantWhere, ...entryIdentityFilter, date: { in: dateValues } },
+      select: { employeeId: true, employeeEmail: true, clockIn: true, clockOut: true, status: true, totalHours: true },
       orderBy: { clockIn: 'asc' },
     });
 
@@ -193,8 +191,9 @@ router.get('/attendance-detail', requireAuth, async (req, res) => {
     }
     const aggMap: Record<string, Agg> = {};
     for (const e of entries) {
-      if (!aggMap[e.employeeEmail]) {
-        aggMap[e.employeeEmail] = {
+      const key = identityKey(e.employeeId, e.employeeEmail);
+      if (!aggMap[key]) {
+        aggMap[key] = {
           currentClockIn: null,
           firstClockIn: e.clockIn,
           lastClockOut: null,
@@ -202,7 +201,7 @@ router.get('/attendance-detail', requireAuth, async (req, res) => {
           presentToday: true,
         };
       }
-      const agg = aggMap[e.employeeEmail];
+      const agg = aggMap[key];
       if (e.status === 'active') {
         agg.currentClockIn = e.clockIn;
       } else {
@@ -218,7 +217,7 @@ router.get('/attendance-detail', requireAuth, async (req, res) => {
     let totalHoursToday = 0;
 
     const employeeRows = employees.map((emp) => {
-      const agg = aggMap[emp.email];
+      const agg = aggMap[identityKey(emp.id, emp.email)];
       const clockedIn = agg?.currentClockIn != null;
       const presentToday = agg?.presentToday ?? false;
       const hoursToday = agg?.hoursToday ?? 0;
@@ -400,7 +399,7 @@ router.get('/department-performance', requireAuth, async (req, res) => {
     // Get today's time entries with department info
     const todayEntries = await prisma.timeEntry.findMany({
       where: { ...tenantWhere, date: { in: dateValues } },
-      select: { department: true, status: true, totalHours: true, employeeEmail: true },
+      select: { department: true, status: true, totalMinutes: true, totalHours: true, employeeEmail: true },
     });
 
     // Get today's shifts with department info
@@ -448,7 +447,7 @@ router.get('/department-performance', requireAuth, async (req, res) => {
           attendanceRate: 0,
         };
       }
-      departmentMap[dept].hoursToday += entry.totalHours ?? 0;
+      departmentMap[dept].hoursToday += storedDurationHours(entry.totalMinutes, entry.totalHours);
       
       // Track unique employees who clocked in
       if (!clockedInByDept[dept]) clockedInByDept[dept] = new Set();
@@ -630,6 +629,7 @@ router.get('/overtime-alerts', requireAuth, async (req, res) => {
         branch: true,
         department: true,
         date: true,
+        totalMinutes: true,
         totalHours: true,
       },
     });
@@ -647,7 +647,7 @@ router.get('/overtime-alerts', requireAuth, async (req, res) => {
     }
     const aggMap: Record<string, EmployeeAgg> = {};
     for (const e of entries) {
-      const hours = e.totalHours ?? 0;
+      const hours = storedDurationHours(e.totalMinutes, e.totalHours);
       if (!aggMap[e.employeeEmail]) {
         aggMap[e.employeeEmail] = {
           employeeEmail: e.employeeEmail,
@@ -776,7 +776,7 @@ router.get('/overtime-forecast', requireAuth, async (req, res) => {
 
     const entries = await prisma.timeEntry.findMany({
       where: { ...tenantWhere, ...emailFilter, date: { gte: since }, status: 'completed' },
-      select: { date: true, totalHours: true, employeeEmail: true },
+      select: { date: true, totalMinutes: true, totalHours: true, employeeEmail: true },
     });
 
     // Daily totals and overtime (business days, oldest first)
@@ -790,10 +790,11 @@ router.get('/overtime-forecast', requireAuth, async (req, res) => {
     for (const e of entries) {
       const key = toDateStr(e.date);
       if (!(key in byDate)) continue;
-      byDate[key].totalHours += e.totalHours ?? 0;
+      const hours = storedDurationHours(e.totalMinutes, e.totalHours);
+      byDate[key].totalHours += hours;
       byDate[key].employees.add(e.employeeEmail);
       if (!perEmployeeDay[key]) perEmployeeDay[key] = {};
-      perEmployeeDay[key][e.employeeEmail] = (perEmployeeDay[key][e.employeeEmail] ?? 0) + (e.totalHours ?? 0);
+      perEmployeeDay[key][e.employeeEmail] = (perEmployeeDay[key][e.employeeEmail] ?? 0) + hours;
     }
 
     // Calculate overtime per day

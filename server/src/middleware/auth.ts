@@ -13,6 +13,7 @@ import config from '../config.js';
 import { runWithTenant, UNRESTRICTED } from '../tenantContext.js';
 import { isTokenEpochStale } from '../passwords.js';
 import { onInvalidationCommand, publishInvalidation } from '../invalidation.js';
+import { getAuthToken } from '../authSession.js';
 
 const JWT_SECRET = config.jwtSecret;
 
@@ -130,8 +131,8 @@ export interface AuthUser {
   demoEmail?: string | null;
   /**
    * Session revocation epoch captured at sign time. User.pwdEpoch is bumped
-   * on every password change/reset; requireAuth rejects tokens whose epoch
-   * is older than the stored value (revocation-on-rotation).
+   * on logout and every password change/reset; requireAuth rejects tokens
+   * whose epoch is older than the stored value.
    */
   pwdEpoch?: number;
 }
@@ -146,6 +147,9 @@ declare global {
 }
 
 export function signToken(user: AuthUser): string {
+  // Deliberately no `expiresIn`: the product session remains valid until
+  // explicit logout or another server-side revocation event (password change,
+  // account termination/suspension, or role change).
   return jwt.sign(
     {
       id: user.id,
@@ -160,7 +164,6 @@ export function signToken(user: AuthUser): string {
       pwdEpoch: user.pwdEpoch ?? 0,
     },
     JWT_SECRET,
-    { expiresIn: '8h' },
   );
 }
 
@@ -174,18 +177,14 @@ export function verifyToken(token: string): AuthUser | null {
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
-  // Accept the JWT via Bearer header or httpOnly cookie only.
+  // Accept the JWT via Bearer header or httpOnly cookie only. The token has no
+  // timer-based product expiry; User.pwdEpoch and live account checks provide
+  // server-side revocation.
   // SECURITY: query-string tokens are intentionally NOT supported — they leak
   // into access logs, proxy logs and Referer headers. The SSE endpoint uses
   // the same httpOnly cookie (EventSource withCredentials), so no query
   // fallback is needed.
-  let token: string | undefined;
-
-  if (req.headers.authorization?.startsWith('Bearer ')) {
-    token = req.headers.authorization.slice(7);
-  } else if (req.cookies?.tt_token) {
-    token = req.cookies.tt_token;
-  }
+  const token = getAuthToken(req);
 
   if (!token) {
     res.status(401).json({ error: 'Authentication required.' });
@@ -202,7 +201,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   // Every password change/reset bumps User.pwdEpoch and invalidates this
   // cache cluster-wide, so a stolen token stops working on the very next
   // request after the victim rotates their password — instead of surviving
-  // up to 8h at JWT expiry. Fail-closed: if the check cannot run, deny.
+  // indefinitely. Fail-closed: if the check cannot run, deny.
   const sessionState = await getUserSessionState(user.id);
   if (sessionState === null) {
     res.status(503).json({ error: 'Service temporarily unavailable. Please retry.', code: 'AUTH_CHECK_UNAVAILABLE' });
@@ -277,7 +276,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 }
 
 // ── Live session-state re-verification (privilege-lag + revocation fix) ──
-// The JWT carries the role and pwdEpoch assigned at login for up to 8h. If a
+// The JWT carries the role and pwdEpoch assigned at login. If a
 // master demotes an admin (or an admin changes a user's role), or ANY user's
 // password is changed/reset, the stale JWT would otherwise keep granting its
 // original access until expiry. We re-verify the live DB state (role +
@@ -374,7 +373,7 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
     return;
   }
   // SECURITY: re-verify live role to close the privilege-lag window where a
-  // demoted admin's stale JWT (up to 8h) would still grant admin access.
+  // demoted admin's stale JWT would still grant admin access.
   // Master operators (companyProfileId = null) are platform-level and exempt.
   if (req.authUser.role === 'admin' && req.authUser.originalRole !== 'master') {
     const liveRole = await getLiveRole(req.authUser.id);
