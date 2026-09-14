@@ -389,7 +389,7 @@ async function main() {
           clockIn,
           clockOut,
           date,
-          totalMinutes: hoursToMinutes(totalHours),
+          totalMinutes: hoursToMinutes(totalHours) ?? 0,
           totalHours,
           status: 'completed',
           breakMinutes,

@@ -31,15 +31,16 @@ current. For current state, trust this register + the code.
 
 ## Open findings (tracked)
 
-| ID      | Finding                                                               | Owner                    | Target             |
-| ------- | --------------------------------------------------------------------- | ------------------------ | ------------------ |
-| Open-01 | Rotate leaked Railway Postgres password + history rewrite             | Owner (runbook step 1–2) | Phase 1 completion |
-| Open-02 | Move Namecheap/iOS/ASC secrets to a secret manager                    | Owner (runbook step 3)   | Phase 1 completion |
-| Open-03 | Enable RLS (bridge adoption + NOT NULL + `tenant:rls:enable --apply`) | Engineering + DB owner   | Phase 4            |
-| Open-04 | SSE replay buffer per-process → Redis Streams                         | Engineering              | Phase 4            |
-| Open-05 | Short-lived access tokens + refresh rotation                          | Engineering              | Phase 4            |
-| Open-06 | Real CSP beyond `upgrade-insecure-requests`                           | Engineering              | Phase 4            |
-| Open-07 | 16 moderate advisories in Expo/mobile build chain                     | Engineering              | Expo SDK upgrade   |
-| Open-08 | Geofence/auto-clock triplication → shared core                        | Engineering              | Phase 3 remainder  |
-| Open-09 | Oversized modules (>700 LOC) split                                    | Engineering              | Phase 3 remainder  |
-| Open-10 | E2E axe a11y + visual snapshots                                       | Engineering              | Phase 3 remainder  |
+| ID      | Finding                                                                                                                                                                 | Owner                    | Target             |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ------------------ |
+| Open-01 | Rotate leaked Railway Postgres password + history rewrite                                                                                                               | Owner (runbook step 1–2) | Phase 1 completion |
+| Open-02 | Move Namecheap/iOS/ASC secrets to a secret manager                                                                                                                      | Owner (runbook step 3)   | Phase 1 completion |
+| Open-03 | Enable RLS — preflights now clean (`Strict null-tenant rows: 0`, `Inconsistent references: 0`); remaining gate is runtime bridge adoption + `tenant:rls:enable --apply` | Engineering + DB owner   | Phase 4            |
+| Open-04 | SSE replay buffer per-process → Redis Streams                                                                                                                           | Engineering              | Phase 4            |
+| Open-05 | Full refresh-token rotation (interim: native shell tokens now carry a rolling 7-day TTL)                                                                                | Engineering              | Phase 4            |
+| Open-06 | Real CSP beyond `upgrade-insecure-requests` — DONE 2026-09-14 (full CSP shipped)                                                                                        | —                        | Closed             |
+| Open-07 | 16 moderate advisories in Expo/mobile build chain                                                                                                                       | Engineering              | Expo SDK upgrade   |
+| Open-08 | Geofence/auto-clock triplication → shared core                                                                                                                          | Engineering              | Phase 3 remainder  |
+| Open-09 | Oversized modules (>700 LOC) split                                                                                                                                      | Engineering              | Phase 3 remainder  |
+| Open-10 | E2E axe a11y + visual snapshots                                                                                                                                         | Engineering              | Phase 3 remainder  |
+| Open-11 | NOT NULL on all tenant columns — preflights clean; migration pending bridge adoption decision                                                                           | Engineering              | Phase 4            |

@@ -118,13 +118,27 @@ app.use((_req, res, next) => {
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), payment=()');
   if (config.isProduction) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-    // Mixed-content safety net: over an HTTPS page the browser silently
-    // upgrades any stray http:// subresource URL. Deliberately minimal — the
-    // SPA and API are same-origin, so no source restrictions are needed yet.
-    // Extend this policy explicitly before adding any third-party asset.
-    // Not sent in dev: on a http://localhost page it would try to upgrade
-    // same-origin requests to https and break local development.
-    res.setHeader('Content-Security-Policy', 'upgrade-insecure-requests');
+    // Real content-security policy for the SPA (Phase 4, 2026-09-14).
+    // The app ships no third-party assets: scripts/styles/fonts are
+    // same-origin, images additionally allow data:/blob:/https (avatars),
+    // and connect-src allows the same-origin API/SSE plus future HTTPS
+    // endpoints. style-src 'unsafe-inline' is required for framer-motion
+    // and component-level inline style attributes.
+    res.setHeader(
+      'Content-Security-Policy',
+      [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob: https:",
+        "font-src 'self' data:",
+        "connect-src 'self' https: wss:",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+      ].join('; '),
+    );
   }
   next();
 });

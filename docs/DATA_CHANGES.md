@@ -119,3 +119,25 @@ case (entry 001 below), which motivates this register.
 - **Why:** refresh local pre-production with the current local production clone for local testing and investigation.
 - **Verification:** all 14 public tables and their row counts match between `timetrack_prod` and `timetrack_pre-prod`: `AuditLog` 2,837; `CompanyProfile` 4; `CompanySettings` 5; `CronLock` 0; `Employee` 85; `EmployeeGeofence` 1; `EmploymentHistory` 168; `Geofence` 19; `LocationPreset` 0; `RetentionPolicy` 3; `Shift` 144; `TimeEntry` 380; `User` 90; `_prisma_migrations` 3.
 - **Rollback path:** restore `backups/timetrack_pre-prod-before-prod-sync-20260907-063236.dump` into local `timetrack_pre-prod` with PostgreSQL `pg_restore --clean --if-exists`; the archive was verified readable and is git-ignored.
+
+## 004 — Orphaned seed geofence removal (pre-RLS hygiene)
+
+- **Date:** 2026-09-14 (Phase 4 preflight)
+- **Author:** operator + Cline
+- **Target:** working database (local production clone, `server/.env` DSN)
+- **What changed:** deleted one `Geofence` row
+  (`id=cmt01sx7t0008p13zgifn6etz`, name `Main Office`) with
+  `companyProfileId IS NULL` and zero `EmployeeGeofence` assignments —
+  a leftover seed artifact blocking strict-tenant preflight.
+- **Why:** `tenant:preflight --strict` reported 1 strict null-tenant row;
+  RLS/NOT-NULL hardening requires zero legacy-null rows in strict tables.
+- **SQL executed:**
+  ```sql
+  DELETE FROM "Geofence" WHERE id = 'cmt01sx7t0008p13zgifn6etz'
+    AND "companyProfileId" IS NULL
+    AND NOT EXISTS (SELECT 1 FROM "EmployeeGeofence" eg WHERE eg."geofenceId" = "Geofence".id);
+  ```
+- **Rollback path:** none retained — the row carried no assignments; a
+  replacement geofence is created through normal Settings → Locations UI.
+- **Verification:** `npm run tenant:preflight -- --strict` now reports
+  `Strict null-tenant rows: 0`.

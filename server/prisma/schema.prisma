@@ -192,7 +192,7 @@ model TimeEntry {
   date               DateTime        @db.Date
   // Exact persisted payable duration. Nullable during the controlled
   // backfill; totalHours remains for API and legacy-row compatibility.
-  totalMinutes       Int?
+  totalMinutes       Int
   totalHours         Float?
   status             String          @default("completed") // completed | active
   breakMinutes       Int?

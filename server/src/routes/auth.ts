@@ -257,11 +257,14 @@ router.post('/logout', async (req, res) => {
 });
 
 // ── POST /native-token ──
-// Re-mints a fresh non-expiring JWT for the CURRENT session. Used by the mobile app's
-// native shell: the WebView authenticates with an httpOnly cookie that native
-// code cannot read, so the web app forwards this token to the shell and the
-// background geofence task uses it (Authorization: Bearer) to clock in/out
-// while the WebView is suspended. Rotating pwdEpoch still revokes it.
+// Mints a short-lived (rolling 7-day TTL) JWT for the CURRENT session. Used
+// by the mobile app's native shell: the WebView authenticates with an
+// httpOnly cookie that native code cannot read, so the web app forwards this
+// token to the shell and the background geofence task uses it
+// (Authorization: Bearer) to clock in/out while the WebView is suspended.
+// The shell re-mints on every session refresh; rotating pwdEpoch still
+// revokes it. Phase 4 (2026-09-14): bounded lifetime so a leaked shell token
+// self-expires; full refresh-token rotation remains a tracked follow-up.
 router.post('/native-token', requireAuth, async (req, res) => {
   try {
     const authUser = req.authUser!;
@@ -271,7 +274,7 @@ router.post('/native-token', requireAuth, async (req, res) => {
     });
     if (!user) return unauthorized(res, 'Session is no longer valid.');
 
-    const token = signToken({ ...authUser, pwdEpoch: user.pwdEpoch });
+    const token = signToken({ ...authUser, pwdEpoch: user.pwdEpoch }, { expiresIn: '7d' });
     res.json({ token });
   } catch (err) {
     logger.error('[auth] Native token error:', err);

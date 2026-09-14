@@ -156,10 +156,12 @@ declare global {
   }
 }
 
-export function signToken(user: AuthUser): string {
-  // Deliberately no `expiresIn`: the product session remains valid until
-  // explicit logout or another server-side revocation event (password change,
-  // account termination/suspension, or role change).
+export function signToken(user: AuthUser, options?: jwt.SignOptions): string {
+  // Deliberately no `expiresIn` for session cookies: the product session
+  // remains valid until explicit logout or another server-side revocation
+  // event (password change, account termination/suspension, or role change).
+  // Callers MAY pass options to bound a token's lifetime (e.g. the native
+  // shell bearer token, which uses a rolling 7-day TTL).
   return jwt.sign(
     {
       id: user.id,
@@ -174,6 +176,7 @@ export function signToken(user: AuthUser): string {
       pwdEpoch: user.pwdEpoch ?? 0,
     },
     JWT_SECRET,
+    options,
   );
 }
 

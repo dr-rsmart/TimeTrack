@@ -184,6 +184,62 @@ If emergency maintenance is required:
 
 ---
 
+## 8. Phase 4 hardening addendum (2026-09-14)
+
+### 8.1 Restore drill (executable)
+
+A verified restore drill now ships as `npm run db:restore-drill` (server):
+creates a scratch DB, restores the latest `backups/*.dump`, verifies row
+counts against the source, and drops the scratch DB. Measured on
+2026-09-14: RTO 0.58s for a 0.22 MB snapshot. Run it at least monthly and
+record results here.
+
+### 8.2 Connection pool budget (replica-aware)
+
+`DB_POOL_SIZE` (default 50) is per replica. Postgres `max_connections`
+must exceed `DB_POOL_SIZE × replicas + 10` (cron/CLI/psql headroom):
+
+| Replicas | Default pool budget | Postgres max_connections minimum |
+| -------- | ------------------- | -------------------------------- |
+| 1        | 50                  | 80                               |
+| 2        | 100                 | 130                              |
+| 4        | 200                 | 240                              |
+
+Above 4 replicas, front Prisma with pgbouncer (transaction mode) rather
+than raising `max_connections` further. Raising replicas without raising
+`max_connections` causes pool-exhaustion failures that look like
+intermittent 500s.
+
+### 8.3 Audit archival
+
+`AuditLog` stays append-only forever, but cold-storage archival is now
+tooled (migration 11 + `npm run audit:archive`):
+
+```bash
+cd server
+npm run audit:archive -- --older-than 365 --dry-run   # preview
+npm run audit:archive -- --older-than 365 --apply     # move + record in DATA_CHANGES.md
+```
+
+Archived rows land in `AuditLogArchive`; exports to S3/Glacier remain an
+explicit operational task.
+
+### 8.4 Native shell token lifetime
+
+`POST /api/auth/native-token` now mints a rolling 7-day TTL bearer token
+(Phase 4). Kiosk devices must open the app at least once per 7 days so
+the WebView refresh re-mints; full refresh-token rotation is a tracked
+follow-up (Open-05 in `docs/AUDIT_REGISTER.md`).
+
+### 8.5 Content-Security-Policy
+
+Production responses now send a full CSP (`script-src 'self'`,
+`style-src 'self' 'unsafe-inline'`, `img-src 'self' data: blob: https:`,
+`connect-src 'self' https: wss:`, `frame-ancestors 'none'`). Any future
+third-party asset requires an explicit CSP update in `server/src/index.ts`.
+
+---
+
 ## 7. Security & Audit Retention Management
 
 - **Immutability:** `AuditLog` rows are append-only. Automated cron retention jobs purge only transient delivery logs and never purge compliance audit history.
