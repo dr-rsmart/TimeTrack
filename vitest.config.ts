@@ -6,6 +6,12 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     testTimeout: 30000,
+    // Modules under test that import server/src/config.ts fail fast when
+    // JWT_SECRET is absent. This is a test-only placeholder — production
+    // still refuses insecure secrets via config.ts validation.
+    env: {
+      JWT_SECRET: 'vitest-only-secret-0000000000000000000000000000',
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'html'],

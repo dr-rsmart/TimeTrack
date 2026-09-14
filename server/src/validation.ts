@@ -4,7 +4,8 @@
  * Server-side input validation on all mutation endpoints.
  */
 
-import { z } from 'zod';
+import { z } from './zod.js';
+import type { ZodType } from 'zod';
 import type { Request, Response, NextFunction } from 'express';
 
 // ── Shared field schemas ──
@@ -371,7 +372,7 @@ export const createCompanySchema = z.object({
  * Validation middleware factory.
  * Validates req.body against the given schema; on failure returns 400.
  */
-export function validate(schema: z.ZodType) {
+export function validate(schema: ZodType) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const result = schema.safeParse(req.body);
     if (!result.success) {

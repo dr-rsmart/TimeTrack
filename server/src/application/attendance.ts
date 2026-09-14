@@ -20,6 +20,7 @@ import {
 } from '../geoValidationService.js';
 import { getReclockGuardSeconds, isWithinReclockWindow } from '../reclockGuard.js';
 import { assertTenantMatch } from '../tenantContext.js';
+import { tenantWhere } from '../tenantPolicy.js';
 import { ATTENDANCE_STATUS } from '../domain/attendance.js';
 import { calculateWorkedDuration } from '../domain/duration.js';
 import {
@@ -135,10 +136,6 @@ export interface BulkClockOutResult {
     totalHours: number | null;
   }>;
   skipped: Array<{ email: string; reason: string }>;
-}
-
-function tenantWhere(actor: AuthUser): Record<string, string> {
-  return actor.role === 'master' ? {} : { companyProfileId: actor.companyProfileId ?? '__none__' };
 }
 
 function toDateStr(date: Date): string {

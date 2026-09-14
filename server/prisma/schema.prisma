@@ -368,24 +368,26 @@ model CronLock {
 }
 
 model EmploymentHistory {
-  id         String    @id @default(cuid())
-  employeeId String
-  managerId  String?
-  startDate  DateTime
-  endDate    DateTime?
-  role       String?
-  department String?
-  branch     String?
-  notes      String?
-  createdBy  String
-  version    Int       @default(1)
-  createdAt  DateTime  @default(now())
+  id               String    @id @default(cuid())
+  employeeId       String
+  managerId        String?
+  startDate        DateTime
+  endDate          DateTime?
+  role             String?
+  department       String?
+  branch           String?
+  notes            String?
+  createdBy        String
+  version          Int       @default(1)
+  companyProfileId String?
+  createdAt        DateTime  @default(now())
 
-  employee   Employee  @relation("EmploymentEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
-  manager    Employee? @relation("EmploymentManager", fields: [managerId], references: [id])
+  employee Employee  @relation("EmploymentEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  manager  Employee? @relation("EmploymentManager", fields: [managerId], references: [id])
 
   @@index([employeeId])
   @@index([managerId])
   @@index([employeeId, startDate, endDate])
   @@index([employeeId, endDate])
+  @@index([companyProfileId])
 }

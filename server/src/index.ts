@@ -23,6 +23,8 @@ import { addClient, getClientCount, closeAllClients } from './sse.js';
 import { startCron, stopCron } from './cron.js';
 import { getRedis, isRedisConfigured, checkRedisHealth } from './redis.js';
 import { requestIdMiddleware } from './middleware/requestId.js';
+import { csrfOriginCheck } from './middleware/csrf.js';
+import { buildOpenApiDocument } from './openapi.js';
 import { recordHttpRequest } from './metrics.js';
 import { DEFAULT_PASSWORD } from './passwords.js';
 import prisma from './prisma.js';
@@ -101,6 +103,9 @@ app.use((req, res, next) => {
 app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
+// CSRF origin validation for state-changing requests (browser cookie
+// sessions only — Origin-less clients pass through).
+app.use(csrfOriginCheck);
 
 // ── Security Headers (helmet-equivalent without extra dependency) ──
 // Defense-in-depth: CSP, HSTS, clickjacking, MIME sniffing, XSS filter.
@@ -147,8 +152,8 @@ const authLimiter = rateLimit({
   message: { error: 'Too many authentication attempts, please try again later.' },
 });
 
-app.use('/api/auth', authLimiter);
-app.use('/api', apiLimiter);
+// Rate limiting is applied to the API routers below (authLimiter on the
+// auth subtree, apiLimiter on everything else, for BOTH /api and /api/v1).
 
 // ── Health, Liveness & Readiness Probes (mounted on root & /api) ──
 app.use('/health', healthRoutes);
@@ -181,6 +186,15 @@ app.use('/api/ping', (req, res, next) => {
 // ── Prometheus metrics (scraper endpoint; counters/gauges only, no secrets) ──
 app.use('/metrics', metricsRoutes);
 
+// ── OpenAPI document (machine-readable API contract) ──
+const openApiDocument = buildOpenApiDocument();
+app.get('/api/docs', (_req, res) => {
+  res.json(openApiDocument);
+});
+app.get('/api/v1/docs', (_req, res) => {
+  res.json(openApiDocument);
+});
+
 // ── SSE endpoint ──
 // The browser's EventSource automatically sends the Last-Event-ID header on
 // reconnect. We forward it to addClient so missed events within the replay
@@ -201,16 +215,38 @@ app.get('/api/events', requireAuth, (req, res) => {
   );
 });
 
-// ── API routes ──
-app.use('/api/auth', authRoutes);
-app.use('/api/employees', employeeRoutes);
-app.use('/api/shifts', shiftRoutes);
-app.use('/api/time-entries', timeEntryRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/settings', settingsRoutes);
-app.use('/api/audit', auditRoutes);
-app.use('/api/master', masterRoutes);
+// ── API routes (mounted on BOTH the legacy /api surface and the versioned
+// /api/v1 surface). /api/v1 is the contract surface: pagination envelopes,
+// OpenAPI docs and future breaking changes land there; /api stays
+// backward-compatible for existing clients. ──
+const apiRouter = express.Router();
+apiRouter.use('/auth', authLimiter, authRoutes);
+apiRouter.use('/employees', employeeRoutes);
+apiRouter.use('/shifts', shiftRoutes);
+apiRouter.use('/time-entries', timeEntryRoutes);
+apiRouter.use('/dashboard', dashboardRoutes);
+apiRouter.use('/reports', reportRoutes);
+apiRouter.use('/settings', settingsRoutes);
+apiRouter.use('/audit', auditRoutes);
+apiRouter.use('/master', masterRoutes);
+
+app.use('/api', apiLimiter, apiRouter);
+app.use('/api/v1', apiLimiter, apiRouter);
+
+// Versioned health probes for /api/v1 parity.
+app.use('/api/v1/health', healthRoutes);
+app.use('/api/v1/ready', (req, res, next) => {
+  req.url = '/ready';
+  healthRoutes(req, res, next);
+});
+app.use('/api/v1/live', (req, res, next) => {
+  req.url = '/live';
+  healthRoutes(req, res, next);
+});
+app.use('/api/v1/ping', (req, res, next) => {
+  req.url = '/ping';
+  healthRoutes(req, res, next);
+});
 
 // ── Static Frontend & SPA Fallback ──
 const __filename = fileURLToPath(import.meta.url);
@@ -236,23 +272,10 @@ if (fs.existsSync(staticDistPath)) {
 
 // ── 404 handler ──
 app.use('/api', notFoundHandler);
+app.use('/api/v1', notFoundHandler);
 
 // ── Central Error handler ──
 app.use(errorHandler);
-
-// ── Ensure PostgreSQL Partial Unique Indexes for Concurrency Guarantees ──
-async function ensureDatabaseIndexes() {
-  try {
-    await prisma.$executeRaw`
-      CREATE UNIQUE INDEX IF NOT EXISTS "uniq_active_time_entry_employee"
-      ON "TimeEntry"("employeeEmail")
-      WHERE status = 'active';
-    `;
-    console.log('[server] Database constraint: active time-entry partial unique index verified.');
-  } catch (err) {
-    console.warn('[server] Notice on partial index check:', err);
-  }
-}
 
 // ── Startup: ensure every employee has a login User account (default password) ──
 // Efficient single-query variant: a LEFT JOIN finds ONLY employees that do
@@ -260,6 +283,11 @@ async function ensureDatabaseIndexes() {
 // boot (O(missing) instead of O(employees + users)). Chunked inserts keep
 // memory flat for large backfills. Set AUTO_PROVISION_ACCOUNTS=false to
 // disable provisioning entirely.
+//
+// NOTE (Phase 2, 2026-09-14): boot-time data mutation was removed here —
+// the email-normalization and tenant auto-heal UPDATE statements now live in
+// `npm run maintenance:normalize` (dry-run by default), and the partial
+// unique index moved to migration 8_active_entry_partial_unique_index.
 async function syncEmployeeUserAccounts() {
   if (process.env.AUTO_PROVISION_ACCOUNTS === 'false') {
     console.log('[server] User account sync disabled (AUTO_PROVISION_ACCOUNTS=false).');
@@ -268,25 +296,6 @@ async function syncEmployeeUserAccounts() {
 
   const syncStartedAt = Date.now();
   try {
-    // ── 0. Boot-time Email Normalization & Tenant Auto-Healing ──
-    // Standardize all employee and user emails to trimmed lowercase to ensure
-    // zero case-mismatch 404s on clock-in and profile lookups.
-    await prisma.$executeRawUnsafe(`
-      UPDATE "Employee" SET "email" = LOWER(TRIM("email")) WHERE "email" IS NOT NULL AND "email" != LOWER(TRIM("email"));
-    `);
-    await prisma.$executeRawUnsafe(`
-      UPDATE "User" SET "email" = LOWER(TRIM("email")) WHERE "email" IS NOT NULL AND "email" != LOWER(TRIM("email"));
-    `);
-    // Heal any Employee records with null companyProfileId if matching User has a companyProfileId
-    await prisma.$executeRawUnsafe(`
-      UPDATE "Employee" e
-      SET "companyProfileId" = u."companyProfileId"
-      FROM "User" u
-      WHERE LOWER(TRIM(e."email")) = LOWER(TRIM(u."email"))
-        AND e."companyProfileId" IS NULL
-        AND u."companyProfileId" IS NOT NULL;
-    `);
-
     const missing = await prisma.$queryRaw<
       Array<{
         id: string;
@@ -344,7 +353,6 @@ async function syncEmployeeUserAccounts() {
 // ── Start server ──
 server.listen(PORT, async () => {
   console.log(`[server] TimeTrack API running on port ${PORT}`);
-  await ensureDatabaseIndexes();
   await syncEmployeeUserAccounts();
   startCron();
 

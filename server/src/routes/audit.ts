@@ -14,6 +14,7 @@ import prisma from '../prisma.js';
 import { requireAuth, requireAdminOrManager } from '../middleware/auth.js';
 import { redactIp, logAudit, getClientIp } from '../audit.js';
 import { internalError } from '../errorResponse.js';
+import { parsePagination, setPageHeaders } from '../pagination.js';
 
 const router = Router();
 
@@ -64,8 +65,7 @@ router.get('/', requireAdminOrManager, async (req, res) => {
       getClientIp(req),
       authUser.companyProfileId,
     );
-    const limit = Math.min(parseInt(req.query.limit as string, 10) || 100, 500);
-    const offset = parseInt(req.query.offset as string, 10) || 0;
+    const { limit, offset } = parsePagination(req, { defaultLimit: 100 });
     const cursor = (req.query.cursor as string) || undefined;
     const entity = req.query.entity as string;
     const action = req.query.action as string;
@@ -221,9 +221,12 @@ router.get('/', requireAdminOrManager, async (req, res) => {
       };
     });
 
+    setPageHeaders(res, total, { limit, offset });
     res.json({
       items: sanitized,
       total,
+      limit,
+      offset,
       nextCursor,
       hasMore,
     });

@@ -33,16 +33,12 @@ import {
   deleteTimeEntry,
 } from '../application/attendance.js';
 import { accessDenied, internalError, sendError } from '../errorResponse.js';
+import { tenantWhere } from '../tenantPolicy.js';
+import { parsePagination, setPageHeaders } from '../pagination.js';
 
 const router = Router();
 
 router.use(requireAuth);
-
-function tenantWhere(authUser: { role: string; companyProfileId: string | null }) {
-  return authUser.role === 'master'
-    ? {}
-    : { companyProfileId: authUser.companyProfileId ?? '__none__' };
-}
 
 function scopeIdempotencyKeyForRoute(
   action: 'clock_in' | 'clock_out',
@@ -61,8 +57,7 @@ router.get('/', requireAuth, async (req, res) => {
     const toDate = req.query.to as string;
     const employeeEmail = req.query.employeeEmail as string;
     const status = req.query.status as string;
-    const limit = Math.min(parseInt(req.query.limit as string, 10) || 500, 500);
-    const offset = parseInt(req.query.offset as string, 10) || 0;
+    const { limit, offset } = parsePagination(req);
 
     const where: Record<string, unknown> = { ...tenantWhere(authUser) };
 
@@ -135,7 +130,8 @@ router.get('/', requireAuth, async (req, res) => {
       prisma.timeEntry.count({ where }),
     ]);
 
-    res.json({ items, total });
+    setPageHeaders(res, total, { limit, offset });
+    res.json({ items, total, limit, offset });
   } catch (err) {
     console.error('[timeEntries] List error:', err);
     internalError(res, 'fetching time entries');

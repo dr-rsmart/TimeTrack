@@ -9,6 +9,7 @@ import {
   databaseTenantValue,
   readyForRlsActivation,
   tenantContextFor,
+  tenantWhere,
   validateTenantReference,
 } from '../../server/src/tenantPolicy.js';
 
@@ -80,5 +81,17 @@ describe('database tenant enforcement policy', () => {
     expect(RLS_POLICY_TABLES).toContain('Employee');
     expect(RLS_POLICY_TABLES).toContain('TimeEntry');
     expect(RLS_POLICY_TABLES).toContain('EmploymentHistory');
+  });
+
+  it('tenantWhere scopes masters to everything and everyone else to their tenant (fail-safe sentinel)', () => {
+    expect(tenantWhere({ role: 'master', companyProfileId: null })).toEqual({});
+    expect(tenantWhere({ role: 'admin', companyProfileId: 'cp-1' })).toEqual({
+      companyProfileId: 'cp-1',
+    });
+    // A tenant-scoped actor with a missing tenant key must match NOTHING,
+    // never everything.
+    expect(tenantWhere({ role: 'employee', companyProfileId: null })).toEqual({
+      companyProfileId: '__none__',
+    });
   });
 });

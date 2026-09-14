@@ -31,16 +31,12 @@ import {
 } from '../errorResponse.js';
 import { countOverlaps, parseDate, type ShiftTimeWindow } from '../overlap.js';
 import { employeeIdentityFilter } from '../domain/employeeIdentity.js';
+import { tenantWhere } from '../tenantPolicy.js';
+import { parsePagination, setPageHeaders } from '../pagination.js';
 
 const router = Router();
 
 router.use(requireAuth);
-
-function tenantWhere(authUser: { role: string; companyProfileId: string | null }) {
-  return authUser.role === 'master'
-    ? {}
-    : { companyProfileId: authUser.companyProfileId ?? '__none__' };
-}
 
 /** Detect overlapping shifts for the same employee on the same date. */
 async function findOverlaps(
@@ -77,8 +73,7 @@ router.get('/', requireAuth, async (req, res) => {
     const employeeId = req.query.employeeId as string;
     const status = req.query.status as string;
     const branch = req.query.branch as string;
-    const limit = Math.min(parseInt(req.query.limit as string, 10) || 500, 500);
-    const offset = parseInt(req.query.offset as string, 10) || 0;
+    const { limit, offset } = parsePagination(req);
 
     const where: Record<string, unknown> = { ...tenantWhere(authUser) };
 
@@ -122,7 +117,8 @@ router.get('/', requireAuth, async (req, res) => {
       prisma.shift.count({ where }),
     ]);
 
-    res.json({ items, total });
+    setPageHeaders(res, total, { limit, offset });
+    res.json({ items, total, limit, offset });
   } catch (err) {
     console.error('[shifts] List error:', err);
     internalError(res, 'fetching shifts');

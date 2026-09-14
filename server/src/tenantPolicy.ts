@@ -32,6 +32,7 @@ export const LEGACY_NULL_TENANT_TABLES = new Set([
   'Geofence',
   'EmployeeGeofence',
   'AuditLog',
+  'EmploymentHistory',
 ]);
 
 /** Tables whose null tenant rows must be cleared before strict RLS activation. */
@@ -83,6 +84,24 @@ export function canReadCompanySettings(
   rowTenantId: string | null | undefined,
 ): boolean {
   return context.kind === 'unrestricted' || rowTenantId == null || rowTenantId === context.tenantId;
+}
+
+/**
+ * Prisma where-clause scoping a query to the acting user's tenant.
+ *
+ * Single shared implementation (Phase 2 consolidation — previously duplicated
+ * in routes/employees.ts, routes/shifts.ts, routes/timeEntries.ts and
+ * application/attendance.ts):
+ *   - master/system actors are unrestricted (empty clause);
+ *   - everyone else is pinned to their own tenant, with a `__none__` sentinel
+ *     that matches nothing when the tenant key is unexpectedly missing
+ *     (fail-safe against cross-tenant leakage).
+ */
+export function tenantWhere(actor: {
+  role: string;
+  companyProfileId: string | null;
+}): Record<string, string> {
+  return actor.role === 'master' ? {} : { companyProfileId: actor.companyProfileId ?? '__none__' };
 }
 
 export function canWriteCompanySettings(

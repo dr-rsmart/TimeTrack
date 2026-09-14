@@ -23,6 +23,8 @@
     "db:migrate:status": "prisma migrate status --schema=prisma/schema.prisma",
     "db:backup": "node backup_db.mjs",
     "db:restore-drill": "node restore_drill.mjs",
+    "maintenance:normalize": "tsx scripts/maintenance-normalize.ts",
+    "openapi:generate": "tsx scripts/generate-openapi.ts",
     "identity:preflight": "node identity_preflight.mjs",
     "identity:resolve": "node resolve_employee_identity.mjs",
     "duration:preflight": "node duration_preflight.mjs",
@@ -32,6 +34,7 @@
     "prisma:generate": "prisma generate --schema=prisma/schema.prisma"
   },
   "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^9.1.0",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",

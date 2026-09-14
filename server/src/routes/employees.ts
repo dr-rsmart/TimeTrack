@@ -21,6 +21,8 @@ import { logAudit, getClientIp, computeChanges } from '../audit.js';
 import { invalidateEmployeeStatusCache } from '../middleware/auth.js';
 import { broadcastScoped, disconnectUserClients } from '../sse.js';
 import { assertTenantMatch } from '../tenantContext.js';
+import { tenantWhere } from '../tenantPolicy.js';
+import { parsePagination, setPageHeaders } from '../pagination.js';
 import { DEFAULT_PASSWORD } from '../passwords.js';
 import { disconnectUserClusterWide } from '../invalidation.js';
 import {
@@ -36,13 +38,6 @@ import {
 const router = Router();
 
 router.use(requireAuth);
-
-// Helper: tenant where clause
-function tenantWhere(authUser: { role: string; companyProfileId: string | null }) {
-  return authUser.role === 'master'
-    ? {}
-    : { companyProfileId: authUser.companyProfileId ?? '__none__' };
-}
 
 /**
  * Helper: Prisma DateTime fields require a full ISO-8601 timestamp, but the
@@ -103,8 +98,7 @@ async function assertGeofencesBelongToCompany(
 router.get('/', requireAuth, async (req, res) => {
   try {
     const authUser = req.authUser!;
-    const limit = Math.min(parseInt(req.query.limit as string, 10) || 500, 500);
-    const offset = parseInt(req.query.offset as string, 10) || 0;
+    const { limit, offset } = parsePagination(req);
     const search = (req.query.search as string) || '';
     const branch = (req.query.branch as string) || '';
     const department = (req.query.department as string) || '';
@@ -170,7 +164,8 @@ router.get('/', requireAuth, async (req, res) => {
       console.warn('[employees] hasLoginAccount flag computation failed:', flagErr);
     }
 
-    res.json({ items: enrichedItems, total });
+    setPageHeaders(res, total, { limit, offset });
+    res.json({ items: enrichedItems, total, limit, offset });
   } catch (err) {
     console.error('[employees] List error:', err);
     internalError(res, 'fetching employees');
