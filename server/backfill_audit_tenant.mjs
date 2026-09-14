@@ -15,28 +15,46 @@ async function resolveFromEntity(row) {
     case 'CompanyProfile':
       return row.entityId;
     case 'Employee': {
-      const e = await prisma.employee.findUnique({ where: { id: row.entityId }, select: { companyProfileId: true } });
+      const e = await prisma.employee.findUnique({
+        where: { id: row.entityId },
+        select: { companyProfileId: true },
+      });
       return e?.companyProfileId ?? null;
     }
     case 'TimeEntry': {
-      const t = await prisma.timeEntry.findUnique({ where: { id: row.entityId }, select: { companyProfileId: true } });
+      const t = await prisma.timeEntry.findUnique({
+        where: { id: row.entityId },
+        select: { companyProfileId: true },
+      });
       return t?.companyProfileId ?? null;
     }
     case 'Shift': {
-      const s = await prisma.shift.findUnique({ where: { id: row.entityId }, select: { companyProfileId: true } });
+      const s = await prisma.shift.findUnique({
+        where: { id: row.entityId },
+        select: { companyProfileId: true },
+      });
       return s?.companyProfileId ?? null;
     }
     case 'Geofence': {
-      const g = await prisma.geofence.findUnique({ where: { id: row.entityId }, select: { companyProfileId: true } });
+      const g = await prisma.geofence.findUnique({
+        where: { id: row.entityId },
+        select: { companyProfileId: true },
+      });
       return g?.companyProfileId ?? null;
     }
     case 'CompanySettings': {
-      const c = await prisma.companySettings.findUnique({ where: { id: row.entityId }, select: { companyProfileId: true } });
+      const c = await prisma.companySettings.findUnique({
+        where: { id: row.entityId },
+        select: { companyProfileId: true },
+      });
       return c?.companyProfileId ?? null;
     }
     case 'Impersonation': {
       // impersonate_start stores the company id; impersonation_stop stores a user id.
-      const c = await prisma.companyProfile.findUnique({ where: { id: row.entityId }, select: { id: true } });
+      const c = await prisma.companyProfile.findUnique({
+        where: { id: row.entityId },
+        select: { id: true },
+      });
       return c?.id ?? null;
     }
     default:
@@ -69,12 +87,17 @@ async function main() {
     }
 
     if (companyId) {
-      await prisma.auditLog.update({ where: { id: row.id }, data: { companyProfileId: companyId } });
+      await prisma.auditLog.update({
+        where: { id: row.id },
+        data: { companyProfileId: companyId },
+      });
       updated++;
     }
   }
 
-  console.log(`[backfill] Scoped ${updated} of ${rows.length} rows; remaining platform-level rows: ${rows.length - updated}`);
+  console.log(
+    `[backfill] Scoped ${updated} of ${rows.length} rows; remaining platform-level rows: ${rows.length - updated}`,
+  );
 }
 
 main()

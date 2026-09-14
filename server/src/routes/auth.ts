@@ -9,7 +9,12 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import prisma from '../prisma.js';
-import { signToken, verifyToken, requireAuth, invalidateLiveRoleCache } from '../middleware/auth.js';
+import {
+  signToken,
+  verifyToken,
+  requireAuth,
+  invalidateLiveRoleCache,
+} from '../middleware/auth.js';
 import { loginRateLimit } from '../middleware/rateLimit.js';
 import { validate, loginSchema, changePasswordSchema } from '../validation.js';
 import { logAudit, getClientIp } from '../audit.js';
@@ -32,7 +37,10 @@ const router = Router();
  * Relies solely on the schema flag so that users who choose to "keep"
  * their current password are not re-prompted on every login.
  */
-async function resolveMustChangePassword(user: { mustChangePassword: boolean; passwordHash: string | null }): Promise<boolean> {
+async function resolveMustChangePassword(user: {
+  mustChangePassword: boolean;
+  passwordHash: string | null;
+}): Promise<boolean> {
   return user.mustChangePassword;
 }
 
@@ -60,11 +68,16 @@ router.post('/login', loginRateLimit, validate(loginSchema), async (req, res) =>
             where: { id: rescued[0].id },
             data: { email: normalizedEmail },
           });
-          console.log(`[auth] Self-healed login email for user ${rescued[0].id} -> ${normalizedEmail}`);
+          console.log(
+            `[auth] Self-healed login email for user ${rescued[0].id} -> ${normalizedEmail}`,
+          );
         } catch (healErr) {
           // If the normalized email now collides with another row, fall back to
           // the original (un-normalized) record so login still works.
-          console.warn('[auth] Email self-heal update failed (possible duplicate); using original record:', healErr);
+          console.warn(
+            '[auth] Email self-heal update failed (possible duplicate); using original record:',
+            healErr,
+          );
           user = await prisma.user.findUnique({ where: { id: rescued[0].id } });
         }
       }
@@ -78,7 +91,8 @@ router.post('/login', loginRateLimit, validate(loginSchema), async (req, res) =>
         actorId: 'unknown',
         actorRole: 'unknown',
         actorEmail: normalizedEmail,
-        justification: 'Login denied — no login account exists for this email (employee may be missing a User record)',
+        justification:
+          'Login denied — no login account exists for this email (employee may be missing a User record)',
         ipAddress: getClientIp(req),
         companyProfileId: user?.companyProfileId ?? null,
       });
@@ -126,7 +140,10 @@ router.post('/login', loginRateLimit, validate(loginSchema), async (req, res) =>
     // Master operators have no employee record and are unaffected.
     if (user.role !== 'master') {
       const employee = await prisma.employee.findFirst({
-        where: { email: { equals: user.email.toLowerCase().trim(), mode: 'insensitive' }, companyProfileId: user.companyProfileId ?? undefined },
+        where: {
+          email: { equals: user.email.toLowerCase().trim(), mode: 'insensitive' },
+          companyProfileId: user.companyProfileId ?? undefined,
+        },
         select: { status: true },
       });
       if (employee?.status === 'terminated') {
@@ -160,7 +177,10 @@ router.post('/login', loginRateLimit, validate(loginSchema), async (req, res) =>
 
     // Look up employee record for branch/department context
     const employee = await prisma.employee.findFirst({
-      where: { email: { equals: user.email.toLowerCase().trim(), mode: 'insensitive' }, companyProfileId: user.companyProfileId ?? undefined },
+      where: {
+        email: { equals: user.email.toLowerCase().trim(), mode: 'insensitive' },
+        companyProfileId: user.companyProfileId ?? undefined,
+      },
       select: { branch: true, department: true },
     });
 
@@ -285,7 +305,8 @@ router.post('/forgot-password', loginRateLimit, async (req, res) => {
     if (!user) {
       return res.json({
         success: true,
-        message: 'If an account exists with that email, please contact your company administrator to reset your password.',
+        message:
+          'If an account exists with that email, please contact your company administrator to reset your password.',
         adminEmail: null,
         adminName: null,
       });
@@ -373,7 +394,10 @@ router.post('/keep-password', requireAuth, async (req, res) => {
 router.post('/change-password', requireAuth, validate(changePasswordSchema), async (req, res) => {
   try {
     const authUser = req.authUser!;
-    const { currentPassword, newPassword } = req.body as { currentPassword: string; newPassword: string };
+    const { currentPassword, newPassword } = req.body as {
+      currentPassword: string;
+      newPassword: string;
+    };
 
     const user = await prisma.user.findUnique({ where: { id: authUser.id } });
     if (!user || !user.passwordHash) {
@@ -386,7 +410,9 @@ router.post('/change-password', requireAuth, validate(changePasswordSchema), asy
       // only the typed confirmation is wrong. A 401 here would be misread by
       // the client's global session handler as session death and log the user
       // out instead of letting the modal show an inline error.
-      return sendError(res, 400, 'Current password is incorrect.', { code: 'CURRENT_PASSWORD_INCORRECT' });
+      return sendError(res, 400, 'Current password is incorrect.', {
+        code: 'CURRENT_PASSWORD_INCORRECT',
+      });
     }
 
     if (newPassword === DEFAULT_PASSWORD) {
@@ -450,7 +476,9 @@ router.get('/me', requireAuth, async (req, res) => {
     const isImpersonating = authUser.originalRole === 'master' && authUser.role !== 'master';
     const isDemoSession = Boolean(authUser.demoEmail);
     const effectiveRole = isImpersonating ? authUser.role : user.role;
-    const effectiveCompanyProfileId = isImpersonating ? authUser.companyProfileId : user.companyProfileId;
+    const effectiveCompanyProfileId = isImpersonating
+      ? authUser.companyProfileId
+      : user.companyProfileId;
 
     // Resolve company profile for impersonated session (DB user has null companyProfileId)
     let companyProfile = user.companyProfile;
@@ -468,8 +496,19 @@ router.get('/me', requireAuth, async (req, res) => {
     const identityFullName = isDemoSession ? authUser.fullName : user.fullName;
 
     const employee = await prisma.employee.findFirst({
-      where: { email: { equals: identityEmail.toLowerCase().trim(), mode: 'insensitive' }, companyProfileId: effectiveCompanyProfileId ?? undefined },
-      select: { id: true, branch: true, department: true, position: true, firstName: true, surname: true, employeeNumber: true },
+      where: {
+        email: { equals: identityEmail.toLowerCase().trim(), mode: 'insensitive' },
+        companyProfileId: effectiveCompanyProfileId ?? undefined,
+      },
+      select: {
+        id: true,
+        branch: true,
+        department: true,
+        position: true,
+        firstName: true,
+        surname: true,
+        employeeNumber: true,
+      },
     });
 
     // Flag accounts that must change their password on every session check so the UI can force a reset.

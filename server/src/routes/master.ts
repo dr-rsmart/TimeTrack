@@ -7,7 +7,12 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import prisma from '../prisma.js';
-import { requireAuth, signToken, invalidateCompanyActiveCache, invalidateLiveRoleCache } from '../middleware/auth.js';
+import {
+  requireAuth,
+  signToken,
+  invalidateCompanyActiveCache,
+  invalidateLiveRoleCache,
+} from '../middleware/auth.js';
 import { logAudit, getClientIp, computeChanges } from '../audit.js';
 import { disconnectTenantClients } from '../sse.js';
 import { DEFAULT_PASSWORD } from '../passwords.js';
@@ -57,7 +62,14 @@ router.get('/stats', async (req, res) => {
       return res.json(statsCache.data);
     }
 
-    const [totalCompanies, activeCompanies, totalEmployees, totalUsers, activeClockIns, completedToday] = await Promise.all([
+    const [
+      totalCompanies,
+      activeCompanies,
+      totalEmployees,
+      totalUsers,
+      activeClockIns,
+      completedToday,
+    ] = await Promise.all([
       prisma.companyProfile.count(),
       prisma.companyProfile.count({ where: { isActive: true } }),
       prisma.employee.count(),
@@ -68,10 +80,10 @@ router.get('/stats', async (req, res) => {
           status: 'completed',
           // Business-timezone "today" using the UTC-noon DATE convention so
           // the comparison is stable regardless of host timezone.
-          date: parseDate(businessNow(getBusinessTimezone()).dateStr)
+          date: parseDate(businessNow(getBusinessTimezone()).dateStr),
         },
-        select: { totalMinutes: true, totalHours: true }
-      })
+        select: { totalMinutes: true, totalHours: true },
+      }),
     ]);
 
     const totalHoursToday = completedToday.reduce(
@@ -104,19 +116,19 @@ router.get('/companies', async (req, res) => {
       orderBy: { createdAt: 'desc' },
       include: {
         _count: {
-          select: { employees: true }
+          select: { employees: true },
         },
         owner: {
           select: {
             id: true,
             email: true,
             fullName: true,
-          }
-        }
-      }
+          },
+        },
+      },
     });
 
-    const items = companies.map(c => ({
+    const items = companies.map((c) => ({
       id: c.id,
       name: c.name,
       isActive: c.isActive,
@@ -130,7 +142,7 @@ router.get('/companies', async (req, res) => {
       createdAt: c.createdAt.toISOString(),
       ownerUserId: c.ownerUserId,
       adminEmail: c.owner?.email || 'N/A',
-      adminFullName: c.owner?.fullName || 'N/A'
+      adminFullName: c.owner?.fullName || 'N/A',
     }));
 
     res.json({ items });
@@ -164,7 +176,7 @@ router.post('/companies', async (req, res) => {
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
-      where: { email: adminEmail.toLowerCase() }
+      where: { email: adminEmail.toLowerCase() },
     });
     if (existingUser) {
       return duplicateRecord(res, 'Administrator', 'email');
@@ -198,7 +210,7 @@ router.post('/companies', async (req, res) => {
           passwordHash,
           mustChangePassword: true,
           companyProfileId: company.id,
-        }
+        },
       });
 
       // 3. Link user as owner of the company
@@ -213,7 +225,7 @@ router.post('/companies', async (req, res) => {
           companyProfileId: company.id,
           ordinaryHoursPerDay: 8,
           overtimeThresholdHours: 8,
-        }
+        },
       });
 
       // 5. Create default Employee record for admin
@@ -226,7 +238,7 @@ router.post('/companies', async (req, res) => {
           status: 'active',
           position: 'Administrator',
           companyProfileId: company.id,
-        }
+        },
       });
 
       return { company: updatedCompany, user };
@@ -282,9 +294,13 @@ router.put('/companies/:id', async (req, res) => {
 
     // Validate required fields so the master gets a clear message instead of a 500
     if (!name || !adminEmail || !adminFirstName || !adminSurname) {
-      return badRequest(res, 'Company Name, Admin Email, Admin First Name and Admin Surname are required.', {
-        fields: ['name', 'adminEmail', 'adminFirstName', 'adminSurname'],
-      });
+      return badRequest(
+        res,
+        'Company Name, Admin Email, Admin First Name and Admin Surname are required.',
+        {
+          fields: ['name', 'adminEmail', 'adminFirstName', 'adminSurname'],
+        },
+      );
     }
 
     const normalizedAdminEmail = String(adminEmail).toLowerCase().trim();
@@ -292,7 +308,7 @@ router.put('/companies/:id', async (req, res) => {
     // Check company existence
     const company = await prisma.companyProfile.findUnique({
       where: { id },
-      include: { owner: true }
+      include: { owner: true },
     });
 
     if (!company) {
@@ -340,7 +356,7 @@ router.put('/companies/:id', async (req, res) => {
           registrationNumber,
           billingTier: billingTier || 'standard',
           primaryContactName,
-        }
+        },
       });
 
       // 2. Reconcile the admin owner user
@@ -350,7 +366,7 @@ router.put('/companies/:id', async (req, res) => {
         // Same admin — refresh name/company link only
         await tx.user.update({
           where: { id: company.owner.id },
-          data: { fullName: adminFullName, companyProfileId: id }
+          data: { fullName: adminFullName, companyProfileId: id },
         });
       } else {
         // ── Admin reassignment ──
@@ -360,18 +376,18 @@ router.put('/companies/:id', async (req, res) => {
         if (company.owner) {
           await tx.user.update({
             where: { id: company.owner.id },
-            data: { role: 'employee' }
+            data: { role: 'employee' },
           });
           // Invalidate live-role cache so the demoted admin's elevated
           // access is revoked within 30s (not 8h at JWT expiry).
           invalidateLiveRoleCache(company.owner.id);
           const oldEmp = await tx.employee.findFirst({
-            where: { companyProfileId: id, email: company.owner.email }
+            where: { companyProfileId: id, email: company.owner.email },
           });
           if (oldEmp && oldEmp.role === 'admin') {
             await tx.employee.update({
               where: { id: oldEmp.id },
-              data: { role: 'employee' }
+              data: { role: 'employee' },
             });
           }
         }
@@ -385,7 +401,7 @@ router.put('/companies/:id', async (req, res) => {
               fullName: adminFullName,
               role: 'admin',
               companyProfileId: id,
-            }
+            },
           });
           newOwnerId = emailOwner.id;
         } else {
@@ -398,7 +414,7 @@ router.put('/companies/:id', async (req, res) => {
               passwordHash,
               mustChangePassword: true,
               companyProfileId: id,
-            }
+            },
           });
           newOwnerId = newUser.id;
           createdTempPassword = DEFAULT_PASSWORD;
@@ -406,7 +422,7 @@ router.put('/companies/:id', async (req, res) => {
 
         await tx.companyProfile.update({
           where: { id },
-          data: { ownerUserId: newOwnerId }
+          data: { ownerUserId: newOwnerId },
         });
       }
 
@@ -414,7 +430,7 @@ router.put('/companies/:id', async (req, res) => {
       //    employee record is intentionally left intact (their attendance
       //    history is preserved; terminate via Workforce if required).
       const newEmp = await tx.employee.findFirst({
-        where: { companyProfileId: id, email: normalizedAdminEmail }
+        where: { companyProfileId: id, email: normalizedAdminEmail },
       });
       if (newEmp) {
         await tx.employee.update({
@@ -423,7 +439,7 @@ router.put('/companies/:id', async (req, res) => {
             firstName: adminFirstName,
             surname: adminSurname,
             role: 'admin',
-          }
+          },
         });
       } else {
         await tx.employee.create({
@@ -435,7 +451,7 @@ router.put('/companies/:id', async (req, res) => {
             status: 'active',
             position: 'Administrator',
             companyProfileId: id,
-          }
+          },
         });
       }
 
@@ -452,7 +468,10 @@ router.put('/companies/:id', async (req, res) => {
       billingTier: result.billingTier,
       primaryContactName: result.primaryContactName,
     };
-    const changes = computeChanges(beforeState as Record<string, unknown>, afterState as Record<string, unknown>);
+    const changes = computeChanges(
+      beforeState as Record<string, unknown>,
+      afterState as Record<string, unknown>,
+    );
 
     logAudit({
       entity: 'CompanyProfile',
@@ -461,9 +480,10 @@ router.put('/companies/:id', async (req, res) => {
       actorId: req.authUser!.id,
       actorEmail: req.authUser!.email,
       actorRole: req.authUser!.role,
-      justification: isReassignment && company.owner
-        ? `Tenant admin reassigned: ${company.owner.email} -> ${normalizedAdminEmail} (${company.name})`
-        : undefined,
+      justification:
+        isReassignment && company.owner
+          ? `Tenant admin reassigned: ${company.owner.email} -> ${normalizedAdminEmail} (${company.name})`
+          : undefined,
       changes: {
         ...(changes ?? {}),
         ...(isReassignment && company.owner
@@ -508,7 +528,7 @@ router.post('/companies/:id/toggle', async (req, res) => {
 
     const updated = await prisma.companyProfile.update({
       where: { id },
-      data: { isActive: !company.isActive }
+      data: { isActive: !company.isActive },
     });
 
     // Invalidate the suspension-status cache so the new state is enforced
@@ -546,7 +566,9 @@ router.post('/companies/:id/toggle', async (req, res) => {
     res.json({
       success: true,
       isActive: updated.isActive,
-      message: updated.isActive ? 'Tenant successfully activated.' : 'Tenant successfully suspended.',
+      message: updated.isActive
+        ? 'Tenant successfully activated.'
+        : 'Tenant successfully suspended.',
       impact: {
         employeesAffected: company._count.employees,
         usersAffected: company._count.users,
@@ -564,7 +586,9 @@ router.delete('/companies/:id', async (req, res) => {
     const { id } = req.params;
     const company = await prisma.companyProfile.findUnique({
       where: { id },
-      include: { _count: { select: { employees: true, users: true, timeEntries: true, shifts: true } } },
+      include: {
+        _count: { select: { employees: true, users: true, timeEntries: true, shifts: true } },
+      },
     });
     if (!company) {
       return notFound(res, 'Company profile');
@@ -607,7 +631,10 @@ router.delete('/companies/:id', async (req, res) => {
       } as any,
     });
 
-    res.json({ success: true, message: 'Tenant company and all associated records permanently deleted.' });
+    res.json({
+      success: true,
+      message: 'Tenant company and all associated records permanently deleted.',
+    });
   } catch (err) {
     console.error('[master] delete company error:', err);
     internalError(res, 'deleting tenant company');
@@ -619,10 +646,10 @@ router.get('/operators', async (req, res) => {
   try {
     const operators = await prisma.user.findMany({
       where: { role: 'master' },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
 
-    const items = operators.map(o => {
+    const items = operators.map((o) => {
       const names = o.fullName.split(' ');
       const firstName = names[0] || '';
       const surname = names.slice(1).join(' ') || '';
@@ -633,7 +660,7 @@ router.get('/operators', async (req, res) => {
         firstName,
         surname,
         role: o.role,
-        createdAt: o.createdAt.toISOString()
+        createdAt: o.createdAt.toISOString(),
       };
     });
 
@@ -650,7 +677,9 @@ router.post('/operators', async (req, res) => {
     const { fullName, email, firstName, surname, role } = req.body;
 
     if (!email || !fullName) {
-      return badRequest(res, 'Full Name and Email are required.', { fields: ['fullName', 'email'] });
+      return badRequest(res, 'Full Name and Email are required.', {
+        fields: ['fullName', 'email'],
+      });
     }
 
     // Check user existence
@@ -671,7 +700,7 @@ router.post('/operators', async (req, res) => {
         role: role || 'master',
         passwordHash,
         mustChangePassword: true,
-      }
+      },
     });
 
     // Audit log for operator creation
@@ -824,7 +853,7 @@ router.post('/impersonate/:id', async (req, res) => {
     const { id } = req.params;
     const company = await prisma.companyProfile.findUnique({
       where: { id },
-      include: { owner: true }
+      include: { owner: true },
     });
 
     if (!company) {
@@ -865,7 +894,7 @@ router.post('/impersonate/:id', async (req, res) => {
     res.json({
       success: true,
       token,
-      message: `Now impersonating ${company.name}`
+      message: `Now impersonating ${company.name}`,
     });
   } catch (err) {
     console.error('[master] impersonate error:', err);
@@ -878,7 +907,7 @@ router.post('/stop-impersonation', async (req, res) => {
   try {
     // Stop impersonation by finding the actual user record for the logged-in user and ensuring they are master
     const user = await prisma.user.findUnique({
-      where: { id: req.authUser!.id }
+      where: { id: req.authUser!.id },
     });
 
     if (!user || user.role !== 'master') {
@@ -911,7 +940,7 @@ router.post('/stop-impersonation', async (req, res) => {
     res.json({
       success: true,
       token,
-      message: 'Exited impersonation. Restored Master Session.'
+      message: 'Exited impersonation. Restored Master Session.',
     });
   } catch (err) {
     console.error('[master] stop-impersonation error:', err);

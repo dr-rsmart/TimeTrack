@@ -52,7 +52,9 @@ test.describe.serial('Master Role (Platform Operator) — Process Test Pack', ()
     expect(data.items[0]).toHaveProperty('isActive');
   });
 
-  test('Process 3: Onboard New Tenant Company (POST /api/master/companies)', async ({ request }) => {
+  test('Process 3: Onboard New Tenant Company (POST /api/master/companies)', async ({
+    request,
+  }) => {
     const rand = Math.floor(Math.random() * 10000);
     const res = await request.post(`${API_BASE}/api/master/companies`, {
       headers: authHeader(),
@@ -74,7 +76,9 @@ test.describe.serial('Master Role (Platform Operator) — Process Test Pack', ()
     createdCompanyId = data.companyId;
   });
 
-  test('Process 4: Edit Tenant Company Profile (PUT /api/master/companies/:id)', async ({ request }) => {
+  test('Process 4: Edit Tenant Company Profile (PUT /api/master/companies/:id)', async ({
+    request,
+  }) => {
     expect(createdCompanyId).toBeDefined();
     const res = await request.put(`${API_BASE}/api/master/companies/${createdCompanyId}`, {
       headers: authHeader(),
@@ -94,26 +98,36 @@ test.describe.serial('Master Role (Platform Operator) — Process Test Pack', ()
     expect(data.company.name).toBe('Updated Test Enterprise');
   });
 
-  test('Process 5: Suspend and Reactivate Tenant (POST /api/master/companies/:id/toggle)', async ({ request }) => {
+  test('Process 5: Suspend and Reactivate Tenant (POST /api/master/companies/:id/toggle)', async ({
+    request,
+  }) => {
     expect(createdCompanyId).toBeDefined();
     // Suspend
-    const suspendRes = await request.post(`${API_BASE}/api/master/companies/${createdCompanyId}/toggle`, {
-      headers: authHeader(),
-    });
+    const suspendRes = await request.post(
+      `${API_BASE}/api/master/companies/${createdCompanyId}/toggle`,
+      {
+        headers: authHeader(),
+      },
+    );
     expect(suspendRes.status()).toBe(200);
     const suspendData = await suspendRes.json();
     expect(suspendData.isActive).toBe(false);
 
     // Reactivate
-    const activateRes = await request.post(`${API_BASE}/api/master/companies/${createdCompanyId}/toggle`, {
-      headers: authHeader(),
-    });
+    const activateRes = await request.post(
+      `${API_BASE}/api/master/companies/${createdCompanyId}/toggle`,
+      {
+        headers: authHeader(),
+      },
+    );
     expect(activateRes.status()).toBe(200);
     const activateData = await activateRes.json();
     expect(activateData.isActive).toBe(true);
   });
 
-  test('Process 6: Manage Platform Master Accounts (POST/GET /api/master/operators)', async ({ request }) => {
+  test('Process 6: Manage Platform Master Accounts (POST/GET /api/master/operators)', async ({
+    request,
+  }) => {
     const rand = Math.floor(Math.random() * 10000);
     const createRes = await request.post(`${API_BASE}/api/master/operators`, {
       headers: authHeader(),
@@ -136,9 +150,12 @@ test.describe.serial('Master Role (Platform Operator) — Process Test Pack', ()
     expect(listData.items.some((o: any) => o.id === testOperatorId)).toBe(true);
 
     // Reset operator password
-    const resetRes = await request.post(`${API_BASE}/api/master/operators/${testOperatorId}/reset-password`, {
-      headers: authHeader(),
-    });
+    const resetRes = await request.post(
+      `${API_BASE}/api/master/operators/${testOperatorId}/reset-password`,
+      {
+        headers: authHeader(),
+      },
+    );
     expect(resetRes.status()).toBe(200);
     const resetData = await resetRes.json();
     expect(resetData.temporaryPassword).toBe('Password123');
@@ -155,7 +172,9 @@ test.describe.serial('Master Role (Platform Operator) — Process Test Pack', ()
     expect(data.token).toBeDefined();
   });
 
-  test('Process 8: Tenant Impersonation & Exit (POST /api/master/impersonate, stop-impersonation)', async ({ request }) => {
+  test('Process 8: Tenant Impersonation & Exit (POST /api/master/impersonate, stop-impersonation)', async ({
+    request,
+  }) => {
     // Impersonate
     const impRes = await request.post(`${API_BASE}/api/master/impersonate/${createdCompanyId}`, {
       headers: authHeader(),
@@ -176,7 +195,9 @@ test.describe.serial('Master Role (Platform Operator) — Process Test Pack', ()
     expect(stopData.success).toBe(true);
   });
 
-  test('Process 9: Manage System-Wide Holidays (POST/DELETE /api/settings/holidays scope=system)', async ({ request }) => {
+  test('Process 9: Manage System-Wide Holidays (POST/DELETE /api/settings/holidays scope=system)', async ({
+    request,
+  }) => {
     const testHolidayDate = '2026-12-31';
     // Add system holiday
     const addRes = await request.post(`${API_BASE}/api/settings/holidays`, {
@@ -197,9 +218,12 @@ test.describe.serial('Master Role (Platform Operator) — Process Test Pack', ()
     expect(listData.systemHolidays).toContain(testHolidayDate);
 
     // Delete system holiday
-    const delRes = await request.delete(`${API_BASE}/api/settings/holidays/${testHolidayDate}?scope=system`, {
-      headers: authHeader(),
-    });
+    const delRes = await request.delete(
+      `${API_BASE}/api/settings/holidays/${testHolidayDate}?scope=system`,
+      {
+        headers: authHeader(),
+      },
+    );
     expect(delRes.status()).toBe(200);
   });
 

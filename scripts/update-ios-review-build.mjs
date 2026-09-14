@@ -70,10 +70,15 @@ async function api(resourcePath, method = 'GET', body) {
   const text = await res.text();
   let json = null;
   if (text) {
-    try { json = JSON.parse(text); } catch { json = text; }
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = text;
+    }
   }
   if (!res.ok && !(method === 'DELETE' && res.status === 204)) {
-    const detail = json?.errors?.map((e) => `${e.code}: ${e.detail}`).join(' | ') || JSON.stringify(json);
+    const detail =
+      json?.errors?.map((e) => `${e.code}: ${e.detail}`).join(' | ') || JSON.stringify(json);
     throw new Error(`ASC API ${method} ${resourcePath} failed (${res.status}): ${detail}`);
   }
   return json;
@@ -94,23 +99,25 @@ if (sinceIdx >= 0 && Number.isNaN(MIN_UPLOAD_MS)) {
 // ── Steps ─────────────────────────────────────────────────────────────
 async function findVersion() {
   const versions = await api(
-    `/apps/${APP_NUMERIC_ID}/appStoreVersions?fields[appStoreVersions]=versionString,appStoreState&limit=5`
+    `/apps/${APP_NUMERIC_ID}/appStoreVersions?fields[appStoreVersions]=versionString,appStoreState&limit=5`,
   );
   const list = versions.data || [];
   console.log('App Store versions:');
-  for (const v of list) console.log(`  • ${v.attributes.versionString} → ${v.attributes.appStoreState}`);
+  for (const v of list)
+    console.log(`  • ${v.attributes.versionString} → ${v.attributes.appStoreState}`);
   const target =
     list.find((v) => ['WAITING_FOR_REVIEW', 'IN_REVIEW'].includes(v.attributes.appStoreState)) ||
     list.find((v) => v.attributes.appStoreState === 'PREPARE_FOR_SUBMISSION') ||
     list.find((v) => v.attributes.appStoreState === 'DEVELOPER_REJECTED') ||
     list[0];
-  if (!target) throw new Error('No App Store version found — create one in App Store Connect first.');
+  if (!target)
+    throw new Error('No App Store version found — create one in App Store Connect first.');
   return target;
 }
 
 async function getAttachedBuild(versionId) {
   const res = await api(
-    `/appStoreVersions/${versionId}?include=build&fields[builds]=version,uploadedDate,processingState`
+    `/appStoreVersions/${versionId}?include=build&fields[builds]=version,uploadedDate,processingState`,
   );
   const build = res.included?.find((r) => r.type === 'builds');
   return build || null;
@@ -121,7 +128,7 @@ async function waitForNewValidBuild(uploadedAfterMs, timeoutMs = 45 * 60 * 1000)
   while (Date.now() - start < timeoutMs) {
     const builds = await api(
       `/builds?filter[app]=${APP_NUMERIC_ID}&sort=-uploadedDate&limit=3` +
-        `&fields[builds]=version,uploadedDate,processingState,expired`
+        `&fields[builds]=version,uploadedDate,processingState,expired`,
     );
     const latest = builds.data?.[0];
     if (!latest) {
@@ -131,10 +138,14 @@ async function waitForNewValidBuild(uploadedAfterMs, timeoutMs = 45 * 60 * 1000)
     }
     const a = latest.attributes;
     const uploadedMs = Date.parse(a.uploadedDate);
-    console.log(`Latest visible build ${a.version} (uploaded ${a.uploadedDate}) — processing state: ${a.processingState}`);
+    console.log(
+      `Latest visible build ${a.version} (uploaded ${a.uploadedDate}) — processing state: ${a.processingState}`,
+    );
     if (uploadedMs >= MIN_UPLOAD_MS) {
       if (a.processingState === 'FAILED' || a.processingState === 'INVALID') {
-        throw new Error(`Latest build ${a.version} ended up ${a.processingState}. Inspect it in App Store Connect → TestFlight.`);
+        throw new Error(
+          `Latest build ${a.version} ended up ${a.processingState}. Inspect it in App Store Connect → TestFlight.`,
+        );
       }
       if (a.processingState === 'VALID' && uploadedMs > uploadedAfterMs) return latest;
     } else {
@@ -145,7 +156,6 @@ async function waitForNewValidBuild(uploadedAfterMs, timeoutMs = 45 * 60 * 1000)
   throw new Error('Timed out waiting for App Store Connect to finish processing the new build.');
 }
 
-
 async function main() {
   console.log('⏳ Step 1/5: locating App Store version…');
   const version = await findVersion();
@@ -153,13 +163,17 @@ async function main() {
   console.log(`Target version ${version.attributes.versionString} is in state ${state}.`);
 
   if (['PENDING_DEVELOPER_RELEASE', 'READY_FOR_SALE'].includes(state)) {
-    throw new Error(`Version is "${state}" — the build cannot be swapped in this state. Create a new version in App Store Connect.`);
+    throw new Error(
+      `Version is "${state}" — the build cannot be swapped in this state. Create a new version in App Store Connect.`,
+    );
   }
 
   console.log('\n⏳ Step 2/5: checking currently attached build…');
   let attached = await getAttachedBuild(version.id);
   if (attached) {
-    console.log(`Attached build: ${attached.attributes.version} (uploaded ${attached.attributes.uploadedDate}).`);
+    console.log(
+      `Attached build: ${attached.attributes.version} (uploaded ${attached.attributes.uploadedDate}).`,
+    );
   } else {
     console.log('No build currently attached to the version.');
   }
@@ -167,7 +181,9 @@ async function main() {
   console.log('\n⏳ Step 3/5: waiting for the newer build to become VALID…');
   const uploadedAfterMs = attached ? Date.parse(attached.attributes.uploadedDate) : 0;
   const build = await waitForNewValidBuild(uploadedAfterMs);
-  console.log(`✅ Build ${build.attributes.version} (uploaded ${build.attributes.uploadedDate}) is VALID.`);
+  console.log(
+    `✅ Build ${build.attributes.version} (uploaded ${build.attributes.uploadedDate}) is VALID.`,
+  );
 
   if (attached && attached.id === build.id) {
     console.log('ℹ️ The newest build is already attached — nothing left to do.');
@@ -195,7 +211,9 @@ async function main() {
     console.log('\n⏳ Step 4/5: version is not in review — no removal needed.');
   }
 
-  console.log(`\n🔗 Attaching build ${build.attributes.version} to version ${version.attributes.versionString}…`);
+  console.log(
+    `\n🔗 Attaching build ${build.attributes.version} to version ${version.attributes.versionString}…`,
+  );
   await api(`/appStoreVersions/${version.id}`, 'PATCH', {
     data: {
       type: 'appStoreVersions',
@@ -205,12 +223,16 @@ async function main() {
   });
   console.log('✅ Build attached to version.');
 
-  console.log('\n📤 Step 5/5: submitting for App Review (using App Store Connect Review Submissions API)…');
+  console.log(
+    '\n📤 Step 5/5: submitting for App Review (using App Store Connect Review Submissions API)…',
+  );
   let submitted = false;
   for (let attempt = 1; attempt <= 3 && !submitted; attempt++) {
     try {
       // 1. Check if there's an existing review submission in progress for iOS
-      const existingSubmissions = await api(`/apps/${APP_NUMERIC_ID}/reviewSubmissions?filter[platform]=IOS&filter[state]=READY_FOR_REVIEW`);
+      const existingSubmissions = await api(
+        `/apps/${APP_NUMERIC_ID}/reviewSubmissions?filter[platform]=IOS&filter[state]=READY_FOR_REVIEW`,
+      );
       let submissionId;
       if (existingSubmissions.data && existingSubmissions.data.length > 0) {
         submissionId = existingSubmissions.data[0].id;
@@ -221,8 +243,8 @@ async function main() {
           data: {
             type: 'reviewSubmissions',
             attributes: { platform: 'IOS' },
-            relationships: { app: { data: { type: 'apps', id: APP_NUMERIC_ID } } }
-          }
+            relationships: { app: { data: { type: 'apps', id: APP_NUMERIC_ID } } },
+          },
         });
         submissionId = newSubmission.data.id;
         console.log(`Created new review submission: ${submissionId}`);
@@ -231,20 +253,23 @@ async function main() {
       // 2. Check if the appStoreVersion is already added as an item
       const submissionWithItems = await api(`/reviewSubmissions/${submissionId}?include=items`);
       const hasItem = submissionWithItems.included?.some(
-        item => item.type === 'reviewSubmissionItems' && 
-                item.relationships?.appStoreVersion?.data?.id === version.id
+        (item) =>
+          item.type === 'reviewSubmissionItems' &&
+          item.relationships?.appStoreVersion?.data?.id === version.id,
       );
 
       if (!hasItem) {
-        console.log(`Adding App Store version ${version.attributes.versionString} to review submission…`);
+        console.log(
+          `Adding App Store version ${version.attributes.versionString} to review submission…`,
+        );
         await api('/reviewSubmissionItems', 'POST', {
           data: {
             type: 'reviewSubmissionItems',
             relationships: {
               reviewSubmission: { data: { type: 'reviewSubmissions', id: submissionId } },
-              appStoreVersion: { data: { type: 'appStoreVersions', id: version.id } }
-            }
-          }
+              appStoreVersion: { data: { type: 'appStoreVersions', id: version.id } },
+            },
+          },
         });
         console.log('✅ Version added to review submission.');
       } else {
@@ -257,20 +282,24 @@ async function main() {
         data: {
           type: 'reviewSubmissions',
           id: submissionId,
-          attributes: { submitted: true }
-        }
+          attributes: { submitted: true },
+        },
       });
       submitted = true;
     } catch (err) {
       if (attempt < 3 && /FORBIDDEN|state/i.test(err.message)) {
-        console.log(`⚠️ Attempt ${attempt} rejected (${err.message}) — Apple state may still be settling. Retrying in 60s…`);
+        console.log(
+          `⚠️ Attempt ${attempt} rejected (${err.message}) — Apple state may still be settling. Retrying in 60s…`,
+        );
         await sleep(60000);
       } else {
         throw err;
       }
     }
   }
-  console.log('\n🎉 SUCCESS: iOS updated — the newest build is now "Waiting for Review" in App Store Connect.');
+  console.log(
+    '\n🎉 SUCCESS: iOS updated — the newest build is now "Waiting for Review" in App Store Connect.',
+  );
   console.log('Track progress at https://appstoreconnect.apple.com/apps/6803827296');
 }
 

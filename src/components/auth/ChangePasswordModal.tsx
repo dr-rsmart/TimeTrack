@@ -35,7 +35,12 @@ const COMPLEXITY_RULES = [
   { label: 'One number', test: (p: string) => /[0-9]/.test(p) },
 ];
 
-export default function ChangePasswordModal({ forced = false, allowKeep = true, onSuccess, onCancel }: ChangePasswordModalProps) {
+export default function ChangePasswordModal({
+  forced = false,
+  allowKeep = true,
+  onSuccess,
+  onCancel,
+}: ChangePasswordModalProps) {
   const { endSessionAfterPasswordChange } = useAuth();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -156,7 +161,9 @@ export default function ChangePasswordModal({ forced = false, allowKeep = true, 
                         ok ? 'text-emerald-600' : 'text-muted-foreground'
                       }`}
                     >
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`} />
+                      <span
+                        className={`inline-block h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`}
+                      />
                       {rule.label}
                     </li>
                   );
@@ -176,7 +183,9 @@ export default function ChangePasswordModal({ forced = false, allowKeep = true, 
             </div>
 
             {error && (
-              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {error}
+              </div>
             )}
 
             <div className="flex flex-col-reverse sm:flex-row sm:justify-between sm:items-center gap-2 pt-2">

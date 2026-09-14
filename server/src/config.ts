@@ -23,7 +23,6 @@ function isProduction(): boolean {
 }
 
 function fail(msg: string): never {
-  // eslint-disable-next-line no-console
   console.error(`[config] FATAL: ${msg}`);
   process.exit(1);
 }
@@ -39,10 +38,13 @@ function requireEnv(name: string): string {
 function rejectInsecure(name: string, value: string): void {
   if (INSECURE_DEFAULTS.includes(value)) {
     if (isProduction()) {
-      fail(`Environment variable "${name}" is set to a known-insecure default. Rotate it before running in production.`);
+      fail(
+        `Environment variable "${name}" is set to a known-insecure default. Rotate it before running in production.`,
+      );
     } else {
-      // eslint-disable-next-line no-console
-      console.warn(`[config] WARNING: "${name}" uses a known-insecure default. This is only acceptable for local development.`);
+      console.warn(
+        `[config] WARNING: "${name}" uses a known-insecure default. This is only acceptable for local development.`,
+      );
     }
   }
 }
@@ -77,7 +79,9 @@ validateJwtSecret(JWT_SECRET);
 
 const DATABASE_URL = requireEnv('DATABASE_URL');
 if (!DATABASE_URL.startsWith('postgresql://') && !DATABASE_URL.startsWith('postgres://')) {
-  fail('DATABASE_URL must be a valid PostgreSQL connection string starting with postgresql:// or postgres://');
+  fail(
+    'DATABASE_URL must be a valid PostgreSQL connection string starting with postgresql:// or postgres://',
+  );
 }
 
 // ── Port & CORS configuration ──
@@ -89,7 +93,7 @@ if (isNaN(PORT) || PORT < 1 || PORT > 65535) {
 // In production, CORS_ORIGIN must be explicitly set to prevent unintended cross-origin access.
 const rawCorsOrigin = isProduction()
   ? requireEnv('CORS_ORIGIN')
-  : (process.env.CORS_ORIGIN || 'http://localhost:5173');
+  : process.env.CORS_ORIGIN || 'http://localhost:5173';
 const CORS_ORIGIN = validateCorsOrigin(rawCorsOrigin);
 
 // ── Redis configuration ──

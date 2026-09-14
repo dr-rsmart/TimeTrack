@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { employeeIdentityFilter, identityKey, normalizeEmployeeEmail } from '../../server/src/domain/employeeIdentity.js';
+import {
+  employeeIdentityFilter,
+  identityKey,
+  normalizeEmployeeEmail,
+} from '../../server/src/domain/employeeIdentity.js';
 
 describe('employee identity bridge', () => {
   const employees = [

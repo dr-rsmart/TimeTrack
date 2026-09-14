@@ -21,16 +21,58 @@ export interface ImportColumn {
 }
 
 export const IMPORT_COLUMNS: ImportColumn[] = [
-  { key: 'firstName', label: 'First Name', required: true, aliases: ['firstname', 'first name', 'first_name', 'given name'] },
-  { key: 'surname', label: 'Surname', required: true, aliases: ['surname', 'lastname', 'last name', 'last_name', 'family name'] },
+  {
+    key: 'firstName',
+    label: 'First Name',
+    required: true,
+    aliases: ['firstname', 'first name', 'first_name', 'given name'],
+  },
+  {
+    key: 'surname',
+    label: 'Surname',
+    required: true,
+    aliases: ['surname', 'lastname', 'last name', 'last_name', 'family name'],
+  },
   { key: 'email', label: 'Email', required: true, aliases: ['email', 'email address', 'e-mail'] },
-  { key: 'position', label: 'Position', required: false, aliases: ['position', 'job title', 'title', 'role title'] },
+  {
+    key: 'position',
+    label: 'Position',
+    required: false,
+    aliases: ['position', 'job title', 'title', 'role title'],
+  },
   { key: 'role', label: 'Role', required: false, aliases: ['role', 'user role', 'access role'] },
-  { key: 'employeeNumber', label: 'Employee Number', required: false, aliases: ['employee number', 'employeenumber', 'employee_number', 'emp no', 'staff number', 'employee id'] },
-  { key: 'phone', label: 'Phone', required: false, aliases: ['phone', 'phone number', 'mobile', 'cell', 'telephone'] },
+  {
+    key: 'employeeNumber',
+    label: 'Employee Number',
+    required: false,
+    aliases: [
+      'employee number',
+      'employeenumber',
+      'employee_number',
+      'emp no',
+      'staff number',
+      'employee id',
+    ],
+  },
+  {
+    key: 'phone',
+    label: 'Phone',
+    required: false,
+    aliases: ['phone', 'phone number', 'mobile', 'cell', 'telephone'],
+  },
   { key: 'branch', label: 'Branch', required: false, aliases: ['branch', 'location', 'site'] },
-  { key: 'department', label: 'Department', required: false, aliases: ['department', 'dept', 'team'] },
-  { key: 'hireDate', label: 'Hire Date (YYYY-MM-DD)', required: false, aliases: ['hiredate', 'hire date', 'hire_date', 'start date', 'startdate', 'start_date'] },
+  {
+    key: 'department',
+    label: 'Department',
+    required: false,
+    aliases: ['department', 'dept', 'team'],
+  },
+  {
+    key: 'hireDate',
+    label: 'Hire Date (YYYY-MM-DD)',
+    required: false,
+    aliases: ['hiredate', 'hire date', 'hire_date', 'start date', 'startdate', 'start_date'],
+  },
 ];
 
 export const VALID_ROLES = ['admin', 'manager', 'employee'] as const;
@@ -106,7 +148,10 @@ export function parseCsv(text: string, delimiter: string = ','): string[][] {
  * stripped. Shared by header mapping and delimiter detection.
  */
 export function normalizeHeaderToken(s: string): string {
-  return s.toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
+  return s
+    .toLowerCase()
+    .replace(/\(.*?\)/g, '')
+    .replace(/[^a-z0-9]/g, '');
 }
 
 const DELIMITER_CANDIDATES = [',', ';', '\t'] as const;
@@ -196,7 +241,11 @@ export interface ParseFileResult {
  */
 export function parseImportFile(cells: string[][]): ParseFileResult {
   if (cells.length === 0) {
-    return { rows: [], missingRequired: IMPORT_COLUMNS.filter((c) => c.required).map((c) => c.label), unknownHeaders: [] };
+    return {
+      rows: [],
+      missingRequired: IMPORT_COLUMNS.filter((c) => c.required).map((c) => c.label),
+      unknownHeaders: [],
+    };
   }
 
   const headers = cells[0].map((h) => h.trim().toLowerCase());
@@ -208,7 +257,9 @@ export function parseImportFile(cells: string[][]): ParseFileResult {
   const normalizeHeader = (s: string) => normalizeHeaderToken(s.trim());
   for (const col of IMPORT_COLUMNS) {
     const candidates = [col.key.toLowerCase(), ...col.aliases].map(normalizeHeaderToken);
-    const idx = headers.findIndex((h) => candidates.some((a) => a !== '' && normalizeHeader(h) === a));
+    const idx = headers.findIndex((h) =>
+      candidates.some((a) => a !== '' && normalizeHeader(h) === a),
+    );
     if (idx >= 0) {
       columnIndex.set(col.key, idx);
       matched.add(idx);
@@ -216,7 +267,9 @@ export function parseImportFile(cells: string[][]): ParseFileResult {
   }
 
   const unknownHeaders = headers.filter((h, i) => h !== '' && !matched.has(i));
-  const missingRequired = IMPORT_COLUMNS.filter((c) => c.required && !columnIndex.has(c.key)).map((c) => c.label);
+  const missingRequired = IMPORT_COLUMNS.filter((c) => c.required && !columnIndex.has(c.key)).map(
+    (c) => c.label,
+  );
 
   const rows: ImportRow[] = cells.slice(1).map((r, i) => {
     const values: Record<string, string> = {};
@@ -299,14 +352,24 @@ export function validateImportRows(rows: ImportRow[]): RowValidationResult {
     if (values.hireDate) {
       const iso = normalizeDateValue(values.hireDate);
       if (!iso) {
-        rowErrors.push(`Hire Date must be a valid date (YYYY-MM-DD, YYYY/MM/DD or DD/MM/YYYY) — got "${values.hireDate}".`);
+        rowErrors.push(
+          `Hire Date must be a valid date (YYYY-MM-DD, YYYY/MM/DD or DD/MM/YYYY) — got "${values.hireDate}".`,
+        );
       } else {
         payload.hireDate = iso;
       }
     }
 
     // Optional string fields + length caps
-    for (const key of ['firstName', 'surname', 'position', 'employeeNumber', 'phone', 'branch', 'department'] as const) {
+    for (const key of [
+      'firstName',
+      'surname',
+      'position',
+      'employeeNumber',
+      'phone',
+      'branch',
+      'department',
+    ] as const) {
       const v = values[key];
       if (!v) continue;
       const max = FIELD_MAX[key];

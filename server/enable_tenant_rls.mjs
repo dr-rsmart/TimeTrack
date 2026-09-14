@@ -12,9 +12,17 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient({ log: ['error'] });
 const TABLES = [
-  'CompanyProfile', 'User', 'Employee', 'Shift', 'TimeEntry',
-  'CompanySettings', 'Geofence', 'EmployeeGeofence', 'LocationPreset',
-  'AuditLog', 'EmploymentHistory',
+  'CompanyProfile',
+  'User',
+  'Employee',
+  'Shift',
+  'TimeEntry',
+  'CompanySettings',
+  'Geofence',
+  'EmployeeGeofence',
+  'LocationPreset',
+  'AuditLog',
+  'EmploymentHistory',
 ];
 
 function parseArgs(argv) {
@@ -43,7 +51,8 @@ async function preflight() {
     WHERE "migration_name" = '6_tenant_integrity_and_rls_prepare'
       AND "finished_at" IS NOT NULL LIMIT 1
   `);
-  if (migration.length === 0) return { ready: false, reason: 'Migration 6_tenant_integrity_and_rls_prepare is not applied.' };
+  if (migration.length === 0)
+    return { ready: false, reason: 'Migration 6_tenant_integrity_and_rls_prepare is not applied.' };
 
   const policies = await prisma.$queryRawUnsafe(`
     SELECT COUNT(DISTINCT tablename)::int AS count FROM pg_policies
@@ -54,11 +63,14 @@ async function preflight() {
     FROM information_schema.triggers
     WHERE trigger_schema = 'public' AND trigger_name = 'timetrack_tenant_integrity'
   `);
-  const tables = await prisma.$queryRawUnsafe(`
+  const tables = await prisma.$queryRawUnsafe(
+    `
     SELECT COUNT(*) FILTER (WHERE relrowsecurity OR relforcerowsecurity)::int AS enabled
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'public' AND c.relname = ANY($1::text[])
-  `, TABLES);
+  `,
+    TABLES,
+  );
   const nullRows = await prisma.$queryRawUnsafe(`
     SELECT SUM(count)::int AS count FROM (
       SELECT COUNT(*)::int AS count FROM "Employee" WHERE "companyProfileId" IS NULL
@@ -92,8 +104,13 @@ async function preflight() {
     runtimeBridgeReady: process.env.RLS_RUNTIME_BRIDGE_READY === 'true',
   };
   return {
-    ready: values.policies >= TABLES.length && values.triggers >= 4 && values.enabled === 0
-      && values.strictNullTenantRows === 0 && values.inconsistentReferences === 0 && values.runtimeBridgeReady,
+    ready:
+      values.policies >= TABLES.length &&
+      values.triggers >= 4 &&
+      values.enabled === 0 &&
+      values.strictNullTenantRows === 0 &&
+      values.inconsistentReferences === 0 &&
+      values.runtimeBridgeReady,
     ...values,
   };
 }
@@ -109,13 +126,26 @@ export async function main(argv = process.argv.slice(2)) {
     if (!report.ready) {
       const output = { ...report, apply: options.apply, activated: false };
       if (options.json) console.log(JSON.stringify(output, null, 2));
-      else console.log('Tenant RLS activation blocked:', report.reason ?? 'preflight gates are not satisfied.');
+      else
+        console.log(
+          'Tenant RLS activation blocked:',
+          report.reason ?? 'preflight gates are not satisfied.',
+        );
       return 1;
     }
     if (!options.apply || !options.confirm) {
-      const output = { ...report, apply: options.apply, confirmed: options.confirm, activated: false, dryRun: true };
+      const output = {
+        ...report,
+        apply: options.apply,
+        confirmed: options.confirm,
+        activated: false,
+        dryRun: true,
+      };
       if (options.json) console.log(JSON.stringify(output, null, 2));
-      else console.log('Tenant RLS activation dry-run passed. Use --apply --confirm only after database-owner review.');
+      else
+        console.log(
+          'Tenant RLS activation dry-run passed. Use --apply --confirm only after database-owner review.',
+        );
       return 0;
     }
 
@@ -130,7 +160,10 @@ export async function main(argv = process.argv.slice(2)) {
     else console.log('Tenant RLS enabled and forced on all prepared tables.');
     return 0;
   } catch (error) {
-    if (options.json) console.log(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+    if (options.json)
+      console.log(
+        JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+      );
     else console.error('[enable-tenant-rls] failed:', error);
     return 1;
   } finally {

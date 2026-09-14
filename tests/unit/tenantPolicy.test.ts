@@ -44,16 +44,20 @@ describe('database tenant enforcement policy', () => {
   });
 
   it('rejects known cross-tenant references but tolerates legacy unknown references', () => {
-    expect(validateTenantReference({
-      relation: 'TimeEntry.employee',
-      rowTenantId: 'tenant-a',
-      referencedTenantId: 'tenant-b',
-    }).valid).toBe(false);
-    expect(validateTenantReference({
-      relation: 'TimeEntry.employee',
-      rowTenantId: 'tenant-a',
-      referencedTenantId: null,
-    }).valid).toBe(true);
+    expect(
+      validateTenantReference({
+        relation: 'TimeEntry.employee',
+        rowTenantId: 'tenant-a',
+        referencedTenantId: 'tenant-b',
+      }).valid,
+    ).toBe(false);
+    expect(
+      validateTenantReference({
+        relation: 'TimeEntry.employee',
+        rowTenantId: 'tenant-a',
+        referencedTenantId: null,
+      }).valid,
+    ).toBe(true);
   });
 
   it('requires every activation gate before FORCE RLS can be enabled', () => {

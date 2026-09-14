@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { AUTH_COOKIE_NAME, AUTH_COOKIE_OPTIONS, getAuthToken } from '../../server/src/authSession.js';
+import {
+  AUTH_COOKIE_NAME,
+  AUTH_COOKIE_OPTIONS,
+  getAuthToken,
+} from '../../server/src/authSession.js';
 
 describe('authentication session policy', () => {
   it('uses a persistent far-future cookie without a product max-age', () => {
@@ -16,7 +20,9 @@ describe('authentication session policy', () => {
         cookies: { tt_token: 'cookie-token' },
       }),
     ).toBe('bearer-token');
-    expect(getAuthToken({ headers: {}, cookies: { tt_token: 'cookie-token' } })).toBe('cookie-token');
+    expect(getAuthToken({ headers: {}, cookies: { tt_token: 'cookie-token' } })).toBe(
+      'cookie-token',
+    );
     expect(getAuthToken({ headers: {}, cookies: {} })).toBeUndefined();
   });
 });

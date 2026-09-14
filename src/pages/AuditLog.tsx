@@ -11,12 +11,27 @@ import { ScrollText, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { auditApi, type AuditEntry } from '../services/api';
 import {
-  Badge, Card, CardContent, EmptyState, Label,
-  Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Modal, Button,
+  Badge,
+  Card,
+  CardContent,
+  EmptyState,
+  Label,
+  Select,
+  Spinner,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Modal,
+  Button,
 } from '../components/ui';
 import { formatDate, formatTime } from '../lib/utils';
 
-const actionVariant = (action: string): 'default' | 'secondary' | 'success' | 'warning' | 'destructive' => {
+const actionVariant = (
+  action: string,
+): 'default' | 'secondary' | 'success' | 'warning' | 'destructive' => {
   if (action === 'create' || action === 'clock_in' || action === 'login') return 'success';
   if (action === 'update') return 'default';
   if (action === 'delete') return 'destructive';
@@ -91,7 +106,9 @@ export default function AuditLog() {
           <ScrollText className="w-5 h-5 text-brand" />
           <h1 className="text-2xl font-bold">Audit Trail</h1>
         </div>
-        <p className="text-sm text-muted-foreground">{total} recorded events · Immutable log · IPs redacted for managers</p>
+        <p className="text-sm text-muted-foreground">
+          {total} recorded events · Immutable log · IPs redacted for managers
+        </p>
       </div>
 
       {/* Filters */}
@@ -99,16 +116,34 @@ export default function AuditLog() {
         <CardContent className="flex flex-wrap items-end gap-4 p-4">
           <div className="space-y-1">
             <Label htmlFor="a-entity">Entity</Label>
-            <Select id="a-entity" className="w-48" value={entity} onChange={(e) => setEntity(e.target.value)}>
+            <Select
+              id="a-entity"
+              className="w-48"
+              value={entity}
+              onChange={(e) => setEntity(e.target.value)}
+            >
               <option value="">All entities</option>
-              {entities.map((en) => <option key={en} value={en}>{en}</option>)}
+              {entities.map((en) => (
+                <option key={en} value={en}>
+                  {en}
+                </option>
+              ))}
             </Select>
           </div>
           <div className="space-y-1">
             <Label htmlFor="a-action">Action</Label>
-            <Select id="a-action" className="w-48" value={action} onChange={(e) => setAction(e.target.value)}>
+            <Select
+              id="a-action"
+              className="w-48"
+              value={action}
+              onChange={(e) => setAction(e.target.value)}
+            >
               <option value="">All actions</option>
-              {actions.map((a) => <option key={a} value={a}>{a}</option>)}
+              {actions.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
             </Select>
           </div>
         </CardContent>
@@ -118,7 +153,9 @@ export default function AuditLog() {
       <Card className="border-border/50 overflow-hidden">
         <CardContent className="p-0">
           {loading ? (
-            <div className="flex h-48 items-center justify-center"><Spinner className="h-8 w-8" /></div>
+            <div className="flex h-48 items-center justify-center">
+              <Spinner className="h-8 w-8" />
+            </div>
           ) : items.length === 0 ? (
             <EmptyState message="No audit entries found" />
           ) : (
@@ -141,9 +178,7 @@ export default function AuditLog() {
                       <TableCell className="whitespace-nowrap">
                         {formatDate(item.createdAt)} {formatTime(item.createdAt)}
                       </TableCell>
-                      <TableCell className="font-medium">
-                        {item.staffName || '—'}
-                      </TableCell>
+                      <TableCell className="font-medium">{item.staffName || '—'}</TableCell>
                       <TableCell>{item.entity}</TableCell>
                       <TableCell>
                         <Badge variant={actionVariant(item.action)}>{item.action}</Badge>
@@ -154,7 +189,9 @@ export default function AuditLog() {
                       </TableCell>
                       <TableCell className="font-mono text-xs">{item.ipAddress || '—'}</TableCell>
                       <TableCell>
-                        <Button variant="outline" size="sm" onClick={() => setSelected(item)}>View</Button>
+                        <Button variant="outline" size="sm" onClick={() => setSelected(item)}>
+                          View
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -168,7 +205,11 @@ export default function AuditLog() {
                     disabled={loadingMore}
                     className="flex items-center gap-2"
                   >
-                    {loadingMore ? <Spinner className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    {loadingMore ? (
+                      <Spinner className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
                     Load more entries
                   </Button>
                 </div>
@@ -183,14 +224,32 @@ export default function AuditLog() {
         {selected && (
           <div className="space-y-4 text-sm">
             <div className="grid grid-cols-2 gap-4">
-              <div><span className="font-medium">Entity:</span> {selected.entity}</div>
-              <div><span className="font-medium">Entity ID:</span> {selected.entityId}</div>
-              <div><span className="font-medium">Action:</span> {selected.action}</div>
-              <div><span className="font-medium">Actor:</span> {selected.actorEmail} ({selected.actorRole})</div>
-              <div><span className="font-medium">IP:</span> {selected.ipAddress || '—'}</div>
-              <div><span className="font-medium">Branch:</span> {selected.branch || '—'}</div>
-              <div><span className="font-medium">Department:</span> {selected.department || '—'}</div>
-              <div><span className="font-medium">Timestamp:</span> {formatDate(selected.createdAt)} {formatTime(selected.createdAt)}</div>
+              <div>
+                <span className="font-medium">Entity:</span> {selected.entity}
+              </div>
+              <div>
+                <span className="font-medium">Entity ID:</span> {selected.entityId}
+              </div>
+              <div>
+                <span className="font-medium">Action:</span> {selected.action}
+              </div>
+              <div>
+                <span className="font-medium">Actor:</span> {selected.actorEmail} (
+                {selected.actorRole})
+              </div>
+              <div>
+                <span className="font-medium">IP:</span> {selected.ipAddress || '—'}
+              </div>
+              <div>
+                <span className="font-medium">Branch:</span> {selected.branch || '—'}
+              </div>
+              <div>
+                <span className="font-medium">Department:</span> {selected.department || '—'}
+              </div>
+              <div>
+                <span className="font-medium">Timestamp:</span> {formatDate(selected.createdAt)}{' '}
+                {formatTime(selected.createdAt)}
+              </div>
             </div>
             {selected.justification && (
               <div>
@@ -205,8 +264,12 @@ export default function AuditLog() {
                   {Object.entries(selected.changes).map(([field, diff]) => (
                     <div key={field} className="rounded-md border p-3">
                       <p className="font-mono text-xs font-semibold">{field}</p>
-                      <p className="text-xs text-destructive">Before: {JSON.stringify(diff.before)}</p>
-                      <p className="text-xs text-emerald-600">After: {JSON.stringify(diff.after)}</p>
+                      <p className="text-xs text-destructive">
+                        Before: {JSON.stringify(diff.before)}
+                      </p>
+                      <p className="text-xs text-emerald-600">
+                        After: {JSON.stringify(diff.after)}
+                      </p>
                     </div>
                   ))}
                 </div>

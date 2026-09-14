@@ -39,7 +39,9 @@ let hasErrors = false;
 let hasWarnings = false;
 
 const isProd = process.env.NODE_ENV === 'production';
-console.log(`\nDeployment Mode: ${isProd ? 'PRODUCTION (Strict Validation)' : 'DEVELOPMENT / STAGING'}`);
+console.log(
+  `\nDeployment Mode: ${isProd ? 'PRODUCTION (Strict Validation)' : 'DEVELOPMENT / STAGING'}`,
+);
 
 // 1. JWT_SECRET
 const jwtSecret = process.env.JWT_SECRET;
@@ -55,7 +57,9 @@ if (!jwtSecret || jwtSecret.trim() === '') {
     hasWarnings = true;
   }
 } else if (jwtSecret.length < 32) {
-  console.warn(`⚠️  WARNING: JWT_SECRET length (${jwtSecret.length} chars) is short. 48+ chars recommended.`);
+  console.warn(
+    `⚠️  WARNING: JWT_SECRET length (${jwtSecret.length} chars) is short. 48+ chars recommended.`,
+  );
   hasWarnings = true;
 } else {
   console.log(`✅ JWT_SECRET: Present (${jwtSecret.length} chars entropy).`);
@@ -81,9 +85,13 @@ if (isProd) {
     hasErrors = true;
   } else {
     const origins = corsOrigin.split(',').map((o) => o.trim());
-    const invalid = origins.find((o) => !o.startsWith('https://') || o.includes('localhost') || o === '*');
+    const invalid = origins.find(
+      (o) => !o.startsWith('https://') || o.includes('localhost') || o === '*',
+    );
     if (invalid) {
-      console.error(`❌ FATAL: Production CORS_ORIGIN contains invalid or insecure origin "${invalid}". Must be HTTPS and non-localhost.`);
+      console.error(
+        `❌ FATAL: Production CORS_ORIGIN contains invalid or insecure origin "${invalid}". Must be HTTPS and non-localhost.`,
+      );
       hasErrors = true;
     } else {
       console.log(`✅ CORS_ORIGIN: Validated HTTPS production origins: ${corsOrigin}`);

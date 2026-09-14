@@ -53,6 +53,7 @@ export function isTokenEpochStale(
   currentEpoch: number | null | undefined,
 ): boolean {
   const token = typeof tokenEpoch === 'number' && Number.isFinite(tokenEpoch) ? tokenEpoch : 0;
-  const current = typeof currentEpoch === 'number' && Number.isFinite(currentEpoch) ? currentEpoch : 0;
+  const current =
+    typeof currentEpoch === 'number' && Number.isFinite(currentEpoch) ? currentEpoch : 0;
   return token !== current;
 }

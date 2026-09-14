@@ -23,11 +23,16 @@ export function validateResolutionMapping({ source, target, mapping }) {
   const mappedTargetEmail = normalizeIdentityEmail(mapping.targetEmail);
 
   if (source.employeeId != null) errors.push('source row already has employeeId');
-  if (!mapping.employeeId || mapping.employeeId !== target.id) errors.push('employeeId does not match target employee');
-  if (!mappedSourceEmail || mappedSourceEmail !== sourceEmail) errors.push('sourceEmail does not match the current source row');
-  if (!mappedTargetEmail || mappedTargetEmail !== targetEmail) errors.push('targetEmail does not match the target employee');
-  if (!mapping.approvedBy || String(mapping.approvedBy).trim().length < 2) errors.push('approvedBy is required');
-  if (!mapping.reason || String(mapping.reason).trim().length < 5) errors.push('reason must be at least 5 characters');
+  if (!mapping.employeeId || mapping.employeeId !== target.id)
+    errors.push('employeeId does not match target employee');
+  if (!mappedSourceEmail || mappedSourceEmail !== sourceEmail)
+    errors.push('sourceEmail does not match the current source row');
+  if (!mappedTargetEmail || mappedTargetEmail !== targetEmail)
+    errors.push('targetEmail does not match the target employee');
+  if (!mapping.approvedBy || String(mapping.approvedBy).trim().length < 2)
+    errors.push('approvedBy is required');
+  if (!mapping.reason || String(mapping.reason).trim().length < 5)
+    errors.push('reason must be at least 5 characters');
   if (source.companyProfileId != null && target.companyProfileId !== source.companyProfileId) {
     errors.push('target employee belongs to a different tenant');
   }

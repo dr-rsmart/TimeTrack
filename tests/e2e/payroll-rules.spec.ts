@@ -94,4 +94,3 @@ test.describe('Payroll & Overtime Calculation Rules', () => {
     expect(result.totalHours).toBe(200);
   });
 });
-

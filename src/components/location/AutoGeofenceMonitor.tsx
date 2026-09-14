@@ -16,7 +16,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { timeEntryApi, type TimeEntry } from '../../services/api';
-import { useAutoGeofence, AUTO_CLOCK_EVENT, isAutoClockEligible } from '../../hooks/useAutoGeofence';
+import {
+  useAutoGeofence,
+  AUTO_CLOCK_EVENT,
+  isAutoClockEligible,
+} from '../../hooks/useAutoGeofence';
 import { useSSE } from '../../hooks/useSSE';
 import { checkGpsAvailability } from '../../utils/clockInHelper';
 

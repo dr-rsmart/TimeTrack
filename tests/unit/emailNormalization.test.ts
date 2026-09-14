@@ -10,8 +10,12 @@ describe('Email Normalization & Case-Insensitive Matching', () => {
   it('correctly matches target employee email regardless of casing', () => {
     const userEmail = 'Jennifer.Smith@Company.COM';
     const targetEmailFromReq = undefined;
-    const targetEmailLower = (typeof targetEmailFromReq === 'string' ? targetEmailFromReq : userEmail).toLowerCase().trim();
-    
+    const targetEmailLower = (
+      typeof targetEmailFromReq === 'string' ? targetEmailFromReq : userEmail
+    )
+      .toLowerCase()
+      .trim();
+
     expect(targetEmailLower).toBe('jennifer.smith@company.com');
   });
 });

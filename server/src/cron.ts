@@ -97,7 +97,9 @@ async function purgeRetentionPolicies(): Promise<void> {
       if (policy.entity === 'AuditLog') {
         // AuditLog is immutable/append-only: never purge. Log the skip so
         // operators know the policy exists but is intentionally not enforced.
-        console.log(`[cron] Retention policy for AuditLog ignored (append-only compliance record; archive manually).`);
+        console.log(
+          `[cron] Retention policy for AuditLog ignored (append-only compliance record; archive manually).`,
+        );
       }
       // No other purgeable entities are currently registered.
     }
@@ -127,7 +129,11 @@ async function closeStaleActiveTimeEntries(): Promise<void> {
 
     for (const entry of stale) {
       const clockOut = new Date(entry.clockIn.getTime() + STALE_ACTIVE_ENTRY_MAX_HOURS * 3_600_000);
-      const actualDuration = calculateWorkedDuration(entry.clockIn, clockOut, entry.breakMinutes ?? 0);
+      const actualDuration = calculateWorkedDuration(
+        entry.clockIn,
+        clockOut,
+        entry.breakMinutes ?? 0,
+      );
 
       await prisma.timeEntry.update({
         where: { id: entry.id },
@@ -154,10 +160,12 @@ async function closeStaleActiveTimeEntries(): Promise<void> {
           companyProfileId: entry.companyProfileId,
           branch: entry.branch,
           department: entry.department,
-        }
+        },
       );
 
-      console.log(`[cron] Auto-closed stale active time entry ${entry.id} (${entry.employeeEmail}).`);
+      console.log(
+        `[cron] Auto-closed stale active time entry ${entry.id} (${entry.employeeEmail}).`,
+      );
     }
   } catch (err) {
     console.error('[cron] Stale active time-entry close error:', err);
@@ -247,7 +255,11 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
       // bounded by the shift; leave it to the standard clock-out flows.
       if (activeEntry.clockIn.getTime() >= clockOut.getTime()) continue;
 
-      const actualDuration = calculateWorkedDuration(activeEntry.clockIn, clockOut, activeEntry.breakMinutes ?? 0);
+      const actualDuration = calculateWorkedDuration(
+        activeEntry.clockIn,
+        clockOut,
+        activeEntry.breakMinutes ?? 0,
+      );
 
       // Optimistic guard: only close if still active — a concurrent manual
       // clock-out must never be overwritten.
@@ -289,11 +301,11 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
           companyProfileId: activeEntry.companyProfileId,
           branch: activeEntry.branch,
           department: activeEntry.department,
-        }
+        },
       );
 
       console.log(
-        `[cron] Auto clock-out at shift end: entry ${activeEntry.id} (${activeEntry.employeeEmail}) closed at ${shift.endTime} for shift ${shift.id}.`
+        `[cron] Auto clock-out at shift end: entry ${activeEntry.id} (${activeEntry.employeeEmail}) closed at ${shift.endTime} for shift ${shift.id}.`,
       );
     }
 
@@ -305,15 +317,17 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
       where: { status: 'active', geofenceId: { not: null } },
       include: { geofence: true },
     });
-    const candidateDates = [
-      parseDate(biz.dateStr),
-      parseDate(yesterdayBiz.dateStr),
-    ];
+    const candidateDates = [parseDate(biz.dateStr), parseDate(yesterdayBiz.dateStr)];
 
     for (const entry of locationEntries) {
       const location = entry.geofence;
       if (!location || !entry.geofenceId) continue;
-      if (!location.workingStartTime || !location.workingEndTime || location.workingDays.length === 0) continue;
+      if (
+        !location.workingStartTime ||
+        !location.workingEndTime ||
+        location.workingDays.length === 0
+      )
+        continue;
 
       const openShift = await prisma.shift.findFirst({
         where: {
@@ -338,7 +352,11 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
       });
       if (!clockOut || clockOut.getTime() > now.getTime()) continue;
 
-      const actualDuration = calculateWorkedDuration(entry.clockIn, clockOut, entry.breakMinutes ?? 0);
+      const actualDuration = calculateWorkedDuration(
+        entry.clockIn,
+        clockOut,
+        entry.breakMinutes ?? 0,
+      );
       const closed = await prisma.timeEntry.updateMany({
         where: { id: entry.id, status: 'active' },
         data: {
@@ -460,7 +478,7 @@ async function detectNoShows(): Promise<void> {
           companyProfileId: shift.companyProfileId,
           branch: shift.branch,
           department: shift.department,
-        }
+        },
       );
 
       console.log(`[cron] Shift ${shift.id} marked as no_show`);

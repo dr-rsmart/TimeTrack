@@ -12,12 +12,25 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient({ log: ['error'] });
 const POLICY_TABLES = [
-  'CompanyProfile', 'User', 'Employee', 'Shift', 'TimeEntry',
-  'CompanySettings', 'Geofence', 'EmployeeGeofence', 'LocationPreset',
-  'AuditLog', 'EmploymentHistory',
+  'CompanyProfile',
+  'User',
+  'Employee',
+  'Shift',
+  'TimeEntry',
+  'CompanySettings',
+  'Geofence',
+  'EmployeeGeofence',
+  'LocationPreset',
+  'AuditLog',
+  'EmploymentHistory',
 ];
 const STRICT_NULL_TABLES = [
-  'Employee', 'Shift', 'TimeEntry', 'Geofence', 'EmployeeGeofence', 'LocationPreset',
+  'Employee',
+  'Shift',
+  'TimeEntry',
+  'Geofence',
+  'EmployeeGeofence',
+  'LocationPreset',
 ];
 
 function parseArgs(argv) {
@@ -51,18 +64,24 @@ async function migrationApplied() {
 async function catalogState() {
   const tableParams = POLICY_TABLES.map((_, index) => `$${index + 1}`).join(', ');
   const [tables, policies, triggers] = await Promise.all([
-    prisma.$queryRawUnsafe(`
+    prisma.$queryRawUnsafe(
+      `
       SELECT c.relname AS name, c.relrowsecurity AS "rowSecurity", c.relforcerowsecurity AS "forceRowSecurity"
       FROM pg_class c
       JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = 'public' AND c.relname IN (${tableParams})
-    `, ...POLICY_TABLES),
-    prisma.$queryRawUnsafe(`
+    `,
+      ...POLICY_TABLES,
+    ),
+    prisma.$queryRawUnsafe(
+      `
       SELECT DISTINCT tablename AS name
       FROM pg_policies
       WHERE schemaname = 'public' AND policyname = 'timetrack_tenant_isolation'
         AND tablename IN (${tableParams})
-    `, ...POLICY_TABLES),
+    `,
+      ...POLICY_TABLES,
+    ),
     prisma.$queryRawUnsafe(`
       SELECT DISTINCT event_object_table AS name
       FROM information_schema.triggers
@@ -70,10 +89,15 @@ async function catalogState() {
     `),
   ]);
 
-  const tableMap = new Map(tables.map((row) => [row.name, {
-    rowSecurity: Boolean(row.rowSecurity),
-    forceRowSecurity: Boolean(row.forceRowSecurity),
-  }]));
+  const tableMap = new Map(
+    tables.map((row) => [
+      row.name,
+      {
+        rowSecurity: Boolean(row.rowSecurity),
+        forceRowSecurity: Boolean(row.forceRowSecurity),
+      },
+    ]),
+  );
   return {
     tables: Object.fromEntries(POLICY_TABLES.map((name) => [name, tableMap.get(name) ?? null])),
     policies: policies.map((row) => row.name),
@@ -157,13 +181,21 @@ export async function main(argv = process.argv.slice(2)) {
       inconsistentReferences(),
     ]);
     const policiesInstalled = POLICY_TABLES.every((table) => catalog.policies.includes(table));
-    const integrityTriggersInstalled = ['Employee', 'Shift', 'TimeEntry', 'EmployeeGeofence']
-      .every((table) => catalog.integrityTriggers.includes(table));
-    const rlsAlreadyEnabled = Object.values(catalog.tables).some((table) => table?.rowSecurity || table?.forceRowSecurity);
+    const integrityTriggersInstalled = ['Employee', 'Shift', 'TimeEntry', 'EmployeeGeofence'].every(
+      (table) => catalog.integrityTriggers.includes(table),
+    );
+    const rlsAlreadyEnabled = Object.values(catalog.tables).some(
+      (table) => table?.rowSecurity || table?.forceRowSecurity,
+    );
     const nullTotal = Object.values(nullRows).reduce((sum, count) => sum + count, 0);
     const runtimeBridgeReady = process.env.RLS_RUNTIME_BRIDGE_READY === 'true';
-    const readyForActivation = policiesInstalled && integrityTriggersInstalled && !rlsAlreadyEnabled
-      && nullTotal === 0 && inconsistent === 0 && runtimeBridgeReady;
+    const readyForActivation =
+      policiesInstalled &&
+      integrityTriggersInstalled &&
+      !rlsAlreadyEnabled &&
+      nullTotal === 0 &&
+      inconsistent === 0 &&
+      runtimeBridgeReady;
     const report = {
       migrationApplied: true,
       policiesInstalled,
@@ -188,7 +220,10 @@ export async function main(argv = process.argv.slice(2)) {
     }
     return options.strict && !readyForActivation ? 1 : 0;
   } catch (error) {
-    if (options.json) console.log(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+    if (options.json)
+      console.log(
+        JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+      );
     else console.error('[tenant-rls-preflight] failed:', error);
     return 1;
   } finally {

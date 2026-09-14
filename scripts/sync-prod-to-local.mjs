@@ -30,7 +30,9 @@ function requireEnv(name) {
   const v = process.env[name];
   if (!v || !v.trim()) {
     console.error(`[sync-prod-to-local] FATAL: environment variable "${name}" is not set.`);
-    console.error('Set it in your shell (or an untracked .env.local) and run again. Never commit credentials.');
+    console.error(
+      'Set it in your shell (or an untracked .env.local) and run again. Never commit credentials.',
+    );
     process.exit(1);
   }
   return v.trim();
@@ -56,9 +58,14 @@ const PG_DUMP = `"${process.env.PG_DUMP_BIN || `${BIN_DIR}\\pg_dump.exe`}"`;
 
 console.log('1. Checking / Creating database timetrack_prod...');
 try {
-  const checkOut = execSync(`${PSQL} "${LOCAL_POSTGRES_ADMIN}" -t -c "SELECT 1 FROM pg_database WHERE datname='timetrack_prod'"`, { encoding: 'utf-8' });
+  const checkOut = execSync(
+    `${PSQL} "${LOCAL_POSTGRES_ADMIN}" -t -c "SELECT 1 FROM pg_database WHERE datname='timetrack_prod'"`,
+    { encoding: 'utf-8' },
+  );
   if (checkOut.trim() !== '1') {
-    execSync(`${PSQL} "${LOCAL_POSTGRES_ADMIN}" -c "CREATE DATABASE timetrack_prod"`, { stdio: 'inherit' });
+    execSync(`${PSQL} "${LOCAL_POSTGRES_ADMIN}" -c "CREATE DATABASE timetrack_prod"`, {
+      stdio: 'inherit',
+    });
     console.log('Created database timetrack_prod.');
   } else {
     console.log('Database timetrack_prod exists.');
@@ -71,7 +78,10 @@ try {
 console.log('2. Dumping schema and data from Railway production...');
 const dumpFile = 'prod_dump.sql';
 try {
-  execSync(`${PG_DUMP} --no-owner --no-privileges --clean --if-exists --dbname="${PROD_URL}" -f "${dumpFile}"`, { stdio: 'inherit' });
+  execSync(
+    `${PG_DUMP} --no-owner --no-privileges --clean --if-exists --dbname="${PROD_URL}" -f "${dumpFile}"`,
+    { stdio: 'inherit' },
+  );
   console.log('Dump completed successfully into', dumpFile);
 } catch (err) {
   console.error('Error dumping database:', err.message);
@@ -80,7 +90,10 @@ try {
 
 console.log('3. Terminating active connections to timetrack_prod...');
 try {
-  execSync(`${PSQL} "${LOCAL_POSTGRES_ADMIN}" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'timetrack_prod' AND pid <> pg_backend_pid();"`, { stdio: 'inherit' });
+  execSync(
+    `${PSQL} "${LOCAL_POSTGRES_ADMIN}" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'timetrack_prod' AND pid <> pg_backend_pid();"`,
+    { stdio: 'inherit' },
+  );
 } catch (e) {
   console.warn('Warning terminating connections:', e.message);
 }
@@ -100,7 +113,10 @@ try {
 
 console.log('5. Verifying tables in timetrack_prod...');
 try {
-  const tables = execSync(`${PSQL} "${LOCAL_PROD_URL}" -t -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'"`, { encoding: 'utf-8' });
+  const tables = execSync(
+    `${PSQL} "${LOCAL_PROD_URL}" -t -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'"`,
+    { encoding: 'utf-8' },
+  );
   console.log('Tables present:\n' + tables.trim());
 } catch (err) {
   console.error('Error verifying tables:', err.message);

@@ -8,17 +8,17 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import {
-  Sparkles,
-  ShieldCheck,
-  UserCog,
-  Users,
-  User,
-  ArrowRight,
-  HelpCircle,
-} from 'lucide-react';
+import { Sparkles, ShieldCheck, UserCog, Users, User, ArrowRight, HelpCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, Button, Spinner } from '../components/ui';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  Button,
+  Spinner,
+} from '../components/ui';
 import { toast } from 'sonner';
 import { masterApi } from '../services/api';
 
@@ -80,7 +80,6 @@ export default function Demo() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
-      
       {/* Header */}
       <div>
         <div className="flex items-center gap-2 mb-1">
@@ -100,7 +99,9 @@ export default function Demo() {
         <div className="text-sm">
           <h4 className="font-bold text-blue-900">Exclusive Operator Simulator Access</h4>
           <p className="text-slate-500 mt-1 leading-relaxed font-semibold">
-            In compliance with platform security audits, quick demo accounts are strictly hidden from the public login screen. They can only be executed internally from this Master Operator dashboard.
+            In compliance with platform security audits, quick demo accounts are strictly hidden
+            from the public login screen. They can only be executed internally from this Master
+            Operator dashboard.
           </p>
         </div>
       </Card>
@@ -112,9 +113,14 @@ export default function Demo() {
           const isCurrentLoading = loadingEmail === persona.email;
 
           return (
-            <Card key={persona.email} className="border border-slate-100 bg-white rounded-3xl shadow-xl shadow-slate-100/30 overflow-hidden flex flex-col justify-between">
+            <Card
+              key={persona.email}
+              className="border border-slate-100 bg-white rounded-3xl shadow-xl shadow-slate-100/30 overflow-hidden flex flex-col justify-between"
+            >
               <CardHeader className="flex flex-row items-start gap-4 p-6 pb-4">
-                <div className={`w-12 h-12 rounded-2xl border flex items-center justify-center shrink-0 ${persona.color}`}>
+                <div
+                  className={`w-12 h-12 rounded-2xl border flex items-center justify-center shrink-0 ${persona.color}`}
+                >
                   <Icon className="w-5 h-5" />
                 </div>
                 <div className="space-y-1 min-w-0">
@@ -126,7 +132,7 @@ export default function Demo() {
                   </CardDescription>
                 </div>
               </CardHeader>
-              
+
               <CardContent className="p-6 pt-0 space-y-5 flex-grow flex flex-col justify-between">
                 <p className="text-slate-500 text-sm font-semibold leading-relaxed">
                   {persona.description}
@@ -154,7 +160,6 @@ export default function Demo() {
           );
         })}
       </div>
-
     </div>
   );
 }

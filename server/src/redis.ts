@@ -103,7 +103,7 @@ export async function checkRedisHealth(): Promise<{
   try {
     const pingPromise = client.ping();
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Redis ping timed out after 2000ms')), 2000)
+      setTimeout(() => reject(new Error('Redis ping timed out after 2000ms')), 2000),
     );
     await Promise.race([pingPromise, timeoutPromise]);
     return {

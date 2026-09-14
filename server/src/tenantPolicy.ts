@@ -44,9 +44,7 @@ export const STRICT_TENANT_TABLES = [
   'LocationPreset',
 ] as const;
 
-export type TenantAccessContext =
-  | { kind: 'tenant'; tenantId: string }
-  | { kind: 'unrestricted' };
+export type TenantAccessContext = { kind: 'tenant'; tenantId: string } | { kind: 'unrestricted' };
 
 export function tenantContextFor(tenantId: string | null | undefined): TenantAccessContext {
   return tenantId && tenantId.trim().length > 0
@@ -104,7 +102,10 @@ export interface TenantReference {
  * Null references are allowed for legacy rows, but two known tenant IDs must
  * always agree. This is the behavior enforced by migration 6 triggers.
  */
-export function validateTenantReference(reference: TenantReference): { valid: boolean; reason?: string } {
+export function validateTenantReference(reference: TenantReference): {
+  valid: boolean;
+  reason?: string;
+} {
   if (reference.rowTenantId == null || reference.referencedTenantId == null) {
     return { valid: true };
   }

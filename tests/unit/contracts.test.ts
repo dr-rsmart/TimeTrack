@@ -13,8 +13,22 @@ describe('shared wire contracts', () => {
   it('exports the role and lifecycle values used by API payloads', () => {
     expect(Object.values(ROLE)).toEqual(['master', 'admin', 'manager', 'employee']);
     expect(Object.values(EMPLOYEE_STATUS)).toEqual(['active', 'suspended', 'terminated']);
-    expect(Object.values(SHIFT_STATUS)).toEqual(['scheduled', 'active', 'completed', 'cancelled', 'no_show']);
-    expect(Object.values(SHIFT_TYPE)).toEqual(['full_day', 'half_day', 'Holiday', 'Leave', 'Sick', 'PTO', 'Unpaid']);
+    expect(Object.values(SHIFT_STATUS)).toEqual([
+      'scheduled',
+      'active',
+      'completed',
+      'cancelled',
+      'no_show',
+    ]);
+    expect(Object.values(SHIFT_TYPE)).toEqual([
+      'full_day',
+      'half_day',
+      'Holiday',
+      'Leave',
+      'Sick',
+      'PTO',
+      'Unpaid',
+    ]);
   });
 
   it('keeps attendance actions/statuses and standard error codes stable', () => {

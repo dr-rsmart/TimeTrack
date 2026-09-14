@@ -58,7 +58,10 @@ async function isCompanyActive(companyProfileId: string): Promise<boolean | null
     return null;
   }
 
-  companyActiveCache.set(companyProfileId, { active, expires: Date.now() + COMPANY_ACTIVE_CACHE_TTL_MS });
+  companyActiveCache.set(companyProfileId, {
+    active,
+    expires: Date.now() + COMPANY_ACTIVE_CACHE_TTL_MS,
+  });
   return active;
 }
 
@@ -80,7 +83,10 @@ function applyInvalidateEmployeeStatusCache(email: string, companyProfileId: str
   employeeStatusCache.delete(employeeStatusCacheKey(email, companyProfileId));
 }
 
-export function invalidateEmployeeStatusCache(email: string, companyProfileId: string | null): void {
+export function invalidateEmployeeStatusCache(
+  email: string,
+  companyProfileId: string | null,
+): void {
   applyInvalidateEmployeeStatusCache(email, companyProfileId);
   // Fan out to every replica so termination/reactivation is enforced
   // cluster-wide immediately, not after the 15s TTL on the other nodes.
@@ -91,7 +97,10 @@ export function invalidateEmployeeStatusCache(email: string, companyProfileId: s
  * Returns whether the employee is terminated, or `null` if the check could
  * not be performed. Callers MUST treat `null` as fail-closed (503).
  */
-async function isEmployeeTerminated(email: string, companyProfileId: string | null): Promise<boolean | null> {
+async function isEmployeeTerminated(
+  email: string,
+  companyProfileId: string | null,
+): Promise<boolean | null> {
   const key = employeeStatusCacheKey(email, companyProfileId);
   const cached = employeeStatusCache.get(key);
   if (cached && cached.expires > Date.now()) return cached.terminated;
@@ -204,7 +213,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   // indefinitely. Fail-closed: if the check cannot run, deny.
   const sessionState = await getUserSessionState(user.id);
   if (sessionState === null) {
-    res.status(503).json({ error: 'Service temporarily unavailable. Please retry.', code: 'AUTH_CHECK_UNAVAILABLE' });
+    res.status(503).json({
+      error: 'Service temporarily unavailable. Please retry.',
+      code: 'AUTH_CHECK_UNAVAILABLE',
+    });
     return;
   }
   if (sessionState === 'missing') {
@@ -228,12 +240,16 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const active = await isCompanyActive(user.companyProfileId);
     if (active === null) {
       // Fail-closed: cannot verify suspension state.
-      res.status(503).json({ error: 'Service temporarily unavailable. Please retry.', code: 'AUTH_CHECK_UNAVAILABLE' });
+      res.status(503).json({
+        error: 'Service temporarily unavailable. Please retry.',
+        code: 'AUTH_CHECK_UNAVAILABLE',
+      });
       return;
     }
     if (!active) {
       res.status(403).json({
-        error: 'Your company account has been suspended. Please contact your administrator or support.',
+        error:
+          'Your company account has been suspended. Please contact your administrator or support.',
         code: 'COMPANY_SUSPENDED',
       });
       return;
@@ -248,7 +264,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const terminated = await isEmployeeTerminated(user.email, user.companyProfileId);
     if (terminated === null) {
       // Fail-closed: cannot verify termination state.
-      res.status(503).json({ error: 'Service temporarily unavailable. Please retry.', code: 'AUTH_CHECK_UNAVAILABLE' });
+      res.status(503).json({
+        error: 'Service temporarily unavailable. Please retry.',
+        code: 'AUTH_CHECK_UNAVAILABLE',
+      });
       return;
     }
     if (terminated) {
@@ -378,7 +397,10 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
   if (req.authUser.role === 'admin' && req.authUser.originalRole !== 'master') {
     const liveRole = await getLiveRole(req.authUser.id);
     if (liveRole === null) {
-      res.status(503).json({ error: 'Service temporarily unavailable. Please retry.', code: 'AUTH_CHECK_UNAVAILABLE' });
+      res.status(503).json({
+        error: 'Service temporarily unavailable. Please retry.',
+        code: 'AUTH_CHECK_UNAVAILABLE',
+      });
       return;
     }
     if (liveRole !== 'admin' && liveRole !== 'master') {
@@ -389,7 +411,11 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
   next();
 }
 
-export async function requireAdminOrManager(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function requireAdminOrManager(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
   if (!req.authUser) {
     res.status(401).json({ error: 'Authentication required.' });
     return;
@@ -404,7 +430,10 @@ export async function requireAdminOrManager(req: Request, res: Response, next: N
   if (req.authUser.role !== 'master' && req.authUser.originalRole !== 'master') {
     const liveRole = await getLiveRole(req.authUser.id);
     if (liveRole === null) {
-      res.status(503).json({ error: 'Service temporarily unavailable. Please retry.', code: 'AUTH_CHECK_UNAVAILABLE' });
+      res.status(503).json({
+        error: 'Service temporarily unavailable. Please retry.',
+        code: 'AUTH_CHECK_UNAVAILABLE',
+      });
       return;
     }
     if (!['admin', 'master', 'manager'].includes(liveRole)) {

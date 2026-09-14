@@ -124,7 +124,8 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
 
       const geofences: Geofence[] = data.geofences || [];
       setAllGeofences(geofences);
-      const assigned: string[] = data.employee?.geofenceIds ?? (data.employee?.geofenceId ? [data.employee.geofenceId] : []);
+      const assigned: string[] =
+        data.employee?.geofenceIds ?? (data.employee?.geofenceId ? [data.employee.geofenceId] : []);
       setAssignedGeofenceIds(assigned);
     } catch (err) {
       console.error('Failed to fetch work location data:', err);
@@ -169,13 +170,16 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
         return;
       }
       setPoorSignal(false);
-      setGpsAccuracy(typeof accuracy === 'number' && Number.isFinite(accuracy) ? Math.round(accuracy) : null);
+      setGpsAccuracy(
+        typeof accuracy === 'number' && Number.isFinite(accuracy) ? Math.round(accuracy) : null,
+      );
 
       // Determine allowed geofences (matches backend logic)
       const activeGeofences = allGeofences.filter((g) => g.isActive);
-      const assignedGeofences = assignedGeofenceIds.length > 0
-        ? activeGeofences.filter((g) => assignedGeofenceIds.includes(g.id))
-        : [];
+      const assignedGeofences =
+        assignedGeofenceIds.length > 0
+          ? activeGeofences.filter((g) => assignedGeofenceIds.includes(g.id))
+          : [];
       // Do not fall back to unrelated company locations when assignments exist
       // but are inactive. The backend treats that state as assigned-only (and
       // rejects strict clock-in until an admin reactivates or reassigns).
@@ -243,8 +247,8 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
           fetchData();
         }
       },
-      [fetchData]
-    )
+      [fetchData],
+    ),
   );
 
   // ── Format helpers ──
@@ -338,7 +342,9 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex h-32 items-center justify-center"><Spinner /></div>
+          <div className="flex h-32 items-center justify-center">
+            <Spinner />
+          </div>
         </CardContent>
       </Card>
     );
@@ -373,7 +379,13 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
           </CardContent>
         </Card>
         {canAddLocation && (
-          <AddLocationModal isOpen={showAddLocation} onClose={() => { setShowAddLocation(false); fetchData(); }} />
+          <AddLocationModal
+            isOpen={showAddLocation}
+            onClose={() => {
+              setShowAddLocation(false);
+              fetchData();
+            }}
+          />
         )}
       </>
     );
@@ -395,11 +407,11 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
             )}
           </CardTitle>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {allGeofences.filter((g) => g.isActive).length} active location(s) — GPS validation enabled
+            {allGeofences.filter((g) => g.isActive).length} active location(s) — GPS validation
+            enabled
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
-
           {/* GPS Error banner */}
           {gpsError && (
             <div className="rounded-lg p-3 bg-red-50 border border-red-200">
@@ -412,7 +424,9 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
           {poorSignal && !gpsError && (
             <div className="rounded-lg p-3 bg-amber-50 border border-amber-200">
               <p className="text-sm text-amber-700 font-medium">Poor GPS signal</p>
-              <p className="text-xs text-amber-600 mt-1">Unstable readings are ignored — showing your last reliable position.</p>
+              <p className="text-xs text-amber-600 mt-1">
+                Unstable readings are ignored — showing your last reliable position.
+              </p>
             </div>
           )}
 
@@ -447,15 +461,23 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
                   <>
                     <span className="text-orange-600 font-medium">Approaching boundary</span>
                     <span className="text-slate-400">
-                      {formatDistance(closestResult.distanceMeters - closestResult.geofence.radiusMeters)} outside the geofence — auto clock-out at {EXIT_BUFFER_METERS}m.
+                      {formatDistance(
+                        closestResult.distanceMeters - closestResult.geofence.radiusMeters,
+                      )}{' '}
+                      outside the geofence — auto clock-out at {EXIT_BUFFER_METERS}m.
                     </span>
                   </>
                 )}
                 {closestResult.zone === 'outside' && (
                   <>
-                    <span className="text-red-600 font-medium">Outside geofence — auto clock-out zone</span>
+                    <span className="text-red-600 font-medium">
+                      Outside geofence — auto clock-out zone
+                    </span>
                     <span className="text-slate-400">
-                      {formatDistance(closestResult.distanceMeters - closestResult.geofence.radiusMeters)} outside the geofence.
+                      {formatDistance(
+                        closestResult.distanceMeters - closestResult.geofence.radiusMeters,
+                      )}{' '}
+                      outside the geofence.
                     </span>
                   </>
                 )}
@@ -473,7 +495,9 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
           {!canAddLocation && distanceResults.length > 1 && (
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
-                {assignedGeofenceIds.length > 0 ? `Your Assigned Work Location${assignedGeofenceIds.length > 1 ? 's' : ''}` : `All Company Work Locations (${distanceResults.length})`}
+                {assignedGeofenceIds.length > 0
+                  ? `Your Assigned Work Location${assignedGeofenceIds.length > 1 ? 's' : ''}`
+                  : `All Company Work Locations (${distanceResults.length})`}
               </p>
               {distanceResults.map((r) => (
                 <div
@@ -485,18 +509,24 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
                     <div>
                       <span className="font-medium text-slate-700">{r.geofence.name}</span>
                       {r.geofence.address && (
-                        <span className="text-xs text-slate-400 block truncate">{r.geofence.address}</span>
+                        <span className="text-xs text-slate-400 block truncate">
+                          {r.geofence.address}
+                        </span>
                       )}
                     </div>
                     {r.isAssigned && (
-                      <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full shrink-0">Assigned</span>
+                      <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full shrink-0">
+                        Assigned
+                      </span>
                     )}
                   </div>
                   <div className="text-right shrink-0">
                     <span className={`font-medium tabular-nums ${zoneDistanceTextClass(r.zone)}`}>
                       {formatDistance(r.distanceMeters)}
                     </span>
-                    <span className="text-xs text-slate-400 ml-1">/ {formatRadius(r.geofence.radiusMeters)}</span>
+                    <span className="text-xs text-slate-400 ml-1">
+                      / {formatRadius(r.geofence.radiusMeters)}
+                    </span>
                   </div>
                 </div>
               ))}
@@ -507,9 +537,12 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
           {closestResult && (
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div className="rounded-lg bg-secondary/50 p-3">
-                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Geofence Centre</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
+                  Geofence Centre
+                </p>
                 <p className="font-medium tabular-nums">
-                  {closestResult.geofence.latitude.toFixed(6)}, {closestResult.geofence.longitude.toFixed(6)}
+                  {closestResult.geofence.latitude.toFixed(6)},{' '}
+                  {closestResult.geofence.longitude.toFixed(6)}
                 </p>
               </div>
               <div className="rounded-lg bg-secondary/50 p-3">

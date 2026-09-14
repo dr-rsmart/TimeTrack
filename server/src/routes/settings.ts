@@ -7,7 +7,12 @@
 import { Router } from 'express';
 import prisma from '../prisma.js';
 import { requireAuth, requireAdmin, requireAdminOrManager } from '../middleware/auth.js';
-import { validate, updateSettingsSchema, createGeofenceSchema, updateGeofenceSchema } from '../validation.js';
+import {
+  validate,
+  updateSettingsSchema,
+  createGeofenceSchema,
+  updateGeofenceSchema,
+} from '../validation.js';
 import { logAudit, getClientIp, computeChanges } from '../audit.js';
 import { broadcastScoped } from '../sse.js';
 import { haversineDistance } from '../geoValidationService.js';
@@ -85,7 +90,10 @@ router.put('/settings', requireAdmin, validate(updateSettingsSchema), async (req
     // Compliance: record a before/after diff so payroll-rule changes are
     // fully attributable and reversible in the audit trail.
     const changes = existing
-      ? computeChanges(existing as unknown as Record<string, unknown>, settings as unknown as Record<string, unknown>)
+      ? computeChanges(
+          existing as unknown as Record<string, unknown>,
+          settings as unknown as Record<string, unknown>,
+        )
       : undefined;
 
     logAudit({
@@ -100,7 +108,9 @@ router.put('/settings', requireAdmin, validate(updateSettingsSchema), async (req
       companyProfileId: authUser.companyProfileId,
     });
 
-    broadcastScoped('CompanySettings', 'update', settings, { companyProfileId: authUser.companyProfileId });
+    broadcastScoped('CompanySettings', 'update', settings, {
+      companyProfileId: authUser.companyProfileId,
+    });
 
     res.json({ settings });
   } catch (err) {
@@ -197,7 +207,7 @@ router.post('/holidays', requireAdmin, async (req, res) => {
 
     logAudit({
       entity: 'CompanySettings',
-      entityId: isSystemScope ? 'system' : authUser.companyProfileId ?? 'unknown',
+      entityId: isSystemScope ? 'system' : (authUser.companyProfileId ?? 'unknown'),
       action: 'add_holiday',
       actorId: authUser.id,
       actorEmail: authUser.email,
@@ -256,7 +266,7 @@ router.delete('/holidays/:date', requireAdmin, async (req, res) => {
 
     logAudit({
       entity: 'CompanySettings',
-      entityId: isSystemScope ? 'system' : authUser.companyProfileId ?? 'unknown',
+      entityId: isSystemScope ? 'system' : (authUser.companyProfileId ?? 'unknown'),
       action: 'remove_holiday',
       actorId: authUser.id,
       actorEmail: authUser.email,
@@ -445,7 +455,9 @@ router.post('/geofences', requireAdmin, validate(createGeofenceSchema), async (r
       ipAddress: getClientIp(req),
     });
 
-    broadcastScoped('Geofence', 'create', geofence, { companyProfileId: authUser.companyProfileId });
+    broadcastScoped('Geofence', 'create', geofence, {
+      companyProfileId: authUser.companyProfileId,
+    });
 
     res.status(201).json({ geofence });
   } catch (err) {
@@ -467,7 +479,10 @@ router.put('/geofences/:id', requireAdmin, validate(updateGeofenceSchema), async
     // Master without tenant context can only modify global geofences
     if (authUser.role === 'master' && !authUser.companyProfileId) {
       if (existing.companyProfileId !== null) {
-        return accessDenied(res, 'Master cannot modify tenant geofences directly. Use Impersonate to manage company locations.');
+        return accessDenied(
+          res,
+          'Master cannot modify tenant geofences directly. Use Impersonate to manage company locations.',
+        );
       }
     } else if (existing.companyProfileId !== authUser.companyProfileId) {
       return accessDenied(res);
@@ -485,7 +500,9 @@ router.put('/geofences/:id', requireAdmin, validate(updateGeofenceSchema), async
       ipAddress: getClientIp(req),
     });
 
-    broadcastScoped('Geofence', 'update', geofence, { companyProfileId: authUser.companyProfileId });
+    broadcastScoped('Geofence', 'update', geofence, {
+      companyProfileId: authUser.companyProfileId,
+    });
 
     res.json({ geofence });
   } catch (err) {
@@ -503,7 +520,12 @@ router.post('/geofences/test-distance', requireAuth, async (req, res) => {
     const authUser = req.authUser!;
     const { latitude, longitude, radiusMeters, geofenceId } = req.body as Record<string, unknown>;
 
-    if (latitude == null || longitude == null || typeof latitude !== 'number' || typeof longitude !== 'number') {
+    if (
+      latitude == null ||
+      longitude == null ||
+      typeof latitude !== 'number' ||
+      typeof longitude !== 'number'
+    ) {
       return badRequest(res, 'latitude and longitude are required numbers.');
     }
     if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
@@ -578,15 +600,15 @@ router.post('/geofences/test-distance', requireAuth, async (req, res) => {
 // search for addresses when adding a new work location.
 router.get('/geocode', requireAuth, async (req, res) => {
   try {
-    const q = (req.query.q as string || '').trim();
+    const q = ((req.query.q as string) || '').trim();
     if (!q || q.length < 2) {
       return badRequest(res, 'Search query "q" must be at least 2 characters.');
     }
 
     // Retry logic with exponential backoff for OpenStreetMap Nominatim rate limits (429)
     let response: Response | null = null;
-    let retries = 3;
-    let delay = 1000;
+    const retries = 3;
+    const delay = 1000;
 
     for (let i = 0; i < retries; i++) {
       try {
@@ -609,7 +631,10 @@ router.get('/geocode', requireAuth, async (req, res) => {
     }
 
     if (!response || !response.ok) {
-      return badGateway(res, 'Geocoding service unavailable after retries. Please try again or enter coordinates manually.');
+      return badGateway(
+        res,
+        'Geocoding service unavailable after retries. Please try again or enter coordinates manually.',
+      );
     }
 
     const data = (await response.json()) as Array<{
@@ -643,7 +668,10 @@ router.post('/geofences/:id/assign-employees', requireAdmin, async (req, res) =>
   try {
     const authUser = req.authUser!;
     const id = req.params.id as string;
-    const { employeeIds, mode } = req.body as { employeeIds?: string[]; mode?: 'assign' | 'unassign' };
+    const { employeeIds, mode } = req.body as {
+      employeeIds?: string[];
+      mode?: 'assign' | 'unassign';
+    };
     const unassign = mode === 'unassign';
 
     if (!Array.isArray(employeeIds) || employeeIds.length === 0) {
@@ -656,7 +684,8 @@ router.post('/geofences/:id/assign-employees', requireAdmin, async (req, res) =>
     const uniqueEmployeeIds = [
       ...new Set(
         employeeIds.filter(
-          (employeeId): employeeId is string => typeof employeeId === 'string' && employeeId.trim().length > 0,
+          (employeeId): employeeId is string =>
+            typeof employeeId === 'string' && employeeId.trim().length > 0,
         ),
       ),
     ];
@@ -670,7 +699,10 @@ router.post('/geofences/:id/assign-employees', requireAdmin, async (req, res) =>
     // Master without tenant context cannot assign employees to tenant geofences
     if (authUser.role === 'master' && !authUser.companyProfileId) {
       if (geofence.companyProfileId !== null) {
-        return accessDenied(res, 'Master cannot assign employees to tenant geofences directly. Use Impersonate to manage company locations.');
+        return accessDenied(
+          res,
+          'Master cannot assign employees to tenant geofences directly. Use Impersonate to manage company locations.',
+        );
       }
     } else if (geofence.companyProfileId !== authUser.companyProfileId) {
       return accessDenied(res);
@@ -709,12 +741,14 @@ router.post('/geofences/:id/assign-employees', requireAdmin, async (req, res) =>
         });
         const primaryByEmployee = new Map<string, string>();
         for (const row of remaining) {
-          if (!primaryByEmployee.has(row.employeeId)) primaryByEmployee.set(row.employeeId, row.geofenceId);
+          if (!primaryByEmployee.has(row.employeeId))
+            primaryByEmployee.set(row.employeeId, row.geofenceId);
         }
         for (const employee of employees) {
-          const nextPrimary = employee.geofenceId !== id
-            ? employee.geofenceId
-            : primaryByEmployee.get(employee.id) ?? null;
+          const nextPrimary =
+            employee.geofenceId !== id
+              ? employee.geofenceId
+              : (primaryByEmployee.get(employee.id) ?? null);
           await tx.employee.update({
             where: { id: employee.id },
             data: { geofenceId: nextPrimary },
@@ -754,14 +788,24 @@ router.post('/geofences/:id/assign-employees', requireAdmin, async (req, res) =>
 
     // Let employee apps pick up the change without a reload (MyWorkLocation,
     // auto-geofence monitor both listen for geofence broadcasts).
-    broadcastScoped('geofence', unassign ? 'unassignEmployees' : 'assignEmployees', {
-      geofenceId: id,
-      employeeIds: empIds,
-    }, {
-      companyProfileId: geofence.companyProfileId,
-    });
+    broadcastScoped(
+      'geofence',
+      unassign ? 'unassignEmployees' : 'assignEmployees',
+      {
+        geofenceId: id,
+        employeeIds: empIds,
+      },
+      {
+        companyProfileId: geofence.companyProfileId,
+      },
+    );
 
-    res.json({ success: true, assignedCount: employees.length, geofenceName: geofence.name, mode: unassign ? 'unassign' : 'assign' });
+    res.json({
+      success: true,
+      assignedCount: employees.length,
+      geofenceName: geofence.name,
+      mode: unassign ? 'unassign' : 'assign',
+    });
   } catch (err) {
     console.error('[settings] Assign employees error:', err);
     internalError(res, 'assigning employees to geofence');
@@ -866,7 +910,12 @@ router.post('/location-presets', requireAdmin, async (req, res) => {
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
       return badRequest(res, 'Preset name is required.');
     }
-    if (latitude == null || longitude == null || typeof latitude !== 'number' || typeof longitude !== 'number') {
+    if (
+      latitude == null ||
+      longitude == null ||
+      typeof latitude !== 'number' ||
+      typeof longitude !== 'number'
+    ) {
       return badRequest(res, 'latitude and longitude are required numbers.');
     }
     if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
@@ -879,7 +928,10 @@ router.post('/location-presets', requireAdmin, async (req, res) => {
         address: address || null,
         latitude,
         longitude,
-        radiusMeters: typeof radiusMeters === 'number' && radiusMeters >= 10 && radiusMeters <= 100000 ? radiusMeters : 200,
+        radiusMeters:
+          typeof radiusMeters === 'number' && radiusMeters >= 10 && radiusMeters <= 100000
+            ? radiusMeters
+            : 200,
         companyProfileId: authUser.companyProfileId,
       },
     });
@@ -947,7 +999,10 @@ router.delete('/geofences/:id', requireAdmin, async (req, res) => {
     // Master without tenant context can only delete global geofences
     if (authUser.role === 'master' && !authUser.companyProfileId) {
       if (existing.companyProfileId !== null) {
-        return accessDenied(res, 'Master cannot delete tenant geofences directly. Use Impersonate to manage company locations.');
+        return accessDenied(
+          res,
+          'Master cannot delete tenant geofences directly. Use Impersonate to manage company locations.',
+        );
       }
     } else if (existing.companyProfileId !== authUser.companyProfileId) {
       return accessDenied(res);
@@ -962,13 +1017,17 @@ router.delete('/geofences/:id', requireAdmin, async (req, res) => {
         select: { id: true },
       });
       const remaining = await tx.employeeGeofence.findMany({
-        where: { employeeId: { in: affectedEmployees.map((employee) => employee.id) }, geofenceId: { not: id } },
+        where: {
+          employeeId: { in: affectedEmployees.map((employee) => employee.id) },
+          geofenceId: { not: id },
+        },
         orderBy: { createdAt: 'asc' },
         select: { employeeId: true, geofenceId: true },
       });
       const primaryByEmployee = new Map<string, string>();
       for (const row of remaining) {
-        if (!primaryByEmployee.has(row.employeeId)) primaryByEmployee.set(row.employeeId, row.geofenceId);
+        if (!primaryByEmployee.has(row.employeeId))
+          primaryByEmployee.set(row.employeeId, row.geofenceId);
       }
       for (const employee of affectedEmployees) {
         await tx.employee.update({

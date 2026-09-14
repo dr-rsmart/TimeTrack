@@ -35,7 +35,12 @@ import { toast } from 'sonner';
 
 // Navigation items with role-based access control
 const allNavItems = [
-  { path: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['master', 'admin', 'manager', 'employee'] },
+  {
+    path: '/',
+    label: 'Dashboard',
+    icon: LayoutDashboard,
+    roles: ['master', 'admin', 'manager', 'employee'],
+  },
   { path: '/employees', label: 'Workforce', icon: Users, roles: ['admin', 'manager'] },
   { path: '/register', label: 'Register', icon: Users, roles: ['master'] },
   { path: '/shifts', label: 'Shifts', icon: CalendarDays, roles: ['admin', 'manager', 'employee'] },
@@ -44,10 +49,19 @@ const allNavItems = [
   { path: '/audit', label: 'Audit', icon: ScrollText, roles: ['admin', 'manager'] },
   { path: '/settings', label: 'Settings', icon: Settings, roles: ['admin', 'master'] },
   { path: '/demo', label: 'Demo', icon: Sparkles, roles: ['master'] },
-  { path: '/faq', label: 'FAQ', icon: HelpCircle, roles: ['master', 'admin', 'manager', 'employee'] },
-  { path: '/profile', label: 'Profile', icon: User, roles: ['master', 'admin', 'manager', 'employee'] },
+  {
+    path: '/faq',
+    label: 'FAQ',
+    icon: HelpCircle,
+    roles: ['master', 'admin', 'manager', 'employee'],
+  },
+  {
+    path: '/profile',
+    label: 'Profile',
+    icon: User,
+    roles: ['master', 'admin', 'manager', 'employee'],
+  },
 ];
-
 
 export default function AppLayout() {
   const location = useLocation();
@@ -112,7 +126,8 @@ export default function AppLayout() {
               </span>
             ) : (
               <span>
-                Impersonating: <span className="font-bold">{user?.companyProfile?.name || 'Tenant Admin'}</span>
+                Impersonating:{' '}
+                <span className="font-bold">{user?.companyProfile?.name || 'Tenant Admin'}</span>
               </span>
             )}
           </div>
@@ -221,7 +236,11 @@ export default function AppLayout() {
                 aria-label="Toggle theme"
                 data-testid="theme-toggle"
               >
-                {resolvedTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                {resolvedTheme === 'dark' ? (
+                  <Sun className="w-4 h-4" />
+                ) : (
+                  <Moon className="w-4 h-4" />
+                )}
               </button>
 
               {/* FAQ shortcut remains available on narrow screens even when
@@ -298,7 +317,9 @@ export default function AppLayout() {
                 aria-current={isActive ? 'page' : undefined}
                 className={cn(
                   'relative flex flex-col items-center gap-0.5 rounded-xl px-3 py-1.5 transition-all duration-300 min-w-[52px]',
-                  isActive ? 'text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+                  isActive
+                    ? 'text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
                 )}
               >
                 {isActive && (

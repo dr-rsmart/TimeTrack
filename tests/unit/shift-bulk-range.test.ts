@@ -11,7 +11,10 @@ describe('expandShiftDateRange (bulk shift date ranges)', () => {
   });
 
   it('returns a single day when endDate is undefined', () => {
-    expect(expandShiftDateRange('2026-08-21', undefined)).toEqual({ ok: true, days: ['2026-08-21'] });
+    expect(expandShiftDateRange('2026-08-21', undefined)).toEqual({
+      ok: true,
+      days: ['2026-08-21'],
+    });
   });
 
   it('expands an inclusive range (21 Aug 2026 to 20 Sep 2026 = 31 days)', () => {
@@ -29,13 +32,21 @@ describe('expandShiftDateRange (bulk shift date ranges)', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.days).toEqual([
-        '2026-12-28', '2026-12-29', '2026-12-30', '2026-12-31', '2027-01-01', '2027-01-02',
+        '2026-12-28',
+        '2026-12-29',
+        '2026-12-30',
+        '2026-12-31',
+        '2027-01-01',
+        '2027-01-02',
       ]);
     }
   });
 
   it('treats endDate equal to start date as a single day', () => {
-    expect(expandShiftDateRange('2026-08-21', '2026-08-21')).toEqual({ ok: true, days: ['2026-08-21'] });
+    expect(expandShiftDateRange('2026-08-21', '2026-08-21')).toEqual({
+      ok: true,
+      days: ['2026-08-21'],
+    });
   });
 
   it('rejects an endDate before the start date', () => {

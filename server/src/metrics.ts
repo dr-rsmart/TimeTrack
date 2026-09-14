@@ -52,7 +52,9 @@ export function getMetricSnapshot() {
  * Extra gauges (SSE clients, redis, memory) are supplied by the route so
  * this module stays dependency-free.
  */
-export function renderMetrics(extra: { name: string; help: string; type: string; value: number }[] = []): string {
+export function renderMetrics(
+  extra: { name: string; help: string; type: string; value: number }[] = [],
+): string {
   const mem = process.memoryUsage();
   const lines: string[] = [];
 

@@ -71,8 +71,16 @@ jobs:
       - name: Typecheck (frontend + server)
         run: npm run typecheck
 
-      - name: Unit tests (vitest)
-        run: npx vitest run
+      - name: Format check (prettier)
+        run: npm run format:check
+
+      - name: Lint (eslint — web + server)
+        run: |
+          npm run lint
+          cd server && npm run lint
+
+      - name: Unit tests (vitest, coverage thresholds)
+        run: npx vitest run --coverage
 
       - name: Production build
         run: npm run build

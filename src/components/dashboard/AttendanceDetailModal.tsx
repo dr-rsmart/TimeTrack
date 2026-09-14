@@ -164,7 +164,8 @@ export default function AttendanceDetailModal({
               </Badge>
               <Badge variant="secondary">
                 <UserX className="w-3.5 h-3.5 mr-1" />
-                {summary ? summary.totalEmployees - summary.clockedInNow : notClockedInCount} not clocked in
+                {summary ? summary.totalEmployees - summary.clockedInNow : notClockedInCount} not
+                clocked in
               </Badge>
             </div>
             <Input
@@ -172,11 +173,14 @@ export default function AttendanceDetailModal({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-            <DetailTable rows={rosterSorted} showStatus emptyMessage="No employees match your search" />
+            <DetailTable
+              rows={rosterSorted}
+              showStatus
+              emptyMessage="No employees match your search"
+            />
           </>
         )}
       </div>
     </Modal>
   );
 }
-

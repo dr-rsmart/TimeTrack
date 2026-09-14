@@ -73,7 +73,9 @@ async function main() {
       console.log('✅ Partial unique index exists and is active.');
       console.log(`   Definition: ${indexResult[0].indexdef}`);
     } else {
-      console.warn('⚠️  Index "uniq_active_time_entry_employee" not found in pg_indexes. Creating now...');
+      console.warn(
+        '⚠️  Index "uniq_active_time_entry_employee" not found in pg_indexes. Creating now...',
+      );
       try {
         await prisma.$executeRaw`
           CREATE UNIQUE INDEX IF NOT EXISTS "uniq_active_time_entry_employee"
@@ -121,7 +123,6 @@ async function main() {
       console.error(`✗ Found ${duplicateActive} duplicate active clock-in session(s)!`);
       passed = false;
     }
-
   } catch (err) {
     console.error('\n✗ Database verification failed with fatal error:', err);
     passed = false;

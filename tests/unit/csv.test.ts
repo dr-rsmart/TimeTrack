@@ -79,7 +79,9 @@ describe('CSV Utilities (Bulk Onboarding)', () => {
     });
 
     it('lists unknown headers as ignored', () => {
-      const res = parseImportFile(parseCsv('First Name,Surname,Email,FavouriteColour\nA,B,a@b.com,Blue'));
+      const res = parseImportFile(
+        parseCsv('First Name,Surname,Email,FavouriteColour\nA,B,a@b.com,Blue'),
+      );
       expect(res.unknownHeaders).toEqual(['favouritecolour']);
       expect(res.missingRequired).toEqual([]);
     });
@@ -188,9 +190,11 @@ describe('CSV Utilities (Bulk Onboarding)', () => {
     });
   });
 
-
   describe('validateImportRows', () => {
-    const row = (rowNumber: number, values: Record<string, string>): ImportRow => ({ rowNumber, values });
+    const row = (rowNumber: number, values: Record<string, string>): ImportRow => ({
+      rowNumber,
+      values,
+    });
 
     it('accepts a fully valid row and normalizes the payload', () => {
       const res = validateImportRows([
@@ -243,7 +247,13 @@ describe('CSV Utilities (Bulk Onboarding)', () => {
 
     it('flags invalid roles and invalid hire dates', () => {
       const res = validateImportRows([
-        row(2, { firstName: 'A', surname: 'B', email: 'a@x.com', role: 'superuser', hireDate: '15 Jan 2024' }),
+        row(2, {
+          firstName: 'A',
+          surname: 'B',
+          email: 'a@x.com',
+          role: 'superuser',
+          hireDate: '15 Jan 2024',
+        }),
       ]);
       expect(res.errors).toHaveLength(1);
       expect(res.errors[0].message).toContain('Invalid role');
@@ -278,5 +288,4 @@ describe('CSV Utilities (Bulk Onboarding)', () => {
       expect(res.errors[0].rowNumber).toBe(3);
     });
   });
-
 });

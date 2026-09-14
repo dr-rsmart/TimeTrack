@@ -8,7 +8,15 @@
 
 import { addBusinessDays, businessNow, businessTimeToDate, timeStrToMinutes } from './timezone.js';
 
-const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+const DAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const;
 
 function dayName(dateStr: string): string {
   return DAY_NAMES[new Date(`${dateStr}T12:00:00Z`).getUTCDay()];

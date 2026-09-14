@@ -17,7 +17,11 @@ import {
   buildManagerScopeClauses,
 } from '../../server/src/scopeRules';
 import { isMasterAuthorized, IMPERSONATION_EXIT_PATH } from '../../server/src/masterAuth';
-import { isTokenEpochStale, isDefaultPasswordHash, DEFAULT_PASSWORD } from '../../server/src/passwords';
+import {
+  isTokenEpochStale,
+  isDefaultPasswordHash,
+  DEFAULT_PASSWORD,
+} from '../../server/src/passwords';
 import bcrypt from 'bcryptjs';
 
 test.describe('Role-Based Access Control (RBAC) & Multi-Tenancy', () => {
@@ -29,9 +33,23 @@ test.describe('Role-Based Access Control (RBAC) & Multi-Tenancy', () => {
 
   test('manager with explicit branch+dept sees same branch+dept employees (real rules)', () => {
     const manager = { id: 'mgr-1', branch: 'Main', department: 'Engineering' };
-    expect(isTargetInManagerScope(manager, { managerId: null, branch: 'Main', department: 'Engineering' })).toBe(true);
-    expect(isTargetInManagerScope(manager, { managerId: null, branch: 'North', department: 'Logistics' })).toBe(false);
-    expect(isTargetInManagerScope(manager, { managerId: null, branch: 'Main', department: 'Logistics' })).toBe(false);
+    expect(
+      isTargetInManagerScope(manager, {
+        managerId: null,
+        branch: 'Main',
+        department: 'Engineering',
+      }),
+    ).toBe(true);
+    expect(
+      isTargetInManagerScope(manager, {
+        managerId: null,
+        branch: 'North',
+        department: 'Logistics',
+      }),
+    ).toBe(false);
+    expect(
+      isTargetInManagerScope(manager, { managerId: null, branch: 'Main', department: 'Logistics' }),
+    ).toBe(false);
   });
 
   test('SECURITY: default-valued manager never gets a visibility bridge (real rules)', () => {
@@ -50,7 +68,13 @@ test.describe('Role-Based Access Control (RBAC) & Multi-Tenancy', () => {
     expect(hasExplicitAssignment('Main', DEFAULT_DEPARTMENT)).toBe(false);
     expect(hasExplicitAssignment(DEFAULT_BRANCH, 'Engineering')).toBe(false);
     // Direct reports remain visible even for default-valued managers.
-    expect(isTargetInManagerScope(defaultManager, { managerId: 'mgr-2', branch: DEFAULT_BRANCH, department: DEFAULT_DEPARTMENT })).toBe(true);
+    expect(
+      isTargetInManagerScope(defaultManager, {
+        managerId: 'mgr-2',
+        branch: DEFAULT_BRANCH,
+        department: DEFAULT_DEPARTMENT,
+      }),
+    ).toBe(true);
   });
 
   test('scope query clauses mirror the decision rule (real builder)', () => {
@@ -58,7 +82,11 @@ test.describe('Role-Based Access Control (RBAC) & Multi-Tenancy', () => {
     expect(explicit).toHaveLength(2); // direct reports OR branch+dept
     expect(explicit[0]).toEqual({ managerId: 'm1' });
 
-    const defaulted = buildManagerScopeClauses({ id: 'm2', branch: DEFAULT_BRANCH, department: DEFAULT_DEPARTMENT });
+    const defaulted = buildManagerScopeClauses({
+      id: 'm2',
+      branch: DEFAULT_BRANCH,
+      department: DEFAULT_DEPARTMENT,
+    });
     expect(defaulted).toHaveLength(1); // direct reports ONLY — no bridge
     expect(defaulted[0]).toEqual({ managerId: 'm2' });
   });
@@ -78,7 +106,9 @@ test.describe('Role-Based Access Control (RBAC) & Multi-Tenancy', () => {
 
     // Nobody else gets in.
     expect(isMasterAuthorized({ role: 'admin', originalRole: null }, '/stats')).toBe(false);
-    expect(isMasterAuthorized({ role: 'employee', originalRole: null }, IMPERSONATION_EXIT_PATH)).toBe(false);
+    expect(
+      isMasterAuthorized({ role: 'employee', originalRole: null }, IMPERSONATION_EXIT_PATH),
+    ).toBe(false);
     expect(isMasterAuthorized(null, '/stats')).toBe(false);
     expect(isMasterAuthorized(undefined, IMPERSONATION_EXIT_PATH)).toBe(false);
   });
@@ -106,4 +136,3 @@ test.describe('Role-Based Access Control (RBAC) & Multi-Tenancy', () => {
     expect(await isDefaultPasswordHash('not-a-bcrypt-hash')).toBe(false);
   });
 });
-

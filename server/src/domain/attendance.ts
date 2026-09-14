@@ -6,10 +6,7 @@
  * behavior from drifting between self-service, proxy, native, and cron paths.
  */
 
-import {
-  ATTENDANCE_ACTION,
-  ATTENDANCE_STATUS,
-} from '../../../contracts/index.js';
+import { ATTENDANCE_ACTION, ATTENDANCE_STATUS } from '../../../contracts/index.js';
 import type { AttendanceAction, AttendanceStatus } from '../../../contracts/index.js';
 import {
   calculateWorkedDuration,

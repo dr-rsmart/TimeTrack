@@ -80,7 +80,10 @@ function currentTenantString(): string | null {
   return typeof t === 'string' && t.length > 0 ? t : null;
 }
 
-function stampRow(model: string, row: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+function stampRow(
+  model: string,
+  row: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
   if (!row) return row;
   if (!TENANT_SCOPED_MODELS.has(model)) return row;
   const tenant = currentTenantString();

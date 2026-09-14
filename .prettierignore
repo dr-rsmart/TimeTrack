@@ -1,0 +1,13 @@
+node_modules
+dist
+coverage
+playwright-report
+test-results
+package-lock.json
+server/package-lock.json
+*.dump
+*.aab
+*.ipa
+*.apk
+*.p8
+*.log

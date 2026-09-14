@@ -41,27 +41,27 @@ function attemptBackup() {
   } catch (err) {
     // Backup failure must NOT block startup — log and continue.
     // pg_dump may not be installed in the container image.
-    log(`⚠️  Backup skipped (pg_dump unavailable or failed): ${err.message?.split('\n')[0] || 'unknown error'}`);
+    log(
+      `⚠️  Backup skipped (pg_dump unavailable or failed): ${err.message?.split('\n')[0] || 'unknown error'}`,
+    );
   }
 }
 
 // ── Step 2: Schema sync ──
-// SAFETY: destructive schema changes cause a HARD FAILURE in both paths —
-// never data loss. The old start command used `--accept-data-loss`, which
-// silently dropped tables on schema drift — that is what destroyed
-// production data once. NEVER re-add that flag.
+// SAFETY: destructive schema changes cause a HARD FAILURE — never data loss.
+// The old start command used `--accept-data-loss`, which silently dropped
+// tables on schema drift — that is what destroyed production data once.
+// NEVER re-add that flag.
 //
-// Strategy:
-//   1. If the database has recognized Prisma migration history
-//      (_prisma_migrations populated), apply recorded migrations with
-//      `prisma migrate deploy` — reviewable, reproducible, CI-gateable.
-//   2. Otherwise (db-push-provisioned databases with no history), fall back
-//      to safe `prisma db push` WITHOUT --accept-data-loss: additive changes
-//      apply, destructive changes fail loudly.
-// To migrate a db-push database onto recorded history, run:
-//   npx prisma migrate resolve --applied 0_init
-//   npx prisma migrate resolve --applied 1_session_revocation_and_unique_index
-// (see server/prisma/migrations/1_.../MIGRATION.md)
+// Strategy (Phase 1 remediation, 2026-09-14):
+//   Only recorded migrations are ever applied (`prisma migrate deploy`).
+//   A database WITHOUT recognized migration history is now a HARD FAILURE
+//   instead of silently falling back to `prisma db push` — an unrecognized
+//   history means drift the operator must review, not a green light to sync.
+//   To migrate a db-push-provisioned database onto recorded history, run:
+//     npx prisma migrate resolve --applied 0_init
+//     npx prisma migrate resolve --applied 1_session_revocation_and_unique_index
+//   (see server/prisma/migrations/1_.../MIGRATION.md) and re-deploy.
 function syncSchema() {
   let statusOutput = '';
   let historyRecognized = false;
@@ -89,7 +89,9 @@ function syncSchema() {
   }
 
   if (historyRecognized) {
-    log('Migration history recognized — applying recorded migrations via `prisma migrate deploy`...');
+    log(
+      'Migration history recognized — applying recorded migrations via `prisma migrate deploy`...',
+    );
     try {
       execSync('npx prisma migrate deploy --schema=prisma/schema.prisma', {
         cwd: SERVER_DIR,
@@ -101,27 +103,26 @@ function syncSchema() {
     } catch (err) {
       log(`❌ FATAL: prisma migrate deploy failed — refusing to start to protect your data.`);
       log(`   Error: ${err.message?.split('\n')[0]}`);
-      log('   Fix: resolve the migration state manually (see MIGRATION.md), or restore from backup.');
+      log(
+        '   Fix: resolve the migration state manually (see MIGRATION.md), or restore from backup.',
+      );
       process.exit(1);
     }
   }
 
-  log('No migration history recognized (db-push-provisioned DB) — using safe `prisma db push` (destructive changes will FAIL, not drop data)...');
-  try {
-    execSync('npx prisma db push --schema=prisma/schema.prisma', {
-      cwd: SERVER_DIR,
-      stdio: 'inherit',
-      timeout: 120_000,
-    });
-    log('Schema synced successfully (no data loss).');
-  } catch (err) {
-    log(`❌ FATAL: Schema sync failed — the pending schema change would cause DATA LOSS.`);
-    log(`   Error: ${err.message?.split('\n')[0]}`);
-    log(`   The server is refusing to start to protect your data.`);
-    log(`   Fix: review the schema change, create a proper migration with \`prisma migrate dev\`,`);
-    log(`        or manually back up and migrate the affected data before redeploying.`);
-    process.exit(1);
-  }
+  // HARD FAILURE: no recognized migration history. There is no safe
+  // automatic path from an unknown schema state to the code's schema —
+  // an operator must review the drift and migrate the database onto
+  // recorded history explicitly (see the `migrate resolve` commands above).
+  log('❌ FATAL: no recognized Prisma migration history on this database.');
+  log('   Refusing to fall back to `prisma db push` — unreviewed schema sync');
+  log('   is how silent drift and data loss happen.');
+  log('   Fix: baseline the database onto recorded migration history first:');
+  log('     npx prisma migrate resolve --applied 0_init');
+  log('     npx prisma migrate resolve --applied 1_session_revocation_and_unique_index');
+  log('   then re-run the deploy. See server/prisma/migrations/1_.../MIGRATION.md.');
+  log(`   migrate status output:\n${statusOutput}`);
+  process.exit(1);
 }
 
 // ── Step 3: Start the server ──

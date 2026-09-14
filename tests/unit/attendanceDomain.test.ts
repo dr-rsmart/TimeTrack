@@ -27,7 +27,9 @@ describe('attendance domain rules', () => {
     expect(normalizeIdempotencyKey('   ')).toBeNull();
     expect(normalizeIdempotencyKey('x'.repeat(201))).toBeNull();
     expect(normalizeIdempotencyKey(undefined)).toBeNull();
-    expect(scopeIdempotencyKey('clock_in', 'actor-1', 'punch-123')).toBe('clock_in:actor-1:punch-123');
+    expect(scopeIdempotencyKey('clock_in', 'actor-1', 'punch-123')).toBe(
+      'clock_in:actor-1:punch-123',
+    );
     expect(scopeIdempotencyKey('clock_out', 'actor-1', '   ')).toBeNull();
   });
 

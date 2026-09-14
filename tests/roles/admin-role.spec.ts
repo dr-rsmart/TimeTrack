@@ -33,7 +33,9 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
   });
 
   // ── 1. EMPLOYEE MANAGEMENT PROCESSES ──
-  test('Process 1: Create Employee with Auto-provisioned Login (POST /api/employees)', async ({ request }) => {
+  test('Process 1: Create Employee with Auto-provisioned Login (POST /api/employees)', async ({
+    request,
+  }) => {
     const rand = Math.floor(Math.random() * 10000);
     testEmployeeEmail = `test_emp_${rand}@timetrack.com`;
 
@@ -57,7 +59,9 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
     createdEmployeeId = emp.id;
   });
 
-  test('Process 2: List Manager Assignment Options (GET /api/employees/managers)', async ({ request }) => {
+  test('Process 2: List Manager Assignment Options (GET /api/employees/managers)', async ({
+    request,
+  }) => {
     const res = await request.get(`${API_BASE}/api/employees/managers`, {
       headers: authHeader(),
     });
@@ -67,7 +71,9 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
     expect(data.managers.length).toBeGreaterThanOrEqual(1);
   });
 
-  test('Process 3: Update Employee & Enforce Optimistic Locking (PUT /api/employees/:id)', async ({ request }) => {
+  test('Process 3: Update Employee & Enforce Optimistic Locking (PUT /api/employees/:id)', async ({
+    request,
+  }) => {
     expect(createdEmployeeId).toBeDefined();
 
     // Valid update
@@ -94,7 +100,9 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
     expect(conflictRes.status()).toBe(409);
   });
 
-  test('Process 4: Terminate Employee (Soft Delete) & Reactivate (DELETE & POST /reset-password)', async ({ request }) => {
+  test('Process 4: Terminate Employee (Soft Delete) & Reactivate (DELETE & POST /reset-password)', async ({
+    request,
+  }) => {
     expect(createdEmployeeId).toBeDefined();
 
     // Terminate (soft delete)
@@ -115,9 +123,12 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
     expect(blockedData.code).toBe('EMPLOYEE_TERMINATED');
 
     // Admin resets password -> reactivates employee
-    const resetRes = await request.post(`${API_BASE}/api/employees/${createdEmployeeId}/reset-password`, {
-      headers: authHeader(),
-    });
+    const resetRes = await request.post(
+      `${API_BASE}/api/employees/${createdEmployeeId}/reset-password`,
+      {
+        headers: authHeader(),
+      },
+    );
     expect(resetRes.status()).toBe(200);
     const resetData = await resetRes.json();
     expect(resetData.success).toBe(true);
@@ -131,7 +142,9 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
   });
 
   // ── 2. SCHEDULING & SHIFT PROCESSES ──
-  test('Process 5: Schedule Shift & Reject Overlapping Schedule (POST /api/shifts)', async ({ request }) => {
+  test('Process 5: Schedule Shift & Reject Overlapping Schedule (POST /api/shifts)', async ({
+    request,
+  }) => {
     expect(createdEmployeeId).toBeDefined();
     const testDate = '2026-11-20';
 
@@ -189,7 +202,9 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
     expect(bulkData.shiftIds.length).toBe(1);
   });
 
-  test('Process 7: Update Shift Status with Reason Requirement (PUT & DELETE /api/shifts/:id)', async ({ request }) => {
+  test('Process 7: Update Shift Status with Reason Requirement (PUT & DELETE /api/shifts/:id)', async ({
+    request,
+  }) => {
     expect(createdShiftId).toBeDefined();
 
     // Cancelling without reason must fail
@@ -219,7 +234,9 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
   });
 
   // ── 3. TIME ENTRY OVERSIGHT & MANUAL OVERRIDES ──
-  test('Process 8: Create Manual Time Entry with Audit Trail (POST /api/time-entries/manual)', async ({ request }) => {
+  test('Process 8: Create Manual Time Entry with Audit Trail (POST /api/time-entries/manual)', async ({
+    request,
+  }) => {
     expect(createdEmployeeId).toBeDefined();
     const res = await request.post(`${API_BASE}/api/time-entries/manual`, {
       headers: authHeader(),
@@ -242,7 +259,9 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
     });
   });
 
-  test('Process 9: Proxy Clock-in & Force Clock-out for Subordinate (POST /clock-in, /clock-out)', async ({ request }) => {
+  test('Process 9: Proxy Clock-in & Force Clock-out for Subordinate (POST /clock-in, /clock-out)', async ({
+    request,
+  }) => {
     expect(testEmployeeEmail).toBeDefined();
 
     // Proxy clock-in by admin
@@ -277,7 +296,9 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
   });
 
   // ── 4. CONFIGURATION & GEOFENCES ──
-  test('Process 10: Manage Company Settings & Geofences (PUT /settings, POST /geofences, /presets)', async ({ request }) => {
+  test('Process 10: Manage Company Settings & Geofences (PUT /settings, POST /geofences, /presets)', async ({
+    request,
+  }) => {
     // 1. Update company payroll rules
     const setRes = await request.put(`${API_BASE}/api/settings/settings`, {
       headers: authHeader(),
@@ -296,8 +317,8 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
       data: {
         name: 'Sandton Annex Worksite',
         address: '15 Rivonia Rd, Sandton',
-        latitude: -26.1080,
-        longitude: 28.0570,
+        latitude: -26.108,
+        longitude: 28.057,
         radiusMeters: 350,
       },
     });
@@ -306,10 +327,13 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
     createdGeofenceId = gfData.geofence.id;
 
     // 3. Assign employee to geofence
-    const assignRes = await request.post(`${API_BASE}/api/settings/geofences/${createdGeofenceId}/assign-employees`, {
-      headers: authHeader(),
-      data: { employeeIds: [createdEmployeeId] },
-    });
+    const assignRes = await request.post(
+      `${API_BASE}/api/settings/geofences/${createdGeofenceId}/assign-employees`,
+      {
+        headers: authHeader(),
+        data: { employeeIds: [createdEmployeeId] },
+      },
+    );
     expect(assignRes.status()).toBe(200);
 
     // The Workforce edit form uses the employee endpoint to persist the
@@ -320,13 +344,16 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
     });
     expect(currentEmployeeRes.status()).toBe(200);
     const currentEmployee = await currentEmployeeRes.json();
-    const workforceAssignmentRes = await request.put(`${API_BASE}/api/employees/${createdEmployeeId}`, {
-      headers: authHeader(),
-      data: {
-        geofenceIds: [createdGeofenceId],
-        version: currentEmployee.version,
+    const workforceAssignmentRes = await request.put(
+      `${API_BASE}/api/employees/${createdEmployeeId}`,
+      {
+        headers: authHeader(),
+        data: {
+          geofenceIds: [createdGeofenceId],
+          version: currentEmployee.version,
+        },
       },
-    });
+    );
     expect(workforceAssignmentRes.status()).toBe(200);
 
     // An employee may be assigned to more than one work location.
@@ -335,7 +362,7 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
       data: {
         name: 'Sandton Annex Second Worksite',
         address: '16 Rivonia Rd, Sandton',
-        latitude: -26.1200,
+        latitude: -26.12,
         longitude: 28.0575,
         radiusMeters: 350,
       },
@@ -344,10 +371,13 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
     const secondGfData = await secondGfRes.json();
     createdSecondGeofenceId = secondGfData.geofence.id;
 
-    const secondAssignRes = await request.post(`${API_BASE}/api/settings/geofences/${createdSecondGeofenceId}/assign-employees`, {
-      headers: authHeader(),
-      data: { employeeIds: [createdEmployeeId] },
-    });
+    const secondAssignRes = await request.post(
+      `${API_BASE}/api/settings/geofences/${createdSecondGeofenceId}/assign-employees`,
+      {
+        headers: authHeader(),
+        data: { employeeIds: [createdEmployeeId] },
+      },
+    );
     expect(secondAssignRes.status()).toBe(200);
 
     const assignmentListRes = await request.get(`${API_BASE}/api/settings/employees-for-geofence`, {
@@ -355,8 +385,12 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
     });
     expect(assignmentListRes.status()).toBe(200);
     const assignmentList = await assignmentListRes.json();
-    const assignedEmployee = assignmentList.employees.find((e: { id: string }) => e.id === createdEmployeeId);
-    expect(assignedEmployee.geofenceIds).toEqual(expect.arrayContaining([createdGeofenceId, createdSecondGeofenceId]));
+    const assignedEmployee = assignmentList.employees.find(
+      (e: { id: string }) => e.id === createdEmployeeId,
+    );
+    expect(assignedEmployee.geofenceIds).toEqual(
+      expect.arrayContaining([createdGeofenceId, createdSecondGeofenceId]),
+    );
 
     // Verify the employee can actually clock in and out while standing at the
     // second assigned location. This uses the employee's own session rather
@@ -373,7 +407,7 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
     });
     const secondLocationClockIn = await request.post(`${API_BASE}/api/time-entries/clock-in`, {
       headers: employeeAuthHeader(),
-      data: { latitude: -26.1200, longitude: 28.0575 },
+      data: { latitude: -26.12, longitude: 28.0575 },
     });
     expect(secondLocationClockIn.status()).toBe(201);
     const secondLocationEntry = await secondLocationClockIn.json();
@@ -382,31 +416,49 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
 
     const secondLocationClockOut = await request.post(`${API_BASE}/api/time-entries/clock-out`, {
       headers: employeeAuthHeader(),
-      data: { latitude: -26.1200, longitude: 28.0575, breakMinutes: 0 },
+      data: { latitude: -26.12, longitude: 28.0575, breakMinutes: 0 },
     });
     expect(secondLocationClockOut.status()).toBe(200);
     expect((await secondLocationClockOut.json()).status).toBe('completed');
 
     // Removing the primary location promotes the remaining assignment rather
     // than leaving the employee in a stale or unassigned state.
-    const unassignFirstRes = await request.post(`${API_BASE}/api/settings/geofences/${createdGeofenceId}/assign-employees`, {
-      headers: authHeader(),
-      data: { employeeIds: [createdEmployeeId], mode: 'unassign' },
-    });
+    const unassignFirstRes = await request.post(
+      `${API_BASE}/api/settings/geofences/${createdGeofenceId}/assign-employees`,
+      {
+        headers: authHeader(),
+        data: { employeeIds: [createdEmployeeId], mode: 'unassign' },
+      },
+    );
     expect(unassignFirstRes.status()).toBe(200);
-    const afterFirstRemoval = await (await request.get(`${API_BASE}/api/settings/employees-for-geofence`, { headers: authHeader() })).json();
-    const afterFirstEmployee = afterFirstRemoval.employees.find((e: { id: string }) => e.id === createdEmployeeId);
+    const afterFirstRemoval = await (
+      await request.get(`${API_BASE}/api/settings/employees-for-geofence`, {
+        headers: authHeader(),
+      })
+    ).json();
+    const afterFirstEmployee = afterFirstRemoval.employees.find(
+      (e: { id: string }) => e.id === createdEmployeeId,
+    );
     expect(afterFirstEmployee.geofenceIds).toEqual([createdSecondGeofenceId]);
     expect(afterFirstEmployee.geofenceId).toBe(createdSecondGeofenceId);
 
     // Removing the last assignment restores the explicit "Not Assigned" state.
-    const unassignSecondRes = await request.post(`${API_BASE}/api/settings/geofences/${createdSecondGeofenceId}/assign-employees`, {
-      headers: authHeader(),
-      data: { employeeIds: [createdEmployeeId], mode: 'unassign' },
-    });
+    const unassignSecondRes = await request.post(
+      `${API_BASE}/api/settings/geofences/${createdSecondGeofenceId}/assign-employees`,
+      {
+        headers: authHeader(),
+        data: { employeeIds: [createdEmployeeId], mode: 'unassign' },
+      },
+    );
     expect(unassignSecondRes.status()).toBe(200);
-    const afterAllRemoved = await (await request.get(`${API_BASE}/api/settings/employees-for-geofence`, { headers: authHeader() })).json();
-    const unassignedEmployee = afterAllRemoved.employees.find((e: { id: string }) => e.id === createdEmployeeId);
+    const afterAllRemoved = await (
+      await request.get(`${API_BASE}/api/settings/employees-for-geofence`, {
+        headers: authHeader(),
+      })
+    ).json();
+    const unassignedEmployee = afterAllRemoved.employees.find(
+      (e: { id: string }) => e.id === createdEmployeeId,
+    );
     expect(unassignedEmployee.geofenceIds).toEqual([]);
     expect(unassignedEmployee.geofenceId).toBeNull();
 
@@ -415,8 +467,8 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
       headers: authHeader(),
       data: {
         name: 'Client Office Preset',
-        latitude: -26.1090,
-        longitude: 28.0580,
+        latitude: -26.109,
+        longitude: 28.058,
         radiusMeters: 200,
       },
     });
@@ -426,26 +478,36 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
   });
 
   // ── 5. REPORTING & ANALYTICS ──
-  test('Process 11: Generate Payroll and Attendance Reports (GET /api/reports/payroll, /attendance)', async ({ request }) => {
+  test('Process 11: Generate Payroll and Attendance Reports (GET /api/reports/payroll, /attendance)', async ({
+    request,
+  }) => {
     // Payroll report
-    const payRes = await request.get(`${API_BASE}/api/reports/payroll?from=2026-08-01&to=2026-08-31`, {
-      headers: authHeader(),
-    });
+    const payRes = await request.get(
+      `${API_BASE}/api/reports/payroll?from=2026-08-01&to=2026-08-31`,
+      {
+        headers: authHeader(),
+      },
+    );
     expect(payRes.status()).toBe(200);
     const payData = await payRes.json();
     expect(Array.isArray(payData.rows)).toBe(true);
     expect(payData.settings).toBeDefined();
 
     // Attendance report
-    const attRes = await request.get(`${API_BASE}/api/reports/attendance?from=2026-08-01&to=2026-08-31`, {
-      headers: authHeader(),
-    });
+    const attRes = await request.get(
+      `${API_BASE}/api/reports/attendance?from=2026-08-01&to=2026-08-31`,
+      {
+        headers: authHeader(),
+      },
+    );
     expect(attRes.status()).toBe(200);
     const attData = await attRes.json();
     expect(Array.isArray(attData.entries)).toBe(true);
   });
 
-  test('Process 12: View Multi-Tenant Dashboard KPIs and Overtime Forecasts (GET /api/dashboard/*)', async ({ request }) => {
+  test('Process 12: View Multi-Tenant Dashboard KPIs and Overtime Forecasts (GET /api/dashboard/*)', async ({
+    request,
+  }) => {
     const [summaryRes, trendRes, deptRes, alertsRes, forecastRes] = await Promise.all([
       request.get(`${API_BASE}/api/dashboard/summary`, { headers: authHeader() }),
       request.get(`${API_BASE}/api/dashboard/hours-trend?days=14`, { headers: authHeader() }),
@@ -464,13 +526,19 @@ test.describe.serial('Admin Role (Company Administrator) — Process Test Pack',
   test.afterAll(async ({ request }) => {
     // Cleanup created geofence, preset, and employee
     if (createdGeofenceId) {
-      await request.delete(`${API_BASE}/api/settings/geofences/${createdGeofenceId}`, { headers: authHeader() });
+      await request.delete(`${API_BASE}/api/settings/geofences/${createdGeofenceId}`, {
+        headers: authHeader(),
+      });
     }
     if (createdSecondGeofenceId) {
-      await request.delete(`${API_BASE}/api/settings/geofences/${createdSecondGeofenceId}`, { headers: authHeader() });
+      await request.delete(`${API_BASE}/api/settings/geofences/${createdSecondGeofenceId}`, {
+        headers: authHeader(),
+      });
     }
     if (createdPresetId) {
-      await request.delete(`${API_BASE}/api/settings/location-presets/${createdPresetId}`, { headers: authHeader() });
+      await request.delete(`${API_BASE}/api/settings/location-presets/${createdPresetId}`, {
+        headers: authHeader(),
+      });
     }
   });
 });

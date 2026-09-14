@@ -8,9 +8,7 @@
     "orientation": "portrait",
     "icon": "./TimeTrack Icon.png",
     "userInterfaceStyle": "automatic",
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "icon": "./TimeTrack Icon.png",
       "supportsTablet": true,
@@ -18,11 +16,7 @@
       "buildNumber": "4",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": [
-          "location",
-          "fetch",
-          "processing"
-        ],
+        "UIBackgroundModes": ["location", "fetch", "processing"],
         "BGTaskSchedulerPermittedIdentifiers": [
           "com.timetrack.workforce.background-sync",
           "com.timetrack.workforce.geofence-update"

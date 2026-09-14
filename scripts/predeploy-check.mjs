@@ -34,5 +34,7 @@ if (testResult.status !== 0) {
   process.exit(1);
 }
 
-console.log('\n✨ ALL PRE-DEPLOYMENT CHECKS PASSED. System is 100% ready for production deployment!');
+console.log(
+  '\n✨ ALL PRE-DEPLOYMENT CHECKS PASSED. System is 100% ready for production deployment!',
+);
 process.exit(0);

@@ -80,9 +80,13 @@ describe('multi-location geofence validation', () => {
   it('rejects clock-in at a company location that is not assigned', async () => {
     prismaMocks.employeeFindFirst.mockResolvedValue(employeeWithAssignments);
 
-    const result = await validateClockInLocation('employee@example.com', positionAt(UNRELATED_LOCATION), {
-      employeeId: employeeWithAssignments.id,
-    });
+    const result = await validateClockInLocation(
+      'employee@example.com',
+      positionAt(UNRELATED_LOCATION),
+      {
+        employeeId: employeeWithAssignments.id,
+      },
+    );
 
     expect(result.passed).toBe(false);
     expect(result.error).toContain('Clock-in denied');
@@ -98,9 +102,13 @@ describe('multi-location geofence validation', () => {
       employeeGeofences: [],
     });
 
-    const result = await validateClockInLocation('employee@example.com', positionAt(UNRELATED_LOCATION), {
-      employeeId: 'employee-2',
-    });
+    const result = await validateClockInLocation(
+      'employee@example.com',
+      positionAt(UNRELATED_LOCATION),
+      {
+        employeeId: 'employee-2',
+      },
+    );
 
     expect(result).toEqual({ passed: true });
     expect(prismaMocks.geofenceFindMany).not.toHaveBeenCalled();
@@ -115,9 +123,13 @@ describe('multi-location geofence validation', () => {
       employeeGeofences: [{ geofence: LOCATION_ONE }],
     });
 
-    const result = await validateClockOutLocation('employee@example.com', positionAt(UNRELATED_LOCATION), {
-      employeeId: 'employee-3',
-    });
+    const result = await validateClockOutLocation(
+      'employee@example.com',
+      positionAt(UNRELATED_LOCATION),
+      {
+        employeeId: 'employee-3',
+      },
+    );
 
     expect(result.passed).toBe(true);
     expect(result.geofenceName).toBe(LOCATION_ONE.name);

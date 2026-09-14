@@ -20,12 +20,18 @@ import {
 } from '../geoValidationService.js';
 import { getReclockGuardSeconds, isWithinReclockWindow } from '../reclockGuard.js';
 import { assertTenantMatch } from '../tenantContext.js';
-import {
-  ATTENDANCE_STATUS,
-} from '../domain/attendance.js';
+import { ATTENDANCE_STATUS } from '../domain/attendance.js';
 import { calculateWorkedDuration } from '../domain/duration.js';
-import { normalizeEmployeeEmail, singleEmployeeIdentityFilter } from '../domain/employeeIdentity.js';
-import { businessNow, businessTimeToDate, getBusinessTimezone, timeStrToMinutes } from '../timezone.js';
+import {
+  normalizeEmployeeEmail,
+  singleEmployeeIdentityFilter,
+} from '../domain/employeeIdentity.js';
+import {
+  businessNow,
+  businessTimeToDate,
+  getBusinessTimezone,
+  timeStrToMinutes,
+} from '../timezone.js';
 
 export interface AttendanceUseCaseErrorOptions {
   status: number;
@@ -122,14 +128,17 @@ export interface BulkClockInResult {
 }
 
 export interface BulkClockOutResult {
-  clockedOut: Array<{ email: string; id: string; employeeName: string | null; totalHours: number | null }>;
+  clockedOut: Array<{
+    email: string;
+    id: string;
+    employeeName: string | null;
+    totalHours: number | null;
+  }>;
   skipped: Array<{ email: string; reason: string }>;
 }
 
 function tenantWhere(actor: AuthUser): Record<string, string> {
-  return actor.role === 'master'
-    ? {}
-    : { companyProfileId: actor.companyProfileId ?? '__none__' };
+  return actor.role === 'master' ? {} : { companyProfileId: actor.companyProfileId ?? '__none__' };
 }
 
 function toDateStr(date: Date): string {
@@ -314,7 +323,10 @@ export async function clockIn(command: ClockInCommand): Promise<AttendanceMutati
         select: { clockOut: true, updatedBy: true },
       });
       const systemClosed = lastCompleted?.updatedBy === 'system:cron';
-      if (!systemClosed && isWithinReclockWindow(lastCompleted?.clockOut ?? null, new Date(), guardSeconds)) {
+      if (
+        !systemClosed &&
+        isWithinReclockWindow(lastCompleted?.clockOut ?? null, new Date(), guardSeconds)
+      ) {
         throw new AttendanceUseCaseError(
           `You clocked out less than ${guardSeconds} seconds ago. To prevent duplicate records, please wait a moment before clocking in again, or ask a manager to clock you in.`,
           {
@@ -423,7 +435,8 @@ export async function clockIn(command: ClockInCommand): Promise<AttendanceMutati
     actorEmail: actor.email,
     actorRole: actor.role,
     justification: isManualOverride
-      ? (command.justification?.trim().slice(0, 500) || `Manual clock-in for ${employee.firstName} ${employee.surname}`)
+      ? command.justification?.trim().slice(0, 500) ||
+        `Manual clock-in for ${employee.firstName} ${employee.surname}`
       : undefined,
     ipAddress: command.clientIp,
     branch: entry.branch,
@@ -455,8 +468,11 @@ export async function clockOut(command: ClockOutCommand): Promise<AttendanceMuta
     }
   }
 
-  const requestedEmail = command.targetEmail ? normalizeEmployeeEmail(command.targetEmail) : undefined;
-  const isForceClockOut = actor.role !== 'employee' && Boolean(requestedEmail && requestedEmail !== actorEmail);
+  const requestedEmail = command.targetEmail
+    ? normalizeEmployeeEmail(command.targetEmail)
+    : undefined;
+  const isForceClockOut =
+    actor.role !== 'employee' && Boolean(requestedEmail && requestedEmail !== actorEmail);
   const targetEmail = isForceClockOut ? requestedEmail! : actorEmail;
 
   const employee = await prisma.employee.findFirst({
@@ -467,7 +483,10 @@ export async function clockOut(command: ClockOutCommand): Promise<AttendanceMuta
     select: { id: true, email: true },
   });
   if (!employee) {
-    throw new AttendanceUseCaseError('Employee record not found.', { status: 404, code: 'NOT_FOUND' });
+    throw new AttendanceUseCaseError('Employee record not found.', {
+      status: 404,
+      code: 'NOT_FOUND',
+    });
   }
 
   const active = await prisma.timeEntry.findFirst({
@@ -482,7 +501,10 @@ export async function clockOut(command: ClockOutCommand): Promise<AttendanceMuta
     throw new AttendanceUseCaseError('No active clock-in session found.', {
       status: 404,
       code: 'NO_ACTIVE_SESSION',
-      suggestions: ['The employee may have already clocked out.', 'Verify the employee\'s current status.'],
+      suggestions: [
+        'The employee may have already clocked out.',
+        "Verify the employee's current status.",
+      ],
     });
   }
 
@@ -680,34 +702,43 @@ export async function bulkClockIn(command: BulkClockInCommand): Promise<BulkCloc
       });
 
       clockedIn.push({ email, id: entry.id, employeeName: entry.employeeName });
-      audits.push(logAudit({
-        entity: 'TimeEntry',
-        entityId: entry.id,
-        action: 'bulk_clock_in',
-        actorId: command.actor.id,
-        actorEmail: command.actor.email,
-        actorRole: command.actor.role,
-        justification: command.justification?.trim().slice(0, 500) || `Bulk proxy clock-in for ${employee.firstName} ${employee.surname}`,
-        ipAddress: command.clientIp,
-        branch: entry.branch,
-        department: entry.department,
-        changes: {
-          employee_email: { before: null, after: email },
-          employee_name: { before: null, after: entry.employeeName },
-          clock_in: { before: null, after: entry.clockIn.toISOString() },
-          is_manual_override: { before: false, after: true },
-          clocked_by: { before: null, after: `${command.actor.fullName} (${command.actor.email})` },
-        },
-        required: true,
-      }));
+      audits.push(
+        logAudit({
+          entity: 'TimeEntry',
+          entityId: entry.id,
+          action: 'bulk_clock_in',
+          actorId: command.actor.id,
+          actorEmail: command.actor.email,
+          actorRole: command.actor.role,
+          justification:
+            command.justification?.trim().slice(0, 500) ||
+            `Bulk proxy clock-in for ${employee.firstName} ${employee.surname}`,
+          ipAddress: command.clientIp,
+          branch: entry.branch,
+          department: entry.department,
+          changes: {
+            employee_email: { before: null, after: email },
+            employee_name: { before: null, after: entry.employeeName },
+            clock_in: { before: null, after: entry.clockIn.toISOString() },
+            is_manual_override: { before: false, after: true },
+            clocked_by: {
+              before: null,
+              after: `${command.actor.fullName} (${command.actor.email})`,
+            },
+          },
+          required: true,
+        }),
+      );
       broadcastScoped('timeEntry', 'clockIn', entry, {
         companyProfileId: entry.companyProfileId,
         branch: entry.branch,
         department: entry.department,
       });
     } catch (error) {
-      if (isActiveEntryConflict(error)) skipped.push({ email: rawEmail, reason: 'Already clocked in' });
-      else if (error instanceof AttendanceUseCaseError && error.code === 'OUT_OF_SCOPE') skipped.push({ email: rawEmail, reason: 'Outside your management scope' });
+      if (isActiveEntryConflict(error))
+        skipped.push({ email: rawEmail, reason: 'Already clocked in' });
+      else if (error instanceof AttendanceUseCaseError && error.code === 'OUT_OF_SCOPE')
+        skipped.push({ email: rawEmail, reason: 'Outside your management scope' });
       else throw error;
     }
   }
@@ -757,33 +788,44 @@ export async function bulkClockOut(command: BulkClockOutCommand): Promise<BulkCl
           updatedBy: command.actor.id,
         },
       });
-      clockedOut.push({ email, id: entry.id, employeeName: entry.employeeName, totalHours: entry.totalHours });
-      audits.push(logAudit({
-        entity: 'TimeEntry',
-        entityId: entry.id,
-        action: 'bulk_clock_out',
-        actorId: command.actor.id,
-        actorEmail: command.actor.email,
-        actorRole: command.actor.role,
-        justification: `Bulk force clock-out for ${email}`,
-        ipAddress: command.clientIp,
-        branch: entry.branch,
-        department: entry.department,
-        changes: {
-          clock_out: { before: null, after: entry.clockOut?.toISOString() },
-          status: { before: ATTENDANCE_STATUS.ACTIVE, after: ATTENDANCE_STATUS.COMPLETED },
-          total_hours: { before: null, after: entry.totalHours },
-          forced_by: { before: null, after: `${command.actor.fullName} (${command.actor.email})` },
-        },
-        required: true,
-      }));
+      clockedOut.push({
+        email,
+        id: entry.id,
+        employeeName: entry.employeeName,
+        totalHours: entry.totalHours,
+      });
+      audits.push(
+        logAudit({
+          entity: 'TimeEntry',
+          entityId: entry.id,
+          action: 'bulk_clock_out',
+          actorId: command.actor.id,
+          actorEmail: command.actor.email,
+          actorRole: command.actor.role,
+          justification: `Bulk force clock-out for ${email}`,
+          ipAddress: command.clientIp,
+          branch: entry.branch,
+          department: entry.department,
+          changes: {
+            clock_out: { before: null, after: entry.clockOut?.toISOString() },
+            status: { before: ATTENDANCE_STATUS.ACTIVE, after: ATTENDANCE_STATUS.COMPLETED },
+            total_hours: { before: null, after: entry.totalHours },
+            forced_by: {
+              before: null,
+              after: `${command.actor.fullName} (${command.actor.email})`,
+            },
+          },
+          required: true,
+        }),
+      );
       broadcastScoped('timeEntry', 'clockOut', entry, {
         companyProfileId: entry.companyProfileId,
         branch: entry.branch,
         department: entry.department,
       });
     } catch (error) {
-      if (error instanceof AttendanceUseCaseError && error.code === 'OUT_OF_SCOPE') skipped.push({ email: rawEmail, reason: 'Outside your management scope' });
+      if (error instanceof AttendanceUseCaseError && error.code === 'OUT_OF_SCOPE')
+        skipped.push({ email: rawEmail, reason: 'Outside your management scope' });
       else throw error;
     }
   }
@@ -807,9 +849,8 @@ export async function adjustTimeEntry(command: AdjustTimeEntryCommand): Promise<
   const existingClockOut = existing.clockOut ? formatClock(existing.clockOut) : null;
   const effectiveClockIn = command.clockIn ?? existingClockIn;
   const effectiveClockOut = command.clockOut ?? existingClockOut;
-  const effectiveBreakMinutes = command.breakMinutes !== undefined
-    ? (command.breakMinutes ?? 0)
-    : (existing.breakMinutes ?? 0);
+  const effectiveBreakMinutes =
+    command.breakMinutes !== undefined ? (command.breakMinutes ?? 0) : (existing.breakMinutes ?? 0);
   const clockIn = parseClock(entryDateStr, effectiveClockIn);
   const clockOut = effectiveClockOut ? parseClock(entryDateStr, effectiveClockOut) : null;
 
@@ -855,7 +896,10 @@ export async function adjustTimeEntry(command: AdjustTimeEntryCommand): Promise<
     changes: {
       date: { before: toDateStr(existing.date), after: entryDateStr },
       clock_in: { before: existing.clockIn.toISOString(), after: entry.clockIn.toISOString() },
-      clock_out: { before: existing.clockOut?.toISOString() ?? null, after: entry.clockOut?.toISOString() ?? null },
+      clock_out: {
+        before: existing.clockOut?.toISOString() ?? null,
+        after: entry.clockOut?.toISOString() ?? null,
+      },
       break_minutes: { before: existing.breakMinutes, after: entry.breakMinutes },
       total_hours: { before: existing.totalHours, after: entry.totalHours },
       status: { before: existing.status, after: entry.status },
@@ -910,11 +954,16 @@ export async function deleteTimeEntry(command: DeleteTimeEntryCommand): Promise<
     required: true,
   });
 
-  broadcastScoped('timeEntry', 'delete', { id: command.id }, {
-    companyProfileId: existing.companyProfileId,
-    branch: existing.branch,
-    department: existing.department,
-  });
+  broadcastScoped(
+    'timeEntry',
+    'delete',
+    { id: command.id },
+    {
+      companyProfileId: existing.companyProfileId,
+      branch: existing.branch,
+      department: existing.department,
+    },
+  );
 
   return { id: command.id };
 }

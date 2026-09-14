@@ -85,12 +85,21 @@ function AnimatedRoutes() {
     <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
         <Route element={<AppLayout />}>
-          <Route path="/" element={<SlidePage><Dashboard /></SlidePage>} />
+          <Route
+            path="/"
+            element={
+              <SlidePage>
+                <Dashboard />
+              </SlidePage>
+            }
+          />
           <Route
             path="/employees"
             element={
               <RequireRole roles={['admin', 'manager']}>
-                <SlidePage><Employees /></SlidePage>
+                <SlidePage>
+                  <Employees />
+                </SlidePage>
               </RequireRole>
             }
           />
@@ -98,18 +107,43 @@ function AnimatedRoutes() {
             path="/register"
             element={
               <RequireRole roles={['master']}>
-                <SlidePage><Register /></SlidePage>
+                <SlidePage>
+                  <Register />
+                </SlidePage>
               </RequireRole>
             }
           />
-          <Route path="/shifts" element={<SlidePage><Shifts /></SlidePage>} />
-          <Route path="/time" element={<SlidePage><TimeTracking /></SlidePage>} />
-          <Route path="/reports" element={<SlidePage><Reports /></SlidePage>} />
+          <Route
+            path="/shifts"
+            element={
+              <SlidePage>
+                <Shifts />
+              </SlidePage>
+            }
+          />
+          <Route
+            path="/time"
+            element={
+              <SlidePage>
+                <TimeTracking />
+              </SlidePage>
+            }
+          />
+          <Route
+            path="/reports"
+            element={
+              <SlidePage>
+                <Reports />
+              </SlidePage>
+            }
+          />
           <Route
             path="/audit"
             element={
               <RequireRole roles={['admin', 'manager']}>
-                <SlidePage><AuditLog /></SlidePage>
+                <SlidePage>
+                  <AuditLog />
+                </SlidePage>
               </RequireRole>
             }
           />
@@ -117,7 +151,9 @@ function AnimatedRoutes() {
             path="/settings"
             element={
               <RequireRole roles={['admin', 'master']}>
-                <SlidePage><Settings /></SlidePage>
+                <SlidePage>
+                  <Settings />
+                </SlidePage>
               </RequireRole>
             }
           />
@@ -125,12 +161,28 @@ function AnimatedRoutes() {
             path="/demo"
             element={
               <RequireRole roles={['master']}>
-                <SlidePage><Demo /></SlidePage>
+                <SlidePage>
+                  <Demo />
+                </SlidePage>
               </RequireRole>
             }
           />
-          <Route path="/profile" element={<SlidePage><ProfilePage /></SlidePage>} />
-          <Route path="/faq" element={<SlidePage><FAQ /></SlidePage>} />
+          <Route
+            path="/profile"
+            element={
+              <SlidePage>
+                <ProfilePage />
+              </SlidePage>
+            }
+          />
+          <Route
+            path="/faq"
+            element={
+              <SlidePage>
+                <FAQ />
+              </SlidePage>
+            }
+          />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

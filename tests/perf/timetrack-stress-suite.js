@@ -64,10 +64,10 @@ export const options = {
       startTime: '2m15s', // Isolated after health check
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 500 },   // Phase A Ramp
-        { duration: '1m', target: 1000 },   // Phase A Peak
-        { duration: '1m', target: 3000 },   // Phase B Stress Peak
-        { duration: '30s', target: 0 },     // Cooldown
+        { duration: '30s', target: 500 }, // Phase A Ramp
+        { duration: '1m', target: 1000 }, // Phase A Peak
+        { duration: '1m', target: 3000 }, // Phase B Stress Peak
+        { duration: '30s', target: 0 }, // Cooldown
       ],
       gracefulRampDown: '20s',
       tags: { phase: 'stress', scenario: 'login' },
@@ -98,7 +98,7 @@ export const options = {
       stages: [
         { duration: '45s', target: 1000 },
         { duration: '2m', target: 3000 },
-        { duration: '2m', target: 5000 },  // Phase C Scale (split across workers)
+        { duration: '2m', target: 5000 }, // Phase C Scale (split across workers)
         { duration: '45s', target: 0 },
       ],
       gracefulRampDown: '30s',
@@ -229,7 +229,7 @@ export function dashboardScenario() {
   const loginRes = http.post(
     `${BASE_URL}/api/auth/login`,
     JSON.stringify({ email: 'admin@timetrack.com', password: 'Password123' }),
-    { headers: getHeaders() }
+    { headers: getHeaders() },
   );
 
   let token = null;
@@ -243,8 +243,12 @@ export function dashboardScenario() {
   group('Dashboard KPI Group', () => {
     const start = Date.now();
     const sumRes = http.get(`${BASE_URL}/api/dashboard/summary`, { headers: authHeaders });
-    const trendRes = http.get(`${BASE_URL}/api/dashboard/hours-trend?days=14`, { headers: authHeaders });
-    const deptRes = http.get(`${BASE_URL}/api/dashboard/department-performance`, { headers: authHeaders });
+    const trendRes = http.get(`${BASE_URL}/api/dashboard/hours-trend?days=14`, {
+      headers: authHeaders,
+    });
+    const deptRes = http.get(`${BASE_URL}/api/dashboard/department-performance`, {
+      headers: authHeaders,
+    });
     dashboardDuration.add(Date.now() - start);
 
     check(sumRes, { 'summary status 200': (r) => r.status === 200 });
@@ -262,7 +266,7 @@ export function dbQueryScenario() {
   const loginRes = http.post(
     `${BASE_URL}/api/auth/login`,
     JSON.stringify({ email: 'thabo@timetrack.com', password: 'Password123' }),
-    { headers: getHeaders() }
+    { headers: getHeaders() },
   );
 
   let token = null;
@@ -294,7 +298,7 @@ export function sseScenario() {
   const loginRes = http.post(
     `${BASE_URL}/api/auth/login`,
     JSON.stringify({ email: 'admin@timetrack.com', password: 'Password123' }),
-    { headers: getHeaders() }
+    { headers: getHeaders() },
   );
 
   let token = null;

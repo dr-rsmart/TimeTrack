@@ -40,7 +40,7 @@ const STRICT_GEOFENCE = process.env.STRICT_GEOFENCE !== 'false';
 if (!STRICT_GEOFENCE) {
   console.warn(
     '[geo] ⚠️  STRICT_GEOFENCE is disabled — employees can clock in from any ' +
-    'location regardless of geofence assignment. This should NEVER be used in production.',
+      'location regardless of geofence assignment. This should NEVER be used in production.',
   );
 }
 
@@ -55,12 +55,7 @@ function toRad(deg: number): number {
 /**
  * Haversine distance between two (lat, lon) points in metres.
  */
-export function haversineDistance(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-): number {
+export function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
   const a =
@@ -145,55 +140,59 @@ export async function validateClockInLocation(
   // the calling route before this flag is set.
   if (
     options?.isManualOverride &&
-    (options.requesterRole === 'admin' || options.requesterRole === 'master' || options.requesterRole === 'manager')
+    (options.requesterRole === 'admin' ||
+      options.requesterRole === 'master' ||
+      options.requesterRole === 'manager')
   ) {
     return { passed: true };
   }
 
   try {
     // ── Defensive lookup (camelCase Prisma schema) ──
-    const employee = await prisma.employee.findFirst({
-      where: options?.employeeId
-        ? { id: options.employeeId }
-        : { email: normalizeEmployeeEmail(email) },
-      select: {
-        id: true,
-        geofenceId: true,
-        companyProfileId: true,
-        geofence: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            latitude: true,
-            longitude: true,
-            radiusMeters: true,
-            isActive: true,
+    const employee = await prisma.employee
+      .findFirst({
+        where: options?.employeeId
+          ? { id: options.employeeId }
+          : { email: normalizeEmployeeEmail(email) },
+        select: {
+          id: true,
+          geofenceId: true,
+          companyProfileId: true,
+          geofence: {
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              latitude: true,
+              longitude: true,
+              radiusMeters: true,
+              isActive: true,
+            },
           },
-        },
-        employeeGeofences: {
-          select: {
-            geofence: {
-              select: {
-                id: true,
-                name: true,
-                address: true,
-                latitude: true,
-                longitude: true,
-                radiusMeters: true,
-                isActive: true,
+          employeeGeofences: {
+            select: {
+              geofence: {
+                select: {
+                  id: true,
+                  name: true,
+                  address: true,
+                  latitude: true,
+                  longitude: true,
+                  radiusMeters: true,
+                  isActive: true,
+                },
               },
             },
           },
         },
-      },
-    }).catch((lookupError: unknown) => {
-      const err = lookupError as { code?: string };
-      if (err.code === 'P2024' || err.code === 'P1001') {
-        return null;
-      }
-      throw lookupError;
-    });
+      })
+      .catch((lookupError: unknown) => {
+        const err = lookupError as { code?: string };
+        if (err.code === 'P2024' || err.code === 'P1001') {
+          return null;
+        }
+        throw lookupError;
+      });
 
     if (employee === null) {
       return {
@@ -217,7 +216,7 @@ export async function validateClockInLocation(
     // If the employee HAS assigned geofences, validation is performed against ALL active assigned geofences.
     // Employees WITHOUT any assignment may clock in at any active company site.
     let allowedGeofences: GeofenceRecord[] = [];
-    
+
     // Collect all assigned geofences (both multi-location and legacy single location)
     const assignedList: GeofenceRecord[] = [];
     if (employee.employeeGeofences && employee.employeeGeofences.length > 0) {
@@ -280,7 +279,8 @@ export async function validateClockInLocation(
 
     // No position data provided
     if (!pos || pos.latitude == null || pos.longitude == null) {
-      const assignedName = employee.geofence?.name ?? allowedGeofences[0]?.name ?? 'your work location';
+      const assignedName =
+        employee.geofence?.name ?? allowedGeofences[0]?.name ?? 'your work location';
       return {
         passed: !STRICT_GEOFENCE,
         geofenceName: assignedName,
@@ -300,19 +300,15 @@ export async function validateClockInLocation(
     }
 
     // Range check
-    if (
-      pos.latitude < -90 ||
-      pos.latitude > 90 ||
-      pos.longitude < -180 ||
-      pos.longitude > 180
-    ) {
+    if (pos.latitude < -90 || pos.latitude > 90 || pos.longitude < -180 || pos.longitude > 180) {
       return {
         passed: false,
-        error: 'Invalid GPS coordinates received. Your device reported coordinates outside valid geographic ranges.',
+        error:
+          'Invalid GPS coordinates received. Your device reported coordinates outside valid geographic ranges.',
         suggestions: [
-          'Restart your device\'s location services (toggle Location Services OFF, wait 10 seconds, then ON again).',
+          "Restart your device's location services (toggle Location Services OFF, wait 10 seconds, then ON again).",
           'Ensure your device has a clear GPS signal — try moving to a window or outdoor area.',
-          'If the problem persists, your device\'s GPS sensor may need calibration. Open a maps app to verify your location.',
+          "If the problem persists, your device's GPS sensor may need calibration. Open a maps app to verify your location.",
         ],
       };
     }
@@ -393,48 +389,52 @@ export async function validateClockOutLocation(
 ): Promise<GeoValidationResult> {
   if (
     options?.isManualOverride &&
-    (options.requesterRole === 'admin' || options.requesterRole === 'master' || options.requesterRole === 'manager')
+    (options.requesterRole === 'admin' ||
+      options.requesterRole === 'master' ||
+      options.requesterRole === 'manager')
   ) {
     return { passed: true };
   }
 
   try {
-    const employee = await prisma.employee.findFirst({
-      where: options?.employeeId
-        ? { id: options.employeeId }
-        : { email: normalizeEmployeeEmail(email) },
-      select: {
-        id: true,
-        geofenceId: true,
-        companyProfileId: true,
-        geofence: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            latitude: true,
-            longitude: true,
-            radiusMeters: true,
-            isActive: true,
+    const employee = await prisma.employee
+      .findFirst({
+        where: options?.employeeId
+          ? { id: options.employeeId }
+          : { email: normalizeEmployeeEmail(email) },
+        select: {
+          id: true,
+          geofenceId: true,
+          companyProfileId: true,
+          geofence: {
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              latitude: true,
+              longitude: true,
+              radiusMeters: true,
+              isActive: true,
+            },
           },
-        },
-        employeeGeofences: {
-          select: {
-            geofence: {
-              select: {
-                id: true,
-                name: true,
-                address: true,
-                latitude: true,
-                longitude: true,
-                radiusMeters: true,
-                isActive: true,
+          employeeGeofences: {
+            select: {
+              geofence: {
+                select: {
+                  id: true,
+                  name: true,
+                  address: true,
+                  latitude: true,
+                  longitude: true,
+                  radiusMeters: true,
+                  isActive: true,
+                },
               },
             },
           },
         },
-      },
-    }).catch(() => null);
+      })
+      .catch(() => null);
 
     if (!pos || pos.latitude == null || pos.longitude == null) {
       return {
@@ -443,12 +443,7 @@ export async function validateClockOutLocation(
       };
     }
 
-    if (
-      pos.latitude < -90 ||
-      pos.latitude > 90 ||
-      pos.longitude < -180 ||
-      pos.longitude > 180
-    ) {
+    if (pos.latitude < -90 || pos.latitude > 90 || pos.longitude < -180 || pos.longitude > 180) {
       return {
         passed: false,
         error: 'Invalid GPS coordinates received.',
@@ -484,7 +479,12 @@ export async function validateClockOutLocation(
 
     if (allowedGeofences.length > 0) {
       let closestGf = allowedGeofences[0];
-      let minDistance = haversineDistance(pos.latitude, pos.longitude, closestGf.latitude, closestGf.longitude);
+      let minDistance = haversineDistance(
+        pos.latitude,
+        pos.longitude,
+        closestGf.latitude,
+        closestGf.longitude,
+      );
 
       for (let i = 1; i < allowedGeofences.length; i++) {
         const gf = allowedGeofences[i];

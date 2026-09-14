@@ -6,7 +6,7 @@ const PERF_BYPASS = { 'x-perf-bypass': 'tt_perf_bench_2026' };
 test.describe.serial('Employee Role (Staff Member) — Process Test Pack', () => {
   let employeeToken: string;
   let employeeId: string;
-  let employeeEmail: string = 'sipho@timetrack.com';
+  const employeeEmail: string = 'sipho@timetrack.com';
   let createdTimeEntryId: string | null = null;
 
   test.beforeAll(async ({ request }) => {
@@ -33,20 +33,26 @@ test.describe.serial('Employee Role (Staff Member) — Process Test Pack', () =>
     ...PERF_BYPASS,
   });
 
-  test('Process 1: View Own Profile & Geofences (GET /api/auth/me, /geofences/my)', async ({ request }) => {
+  test('Process 1: View Own Profile & Geofences (GET /api/auth/me, /geofences/my)', async ({
+    request,
+  }) => {
     const meRes = await request.get(`${API_BASE}/api/auth/me`, { headers: authHeader() });
     expect(meRes.status()).toBe(200);
     const me = await meRes.json();
     expect(me.email).toBe(employeeEmail);
     expect(me.role).toBe('employee');
 
-    const geoRes = await request.get(`${API_BASE}/api/settings/geofences/my`, { headers: authHeader() });
+    const geoRes = await request.get(`${API_BASE}/api/settings/geofences/my`, {
+      headers: authHeader(),
+    });
     expect(geoRes.status()).toBe(200);
     const geoData = await geoRes.json();
     expect(Array.isArray(geoData.geofences)).toBe(true);
   });
 
-  test('Process 2: Geofence Distance Calculation & Validation (POST /geofences/test-distance)', async ({ request }) => {
+  test('Process 2: Geofence Distance Calculation & Validation (POST /geofences/test-distance)', async ({
+    request,
+  }) => {
     // Sitari coordinates: -34.0841, 18.7842
     const insideRes = await request.post(`${API_BASE}/api/settings/geofences/test-distance`, {
       headers: authHeader(),
@@ -61,7 +67,9 @@ test.describe.serial('Employee Role (Staff Member) — Process Test Pack', () =>
     expect(insideData.passed).toBe(true);
   });
 
-  test('Process 3: Geofence Clock-in Enforcement — Reject Out-of-Bounds Punch (POST /clock-in)', async ({ request }) => {
+  test('Process 3: Geofence Clock-in Enforcement — Reject Out-of-Bounds Punch (POST /clock-in)', async ({
+    request,
+  }) => {
     // Far away coordinates (e.g. London: 51.5074, -0.1278)
     const outRes = await request.post(`${API_BASE}/api/time-entries/clock-in`, {
       headers: authHeader(),
@@ -75,9 +83,13 @@ test.describe.serial('Employee Role (Staff Member) — Process Test Pack', () =>
     expect(outData.error).toMatch(/Clock-in denied|outside/);
   });
 
-  test('Process 4: Valid Self-Service Clock-in & Duplicate Session Prevention (POST /clock-in)', async ({ request }) => {
+  test('Process 4: Valid Self-Service Clock-in & Duplicate Session Prevention (POST /clock-in)', async ({
+    request,
+  }) => {
     // Clean any prior active session
-    const activeCheck = await request.get(`${API_BASE}/api/time-entries/active`, { headers: authHeader() });
+    const activeCheck = await request.get(`${API_BASE}/api/time-entries/active`, {
+      headers: authHeader(),
+    });
     const activeBody = await activeCheck.json();
     if (activeBody.active) {
       await request.post(`${API_BASE}/api/time-entries/clock-out`, {
@@ -111,9 +123,13 @@ test.describe.serial('Employee Role (Staff Member) — Process Test Pack', () =>
     expect(dupRes.status()).toBe(409);
   });
 
-  test('Process 5: View Active Session & Self-Service Clock-Out (GET /active, POST /clock-out)', async ({ request }) => {
+  test('Process 5: View Active Session & Self-Service Clock-Out (GET /active, POST /clock-out)', async ({
+    request,
+  }) => {
     // Check active
-    const activeRes = await request.get(`${API_BASE}/api/time-entries/active`, { headers: authHeader() });
+    const activeRes = await request.get(`${API_BASE}/api/time-entries/active`, {
+      headers: authHeader(),
+    });
     expect(activeRes.status()).toBe(200);
     const activeData = await activeRes.json();
     expect(activeData.active).not.toBeNull();
@@ -132,7 +148,9 @@ test.describe.serial('Employee Role (Staff Member) — Process Test Pack', () =>
     expect(outEntry.status).toBe('completed');
   });
 
-  test('Process 6: View Personal Shifts and Attendance Entries (GET /shifts, GET /time-entries)', async ({ request }) => {
+  test('Process 6: View Personal Shifts and Attendance Entries (GET /shifts, GET /time-entries)', async ({
+    request,
+  }) => {
     const [shiftsRes, entriesRes] = await Promise.all([
       request.get(`${API_BASE}/api/shifts`, { headers: authHeader() }),
       request.get(`${API_BASE}/api/time-entries`, { headers: authHeader() }),
@@ -155,7 +173,9 @@ test.describe.serial('Employee Role (Staff Member) — Process Test Pack', () =>
     }
   });
 
-  test('Process 7: Password Self-Service Lifecycle (Forgot, Keep & Change Password)', async ({ request }) => {
+  test('Process 7: Password Self-Service Lifecycle (Forgot, Keep & Change Password)', async ({
+    request,
+  }) => {
     // 1. Forgot password
     const forgotRes = await request.post(`${API_BASE}/api/auth/forgot-password`, {
       headers: PERF_BYPASS,
@@ -172,7 +192,9 @@ test.describe.serial('Employee Role (Staff Member) — Process Test Pack', () =>
     expect([200, 400]).toContain(keepRes.status());
   });
 
-  test('Process 8: Security Boundaries — Reject Privileged Actions by Employee', async ({ request }) => {
+  test('Process 8: Security Boundaries — Reject Privileged Actions by Employee', async ({
+    request,
+  }) => {
     // 1. Cannot access master stats
     const masterRes = await request.get(`${API_BASE}/api/master/stats`, { headers: authHeader() });
     expect(masterRes.status()).toBe(403);
@@ -185,9 +207,12 @@ test.describe.serial('Employee Role (Staff Member) — Process Test Pack', () =>
     expect(settingsRes.status()).toBe(403);
 
     // 3. Cannot query another employee's active session
-    const otherActiveRes = await request.get(`${API_BASE}/api/time-entries/active?employeeEmail=admin@timetrack.com`, {
-      headers: authHeader(),
-    });
+    const otherActiveRes = await request.get(
+      `${API_BASE}/api/time-entries/active?employeeEmail=admin@timetrack.com`,
+      {
+        headers: authHeader(),
+      },
+    );
     expect(otherActiveRes.status()).toBe(403);
   });
 

@@ -10,7 +10,21 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Clock, BarChart3, ShieldCheck, Eye, EyeOff, ArrowRight, KeyRound, ArrowLeft, CheckCircle2, AlertTriangle, Ban, UserX, ShieldX } from 'lucide-react';
+import {
+  Clock,
+  BarChart3,
+  ShieldCheck,
+  Eye,
+  EyeOff,
+  ArrowRight,
+  KeyRound,
+  ArrowLeft,
+  CheckCircle2,
+  AlertTriangle,
+  Ban,
+  UserX,
+  ShieldX,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import { Button, Input, Label, Spinner } from '../components/ui';
@@ -68,13 +82,12 @@ export default function Login() {
 
   return (
     <div className="min-h-screen w-full flex bg-[#f8fafc] text-slate-900">
-      
       {/* ────────────────── LEFT BRANDING PANEL (BLUE) ────────────────── */}
       <div className="hidden lg:flex lg:w-1/2 bg-[#2563eb] text-white p-16 flex-col justify-between relative overflow-hidden">
         {/* Background Decorative Circles */}
         <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/25 rounded-full translate-x-1/3 -translate-y-1/3" />
         <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/25 rounded-full -translate-x-1/4 translate-y-1/4" />
-        
+
         {/* Top Branding Header */}
         <div className="flex items-center gap-2.5 relative z-10">
           <img
@@ -89,10 +102,13 @@ export default function Login() {
         <div className="space-y-8 relative z-10 my-auto max-w-lg">
           <div className="space-y-4">
             <h1 className="text-4xl font-extrabold tracking-tight leading-tight">
-              Smart Workforce<br />Management Starts Here
+              Smart Workforce
+              <br />
+              Management Starts Here
             </h1>
             <p className="text-blue-100 text-base leading-relaxed">
-              Track time, manage shifts, and optimize your team's productivity with real-time insights.
+              Track time, manage shifts, and optimize your team's productivity with real-time
+              insights.
             </p>
           </div>
 
@@ -121,7 +137,8 @@ export default function Login() {
       {/* ────────────────── RIGHT LOGIN FORM PANEL ────────────────── */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-slate-50 relative">
         {/* Subtle grid pattern background */}
-        <div className="absolute inset-0 pointer-events-none opacity-5"
+        <div
+          className="absolute inset-0 pointer-events-none opacity-5"
           style={{
             backgroundImage: 'radial-gradient(hsl(var(--border) / 0.75) 1px, transparent 1px)',
             backgroundSize: '20px 24px',
@@ -177,7 +194,11 @@ export default function Login() {
                   </div>
                   <Button
                     type="button"
-                    onClick={() => { setForgotMode(false); setForgotSuccess(null); setForgotAdminEmail(null); }}
+                    onClick={() => {
+                      setForgotMode(false);
+                      setForgotSuccess(null);
+                      setForgotAdminEmail(null);
+                    }}
                     className="w-full h-11 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 transition-all"
                   >
                     <ArrowLeft className="w-4 h-4" /> Back to Sign In
@@ -186,7 +207,10 @@ export default function Login() {
               ) : (
                 <form onSubmit={handleForgotPassword} className="space-y-5">
                   <div className="space-y-1.5">
-                    <Label htmlFor="forgot-email" className="text-xs uppercase font-extrabold tracking-wider text-slate-500">
+                    <Label
+                      htmlFor="forgot-email"
+                      className="text-xs uppercase font-extrabold tracking-wider text-slate-500"
+                    >
                       Email
                     </Label>
                     <Input
@@ -296,7 +320,10 @@ export default function Login() {
               {/* Form */}
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div className="space-y-1.5">
-                  <Label htmlFor="email" className="text-xs uppercase font-extrabold tracking-wider text-slate-500">
+                  <Label
+                    htmlFor="email"
+                    className="text-xs uppercase font-extrabold tracking-wider text-slate-500"
+                  >
                     Email
                   </Label>
                   <Input
@@ -313,12 +340,19 @@ export default function Login() {
 
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="password" className="text-xs uppercase font-extrabold tracking-wider text-slate-500">
+                    <Label
+                      htmlFor="password"
+                      className="text-xs uppercase font-extrabold tracking-wider text-slate-500"
+                    >
                       Password
                     </Label>
                     <button
                       type="button"
-                      onClick={() => { setForgotMode(true); setForgotSuccess(null); setForgotEmail(email); }}
+                      onClick={() => {
+                        setForgotMode(true);
+                        setForgotSuccess(null);
+                        setForgotEmail(email);
+                      }}
                       className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
                     >
                       Forgot password?
@@ -340,7 +374,11 @@ export default function Login() {
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
                     >
-                      {showPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+                      {showPassword ? (
+                        <EyeOff className="w-4.5 h-4.5" />
+                      ) : (
+                        <Eye className="w-4.5 h-4.5" />
+                      )}
                     </button>
                   </div>
                 </div>

@@ -24,8 +24,8 @@ groups:
           severity: critical
           action: abort-test
         annotations:
-          summary: "k6 error rate > 5% (abort threshold)"
-          description: "TimeTrack stress test error rate is {{ $value | printf \"%.2f\" }}% — exceeds 5% abort limit."
+          summary: 'k6 error rate > 5% (abort threshold)'
+          description: 'TimeTrack stress test error rate is {{ $value | printf "%.2f" }}% — exceeds 5% abort limit.'
 
       # ── p99 Latency > 3000ms → abort ──
       - alert: K6P99LatencyDegradation
@@ -36,8 +36,8 @@ groups:
           severity: critical
           action: abort-test
         annotations:
-          summary: "k6 p99 latency > 3s (abort threshold)"
-          description: "p99 response time is {{ $value | printf \"%.0f\" }}ms — exceeds 3000ms abort limit."
+          summary: 'k6 p99 latency > 3s (abort threshold)'
+          description: 'p99 response time is {{ $value | printf "%.0f" }}ms — exceeds 3000ms abort limit.'
 
       # ── Host RAM > 90% → abort ──
       - alert: HostMemoryAboveThreshold
@@ -48,8 +48,8 @@ groups:
           severity: critical
           action: abort-test
         annotations:
-          summary: "Host RAM > 90% (abort threshold)"
-          description: "Memory usage is {{ $value | printf \"%.1f\" }}% — exceeds 90% abort limit."
+          summary: 'Host RAM > 90% (abort threshold)'
+          description: 'Memory usage is {{ $value | printf "%.1f" }}% — exceeds 90% abort limit.'
 
       # ── Swap/Page file > 90% → abort ──
       - alert: HostSwapAboveThreshold
@@ -61,8 +61,8 @@ groups:
           severity: critical
           action: abort-test
         annotations:
-          summary: "Swap/page file > 90% (abort threshold)"
-          description: "Swap usage is {{ $value | printf \"%.1f\" }}% — exceeds 90% abort limit."
+          summary: 'Swap/page file > 90% (abort threshold)'
+          description: 'Swap usage is {{ $value | printf "%.1f" }}% — exceeds 90% abort limit.'
 
       # ── Disk I/O queue length > 2 → abort ──
       - alert: DiskQueueLengthAboveThreshold
@@ -73,8 +73,8 @@ groups:
           severity: critical
           action: abort-test
         annotations:
-          summary: "Disk I/O queue length > 2 (abort threshold)"
-          description: "Weighted disk queue on {{ $labels.device }} is {{ $value | printf \"%.2f\" }} — exceeds 2.0 abort limit."
+          summary: 'Disk I/O queue length > 2 (abort threshold)'
+          description: 'Weighted disk queue on {{ $labels.device }} is {{ $value | printf "%.2f" }} — exceeds 2.0 abort limit.'
 
       # ── Disk 100% active time → abort ──
       - alert: DiskFullySaturated
@@ -85,8 +85,8 @@ groups:
           severity: critical
           action: abort-test
         annotations:
-          summary: "Disk 100% active time (abort threshold)"
-          description: "Disk {{ $labels.device }} is saturated ({{ $value | printf \"%.2f\" }} s/s active)."
+          summary: 'Disk 100% active time (abort threshold)'
+          description: 'Disk {{ $labels.device }} is saturated ({{ $value | printf "%.2f" }} s/s active).'
 
       # ── CPU > 95% sustained → abort ──
       - alert: HostCpuAboveThreshold
@@ -97,8 +97,8 @@ groups:
           severity: critical
           action: abort-test
         annotations:
-          summary: "CPU > 95% sustained (abort threshold)"
-          description: "CPU utilization is {{ $value | printf \"%.1f\" }}% for >60s — exceeds 95% abort limit."
+          summary: 'CPU > 95% sustained (abort threshold)'
+          description: 'CPU utilization is {{ $value | printf "%.1f" }}% for >60s — exceeds 95% abort limit.'
 
       # ── High iowait (disk-bound CPU) → warning ──
       - alert: HighIoWait
@@ -109,8 +109,8 @@ groups:
           severity: warning
           action: investigate
         annotations:
-          summary: "High %iowait — disk-bound CPU"
-          description: "iowait is {{ $value | printf \"%.1f\" }}% — CPU is stalling on disk I/O."
+          summary: 'High %iowait — disk-bound CPU'
+          description: 'iowait is {{ $value | printf "%.1f" }}% — CPU is stalling on disk I/O.'
 
   - name: timetrack-stress-quality-gates
     interval: 15s
@@ -125,8 +125,8 @@ groups:
           severity: warning
           action: investigate
         annotations:
-          summary: "k6 check pass rate < 97%"
-          description: "Check pass rate is {{ $value | printf \"%.4f\" }} — trending toward the 5% error abort."
+          summary: 'k6 check pass rate < 97%'
+          description: 'Check pass rate is {{ $value | printf "%.4f" }} — trending toward the 5% error abort.'
 
       # ── Rate limiting engaged heavily (perf bypass may not be active) ──
       - alert: K6RateLimitingEngaged
@@ -137,8 +137,8 @@ groups:
           severity: warning
           action: investigate
         annotations:
-          summary: "Heavy 429 rate limiting during stress test"
-          description: "{{ $value | printf \"%.0f\" }} req/s are being rate-limited — verify x-perf-bypass header."
+          summary: 'Heavy 429 rate limiting during stress test'
+          description: '{{ $value | printf "%.0f" }} req/s are being rate-limited — verify x-perf-bypass header.'
 
       # ── API health endpoint degraded ──
       - alert: TimeTrackHealthDegraded
@@ -149,5 +149,5 @@ groups:
           severity: critical
           action: abort-test
         annotations:
-          summary: "TimeTrack /api/health probe failing"
-          description: "The API health probe is failing — system under test is down."
+          summary: 'TimeTrack /api/health probe failing'
+          description: 'The API health probe is failing — system under test is down.'

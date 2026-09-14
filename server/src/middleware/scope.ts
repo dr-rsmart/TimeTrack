@@ -24,14 +24,15 @@ import { normalizeEmployeeEmail } from '../domain/employeeIdentity.js';
  *   2. Employees in the same branch AND department — ONLY when the manager
  *      has an explicit (non-default) branch and department assignment.
  */
-export async function getManagerScopeFilter(
-  authUser: AuthUser,
-): Promise<Record<string, unknown>> {
+export async function getManagerScopeFilter(authUser: AuthUser): Promise<Record<string, unknown>> {
   if (authUser.role !== 'manager') return {};
 
   // Find the manager's employee record
   const managerEmployee = await prisma.employee.findFirst({
-    where: { email: { equals: normalizeEmployeeEmail(authUser.email), mode: 'insensitive' }, companyProfileId: authUser.companyProfileId ?? undefined },
+    where: {
+      email: { equals: normalizeEmployeeEmail(authUser.email), mode: 'insensitive' },
+      companyProfileId: authUser.companyProfileId ?? undefined,
+    },
     select: { id: true, branch: true, department: true },
   });
 
@@ -51,7 +52,10 @@ export async function isEmployeeInManagerScope(
   if (authUser.role !== 'manager') return true;
 
   const managerEmployee = await prisma.employee.findFirst({
-    where: { email: { equals: normalizeEmployeeEmail(authUser.email), mode: 'insensitive' }, companyProfileId: authUser.companyProfileId ?? undefined },
+    where: {
+      email: { equals: normalizeEmployeeEmail(authUser.email), mode: 'insensitive' },
+      companyProfileId: authUser.companyProfileId ?? undefined,
+    },
     select: { id: true, branch: true, department: true },
   });
 
@@ -60,7 +64,10 @@ export async function isEmployeeInManagerScope(
   const target = await prisma.employee.findFirst({
     where: employeeId
       ? { id: employeeId, companyProfileId: authUser.companyProfileId ?? undefined }
-      : { email: { equals: normalizeEmployeeEmail(employeeEmail), mode: 'insensitive' }, companyProfileId: authUser.companyProfileId ?? undefined },
+      : {
+          email: { equals: normalizeEmployeeEmail(employeeEmail), mode: 'insensitive' },
+          companyProfileId: authUser.companyProfileId ?? undefined,
+        },
     select: { id: true, managerId: true, branch: true, department: true },
   });
 

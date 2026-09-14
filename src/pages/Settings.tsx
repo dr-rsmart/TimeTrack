@@ -13,15 +13,35 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Save, Settings as SettingsIcon, Clock, Radio, CalendarDays, Plus, Trash2, Globe, Building2 } from 'lucide-react';
+import {
+  Save,
+  Settings as SettingsIcon,
+  Clock,
+  Radio,
+  CalendarDays,
+  Plus,
+  Trash2,
+  Globe,
+  Building2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { settingsApi, type CompanySettings, ApiError } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useSSE } from '../hooks/useSSE';
 import { GeofenceManager } from '../components/settings/GeofenceManager';
 import {
-  Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input,
-  Label, Spinner, Tabs, Switch,
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Input,
+  Label,
+  Spinner,
+  Tabs,
+  Switch,
 } from '../components/ui';
 
 export default function Settings() {
@@ -122,7 +142,11 @@ export default function Settings() {
   };
 
   if (loading) {
-    return <div className="flex h-64 items-center justify-center"><Spinner /></div>;
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Spinner />
+      </div>
+    );
   }
 
   return (
@@ -134,7 +158,9 @@ export default function Settings() {
             <SettingsIcon className="w-5 h-5 text-brand" />
             <h1 className="text-2xl font-bold">Company Settings</h1>
           </div>
-          <p className="text-sm text-muted-foreground">Payroll rules, overtime configuration and geofence management</p>
+          <p className="text-sm text-muted-foreground">
+            Payroll rules, overtime configuration and geofence management
+          </p>
         </div>
         {activeTab === 'payroll' && (
           <Button
@@ -150,7 +176,9 @@ export default function Settings() {
       {/* Tab navigation — Payroll & Overtime is hidden for Master */}
       <Tabs
         tabs={[
-          ...(!isMaster ? [{ id: 'payroll', label: 'Payroll & Overtime', icon: <Clock className="w-4 h-4" /> }] : []),
+          ...(!isMaster
+            ? [{ id: 'payroll', label: 'Payroll & Overtime', icon: <Clock className="w-4 h-4" /> }]
+            : []),
           { id: 'holidays', label: 'Public Holidays', icon: <CalendarDays className="w-4 h-4" /> },
           { id: 'geofences', label: 'Geofences / Locations', icon: <Radio className="w-4 h-4" /> },
         ]}
@@ -169,18 +197,44 @@ export default function Settings() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="st-ordinary">Ordinary hours/day</Label>
-                <Input id="st-ordinary" type="number" step="0.5" min="1" max="24" value={settings.ordinaryHoursPerDay}
-                  onChange={(e) => updateField('ordinaryHoursPerDay', parseFloat(e.target.value) || 8)} />
+                <Input
+                  id="st-ordinary"
+                  type="number"
+                  step="0.5"
+                  min="1"
+                  max="24"
+                  value={settings.ordinaryHoursPerDay}
+                  onChange={(e) =>
+                    updateField('ordinaryHoursPerDay', parseFloat(e.target.value) || 8)
+                  }
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="st-threshold">Daily OT threshold (hours)</Label>
-                <Input id="st-threshold" type="number" step="0.5" min="1" max="24" value={settings.overtimeThresholdHours}
-                  onChange={(e) => updateField('overtimeThresholdHours', parseFloat(e.target.value) || 8)} />
+                <Input
+                  id="st-threshold"
+                  type="number"
+                  step="0.5"
+                  min="1"
+                  max="24"
+                  value={settings.overtimeThresholdHours}
+                  onChange={(e) =>
+                    updateField('overtimeThresholdHours', parseFloat(e.target.value) || 8)
+                  }
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="st-monthly-threshold">Monthly OT threshold (hours)</Label>
-                <Input id="st-monthly-threshold" type="number" min="1" max="500" value={settings.monthlyOvertimeThresholdHours}
-                  onChange={(e) => updateField('monthlyOvertimeThresholdHours', parseFloat(e.target.value) || 195)} />
+                <Input
+                  id="st-monthly-threshold"
+                  type="number"
+                  min="1"
+                  max="500"
+                  value={settings.monthlyOvertimeThresholdHours}
+                  onChange={(e) =>
+                    updateField('monthlyOvertimeThresholdHours', parseFloat(e.target.value) || 195)
+                  }
+                />
               </div>
             </div>
 
@@ -188,39 +242,73 @@ export default function Settings() {
               <div className="flex items-center justify-between rounded-xl border border-border/50 bg-secondary/20 p-4">
                 <div>
                   <p className="font-medium text-sm">Use monthly overtime threshold</p>
-                  <p className="text-xs text-muted-foreground">Overtime calculated after monthly hours exceed threshold</p>
+                  <p className="text-xs text-muted-foreground">
+                    Overtime calculated after monthly hours exceed threshold
+                  </p>
                 </div>
-                <Switch checked={settings.useMonthlyOvertimeThreshold}
-                  onCheckedChange={(v) => updateField('useMonthlyOvertimeThreshold', v)} aria-label="Monthly overtime threshold" />
+                <Switch
+                  checked={settings.useMonthlyOvertimeThreshold}
+                  onCheckedChange={(v) => updateField('useMonthlyOvertimeThreshold', v)}
+                  aria-label="Monthly overtime threshold"
+                />
               </div>
               <div className="flex items-center justify-between rounded-xl border border-border/50 bg-secondary/20 p-4">
                 <div>
                   <p className="font-medium text-sm">Sunday overtime enabled</p>
                   <p className="text-xs text-muted-foreground">Sunday work counts as overtime</p>
                 </div>
-                <Switch checked={settings.sundayOvertimeEnabled}
-                  onCheckedChange={(v) => updateField('sundayOvertimeEnabled', v)} aria-label="Sunday overtime" />
+                <Switch
+                  checked={settings.sundayOvertimeEnabled}
+                  onCheckedChange={(v) => updateField('sundayOvertimeEnabled', v)}
+                  aria-label="Sunday overtime"
+                />
               </div>
               <div className="flex items-center justify-between rounded-xl border border-border/50 bg-secondary/20 p-4">
                 <div>
                   <p className="font-medium text-sm">Public holiday overtime enabled</p>
-                  <p className="text-xs text-muted-foreground">Holiday work counts as overtime (takes precedence over Sunday)</p>
+                  <p className="text-xs text-muted-foreground">
+                    Holiday work counts as overtime (takes precedence over Sunday)
+                  </p>
                 </div>
-                <Switch checked={settings.publicHolidayOvertimeEnabled}
-                  onCheckedChange={(v) => updateField('publicHolidayOvertimeEnabled', v)} aria-label="Public holiday overtime" />
+                <Switch
+                  checked={settings.publicHolidayOvertimeEnabled}
+                  onCheckedChange={(v) => updateField('publicHolidayOvertimeEnabled', v)}
+                  aria-label="Public holiday overtime"
+                />
               </div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="st-sunday-mult">Sunday multiplier</Label>
-                <Input id="st-sunday-mult" type="number" step="0.1" min="1" max="5" value={settings.sundayOvertimeMultiplier}
-                  onChange={(e) => updateField('sundayOvertimeMultiplier', parseFloat(e.target.value) || 1.5)} />
+                <Input
+                  id="st-sunday-mult"
+                  type="number"
+                  step="0.1"
+                  min="1"
+                  max="5"
+                  value={settings.sundayOvertimeMultiplier}
+                  onChange={(e) =>
+                    updateField('sundayOvertimeMultiplier', parseFloat(e.target.value) || 1.5)
+                  }
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="st-holiday-mult">Public holiday multiplier</Label>
-                <Input id="st-holiday-mult" type="number" step="0.1" min="1" max="5" value={settings.publicHolidayOvertimeMultiplier}
-                  onChange={(e) => updateField('publicHolidayOvertimeMultiplier', parseFloat(e.target.value) || 2.0)} />
+                <Input
+                  id="st-holiday-mult"
+                  type="number"
+                  step="0.1"
+                  min="1"
+                  max="5"
+                  value={settings.publicHolidayOvertimeMultiplier}
+                  onChange={(e) =>
+                    updateField(
+                      'publicHolidayOvertimeMultiplier',
+                      parseFloat(e.target.value) || 2.0,
+                    )
+                  }
+                />
               </div>
             </div>
 
@@ -290,12 +378,19 @@ export default function Settings() {
             </CardHeader>
             <CardContent>
               {systemHolidays.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-2">No system-wide holidays configured.</p>
+                <p className="text-sm text-muted-foreground py-2">
+                  No system-wide holidays configured.
+                </p>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {systemHolidays.map((date) => (
                     <Badge key={date} variant="secondary" className="gap-1.5 py-1.5 px-3 text-sm">
-                      {new Date(date + 'T12:00:00').toLocaleDateString('en-ZA', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                      {new Date(date + 'T12:00:00').toLocaleDateString('en-ZA', {
+                        weekday: 'short',
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                      })}
                       {isMaster && (
                         <button
                           onClick={() => handleRemoveHoliday(date, 'system')}
@@ -325,12 +420,19 @@ export default function Settings() {
             </CardHeader>
             <CardContent>
               {companyHolidays.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-2">No company-specific holidays configured.</p>
+                <p className="text-sm text-muted-foreground py-2">
+                  No company-specific holidays configured.
+                </p>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {companyHolidays.map((date) => (
                     <Badge key={date} variant="outline" className="gap-1.5 py-1.5 px-3 text-sm">
-                      {new Date(date + 'T12:00:00').toLocaleDateString('en-ZA', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                      {new Date(date + 'T12:00:00').toLocaleDateString('en-ZA', {
+                        weekday: 'short',
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                      })}
                       <button
                         onClick={() => handleRemoveHoliday(date, 'company')}
                         className="ml-1 text-muted-foreground hover:text-destructive transition-colors"
@@ -354,7 +456,9 @@ export default function Settings() {
           <CardHeader>
             <CardTitle className="text-base">Geofence Zones / Work Locations</CardTitle>
             <CardDescription>
-              Clock-in location validation zones for GPS-based attendance. Employees with an assigned location can only clock in at their assigned geofence; unassigned employees may clock in at any active geofence.
+              Clock-in location validation zones for GPS-based attendance. Employees with an
+              assigned location can only clock in at their assigned geofence; unassigned employees
+              may clock in at any active geofence.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -362,9 +466,10 @@ export default function Settings() {
               <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-50 border border-blue-200 dark:bg-blue-950/20 dark:border-blue-900 text-sm text-blue-800 dark:text-blue-300">
                 <Globe className="w-4 h-4 mt-0.5 shrink-0" />
                 <p>
-                  <strong>Master isolation:</strong> You are viewing <strong>global (system-wide) locations only</strong>.
-                  Changes made here do not affect any company's geofences. To manage a specific company's
-                  work locations, use the <strong>Impersonate</strong> feature from the Master Console.
+                  <strong>Master isolation:</strong> You are viewing{' '}
+                  <strong>global (system-wide) locations only</strong>. Changes made here do not
+                  affect any company's geofences. To manage a specific company's work locations, use
+                  the <strong>Impersonate</strong> feature from the Master Console.
                 </p>
               </div>
             )}

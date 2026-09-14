@@ -60,8 +60,12 @@ function stubLocalStorage() {
   const store = new Map<string, string>();
   vi.stubGlobal('localStorage', {
     getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
-    setItem: (k: string, v: string) => { store.set(k, String(v)); },
-    removeItem: (k: string) => { store.delete(k); },
+    setItem: (k: string, v: string) => {
+      store.set(k, String(v));
+    },
+    removeItem: (k: string) => {
+      store.delete(k);
+    },
   });
 }
 
@@ -86,10 +90,10 @@ const GEOFENCE2 = {
   is_active: true,
 };
 
-const POS_INSIDE_2 = { latitude: -33.9, longitude: 18.45 };   // centre of site 2
+const POS_INSIDE_2 = { latitude: -33.9, longitude: 18.45 }; // centre of site 2
 const POS_INSIDE = { latitude: -33.9249, longitude: 18.4241 }; // centre of site 1
-const POS_OUTSIDE = { latitude: -33.93, longitude: 18.4241 };  // ~567m from site 1
-const POS_FAR_AWAY = { latitude: -34.1, longitude: 18.6 };     // far from both
+const POS_OUTSIDE = { latitude: -33.93, longitude: 18.4241 }; // ~567m from site 1
+const POS_FAR_AWAY = { latitude: -34.1, longitude: 18.6 }; // far from both
 
 describe('AutoGeofenceService — multi-location monitoring', () => {
   beforeEach(() => {

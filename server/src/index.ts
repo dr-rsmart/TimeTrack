@@ -153,12 +153,30 @@ app.use('/api', apiLimiter);
 // ── Health, Liveness & Readiness Probes (mounted on root & /api) ──
 app.use('/health', healthRoutes);
 app.use('/api/health', healthRoutes);
-app.use('/ready', (req, res, next) => { req.url = '/ready'; healthRoutes(req, res, next); });
-app.use('/api/ready', (req, res, next) => { req.url = '/ready'; healthRoutes(req, res, next); });
-app.use('/live', (req, res, next) => { req.url = '/live'; healthRoutes(req, res, next); });
-app.use('/api/live', (req, res, next) => { req.url = '/live'; healthRoutes(req, res, next); });
-app.use('/ping', (req, res, next) => { req.url = '/ping'; healthRoutes(req, res, next); });
-app.use('/api/ping', (req, res, next) => { req.url = '/ping'; healthRoutes(req, res, next); });
+app.use('/ready', (req, res, next) => {
+  req.url = '/ready';
+  healthRoutes(req, res, next);
+});
+app.use('/api/ready', (req, res, next) => {
+  req.url = '/ready';
+  healthRoutes(req, res, next);
+});
+app.use('/live', (req, res, next) => {
+  req.url = '/live';
+  healthRoutes(req, res, next);
+});
+app.use('/api/live', (req, res, next) => {
+  req.url = '/live';
+  healthRoutes(req, res, next);
+});
+app.use('/ping', (req, res, next) => {
+  req.url = '/ping';
+  healthRoutes(req, res, next);
+});
+app.use('/api/ping', (req, res, next) => {
+  req.url = '/ping';
+  healthRoutes(req, res, next);
+});
 
 // ── Prometheus metrics (scraper endpoint; counters/gauges only, no secrets) ──
 app.use('/metrics', metricsRoutes);
@@ -179,7 +197,7 @@ app.get('/api/events', requireAuth, (req, res) => {
       branch: authUser.branch ?? null,
       department: authUser.department ?? null,
     },
-    lastEventId
+    lastEventId,
   );
 });
 
@@ -286,7 +304,9 @@ async function syncEmployeeUserAccounts() {
     `;
 
     if (missing.length === 0) {
-      console.log(`[server] User account sync: all employees have login accounts (${Date.now() - syncStartedAt}ms).`);
+      console.log(
+        `[server] User account sync: all employees have login accounts (${Date.now() - syncStartedAt}ms).`,
+      );
       return;
     }
 
@@ -302,7 +322,9 @@ async function syncEmployeeUserAccounts() {
         data: batch.map((emp) => ({
           email: emp.email.toLowerCase(),
           fullName: `${emp.firstName} ${emp.surname}`,
-          role: (['master', 'admin', 'manager', 'employee'].includes(emp.role) ? emp.role : 'employee') as 'master' | 'admin' | 'manager' | 'employee',
+          role: (['master', 'admin', 'manager', 'employee'].includes(emp.role)
+            ? emp.role
+            : 'employee') as 'master' | 'admin' | 'manager' | 'employee',
           passwordHash,
           mustChangePassword: true,
           companyProfileId: emp.companyProfileId,
@@ -312,7 +334,7 @@ async function syncEmployeeUserAccounts() {
       created += result.count;
     }
     console.log(
-      `[server] User account sync: created ${created} login account(s) with temporary password in ${Date.now() - syncStartedAt}ms.`
+      `[server] User account sync: created ${created} login account(s) with temporary password in ${Date.now() - syncStartedAt}ms.`,
     );
   } catch (err) {
     console.error('[server] User account sync failed:', err);
@@ -325,7 +347,7 @@ server.listen(PORT, async () => {
   await ensureDatabaseIndexes();
   await syncEmployeeUserAccounts();
   startCron();
-  
+
   // Optional convenience seeding for LOCAL DEVELOPMENT only.
   // SECURITY: the seed script is fully destructive — it deletes every table
   // and recreates demo data — so it must NEVER run in production, even if the
@@ -334,7 +356,7 @@ server.listen(PORT, async () => {
     if (config.isProduction) {
       console.error(
         '[server] SEED_ON_START=true is IGNORED in production: the seed script deletes all data. ' +
-          'Remove this variable from the production environment.'
+          'Remove this variable from the production environment.',
       );
     } else {
       console.log('[server] Running seed script (development only)...');

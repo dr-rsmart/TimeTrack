@@ -111,6 +111,9 @@ describe('Validation Schema Negative & Edge Case Tests', () => {
       const result = clockOutSchema.safeParse({
         breakMinutes: 2000,
       });
+      expect(result.success).toBe(false);
+    });
+  });
 
   describe('bulkEmployeeRowSchema (CSV bulk onboarding)', () => {
     it('accepts a minimal valid row and applies defaults', () => {
@@ -135,10 +138,19 @@ describe('Validation Schema Negative & Edge Case Tests', () => {
 
     it('rejects invalid email and invalid role', () => {
       expect(
-        bulkEmployeeRowSchema.safeParse({ firstName: 'Jane', surname: 'Doe', email: 'not-an-email' }).success,
+        bulkEmployeeRowSchema.safeParse({
+          firstName: 'Jane',
+          surname: 'Doe',
+          email: 'not-an-email',
+        }).success,
       ).toBe(false);
       expect(
-        bulkEmployeeRowSchema.safeParse({ firstName: 'Jane', surname: 'Doe', email: 'j@x.com', role: 'master' }).success,
+        bulkEmployeeRowSchema.safeParse({
+          firstName: 'Jane',
+          surname: 'Doe',
+          email: 'j@x.com',
+          role: 'master',
+        }).success,
       ).toBe(false);
     });
 
@@ -178,10 +190,6 @@ describe('Validation Schema Negative & Edge Case Tests', () => {
       }));
       const result = bulkCreateEmployeesSchema.safeParse({ rows });
       expect(result.success).toBe(true);
-    });
-  });
-
-      expect(result.success).toBe(false);
     });
   });
 });

@@ -11,11 +11,7 @@ describe('exact attendance duration rules', () => {
   const clockIn = new Date('2026-09-06T08:00:00.000Z');
 
   it('calculates whole payable minutes and the compatible hour value', () => {
-    const duration = calculateWorkedDuration(
-      clockIn,
-      new Date('2026-09-06T17:15:00.000Z'),
-      45,
-    );
+    const duration = calculateWorkedDuration(clockIn, new Date('2026-09-06T17:15:00.000Z'), 45);
 
     expect(duration).toEqual({ totalMinutes: 510, totalHours: 8.5 });
   });

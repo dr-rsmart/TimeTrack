@@ -36,6 +36,22 @@ function redact(text) {
   return text.replace(/(postgres(?:ql)?:\/\/[^:/\s]+:)[^@\s]+(@)/gi, '$1***$2');
 }
 
+/**
+ * Prisma DATABASE_URLs may carry `?schema=public`, which is a Prisma-only
+ * option. libpq tools (pg_dump/pg_restore) reject it as an unknown
+ * connection option, so strip Prisma-specific query params before passing
+ * the URL to pg_* utilities.
+ */
+function sanitizeDbUrl(raw) {
+  try {
+    const url = new URL(raw);
+    url.searchParams.delete('schema');
+    return url.toString();
+  } catch {
+    return raw;
+  }
+}
+
 async function runBackup() {
   const startTime = Date.now();
   console.log('[backup] Starting PostgreSQL database backup...');
@@ -53,7 +69,7 @@ async function runBackup() {
   const backupFilePath = path.join(BACKUP_DIR, backupFileName);
 
   // Execute pg_dump
-  const command = `pg_dump --format=c --no-owner --no-privileges --dbname="${DATABASE_URL}" -f "${backupFilePath}"`;
+  const command = `pg_dump --format=c --no-owner --no-privileges --dbname="${sanitizeDbUrl(DATABASE_URL)}" -f "${backupFilePath}"`;
 
   try {
     await execAsync(command);
@@ -93,7 +109,9 @@ function cleanupOldBackups() {
     }
 
     if (purgedCount > 0) {
-      console.log(`[backup] Cleaned up ${purgedCount} snapshot(s) older than ${RETENTION_DAYS} days.`);
+      console.log(
+        `[backup] Cleaned up ${purgedCount} snapshot(s) older than ${RETENTION_DAYS} days.`,
+      );
     }
   } catch (err) {
     console.warn('[backup] Warning during retention cleanup:', err.message);

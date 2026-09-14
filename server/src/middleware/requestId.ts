@@ -16,9 +16,10 @@ export interface RequestWithId extends Request {
 
 export function requestIdMiddleware(req: RequestWithId, res: Response, next: NextFunction): void {
   const incomingId = req.header('x-request-id') || req.header('x-correlation-id');
-  const requestId = (incomingId && typeof incomingId === 'string' && incomingId.length <= 128)
-    ? incomingId
-    : crypto.randomUUID();
+  const requestId =
+    incomingId && typeof incomingId === 'string' && incomingId.length <= 128
+      ? incomingId
+      : crypto.randomUUID();
 
   req.id = requestId;
   req.startTime = Date.now();
@@ -28,7 +29,7 @@ export function requestIdMiddleware(req: RequestWithId, res: Response, next: Nex
   res.on('finish', () => {
     const duration = req.startTime ? Date.now() - req.startTime : 0;
     const isHealthCheck = req.path === '/health' || req.path === '/api/health';
-    
+
     if (isHealthCheck && res.statusCode === 200 && process.env.NODE_ENV !== 'production') {
       return;
     }
@@ -52,7 +53,9 @@ export function requestIdMiddleware(req: RequestWithId, res: Response, next: Nex
       // Production: structured single-line JSON output for log collectors (Loki, Datadog, CloudWatch)
       console.log(JSON.stringify(logEntry));
     } else if (res.statusCode >= 400 || duration > 500) {
-      console.log(`[http] ${req.method} ${req.originalUrl || req.url} ${res.statusCode} in ${duration}ms (req: ${requestId.slice(0, 8)})`);
+      console.log(
+        `[http] ${req.method} ${req.originalUrl || req.url} ${res.statusCode} in ${duration}ms (req: ${requestId.slice(0, 8)})`,
+      );
     }
   });
 

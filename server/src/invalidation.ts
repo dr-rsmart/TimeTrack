@@ -139,7 +139,10 @@ export function invalidateCompanyClusterWide(companyProfileId: string): void {
 }
 
 /** Employee status change (terminate/reactivate): drop the status cache. */
-export function invalidateEmployeeStatusClusterWide(email: string, companyProfileId: string | null): void {
+export function invalidateEmployeeStatusClusterWide(
+  email: string,
+  companyProfileId: string | null,
+): void {
   publishInvalidation({ type: 'invalidate-employee-status', email, companyProfileId });
 }
 

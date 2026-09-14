@@ -10,8 +10,12 @@ const fs = require('fs');
 const path = require('path');
 
 const EAS_CLI = 'C:/Users/Ricardo Smart/AppData/Roaming/npm/node_modules/eas-cli';
-const { authenticateAsync } = require(path.join(EAS_CLI, 'build/credentials/ios/appstore/authenticate.js'));
-const { createAscApiKeyAsync } = require(path.join(EAS_CLI, 'build/credentials/ios/appstore/ascApiKey.js'));
+const { authenticateAsync } = require(
+  path.join(EAS_CLI, 'build/credentials/ios/appstore/authenticate.js'),
+);
+const { createAscApiKeyAsync } = require(
+  path.join(EAS_CLI, 'build/credentials/ios/appstore/ascApiKey.js'),
+);
 
 async function main() {
   // Authenticate as user (session cookie restore; EXPO_APPLE_ID must be set)

@@ -67,27 +67,60 @@ describe('Business Timezone Rules (cron no-show safety)', () => {
 
     it('marks same-day shifts past start+grace', () => {
       // Shift 08:00 (480), deadline 600 (10:00). Now 11:30 (690) → past.
-      expect(isPastGraceDeadline({ nowMinutesOfDay: 690, shiftStartMinutes: 480, graceMinutes: grace })).toBe(true);
+      expect(
+        isPastGraceDeadline({ nowMinutesOfDay: 690, shiftStartMinutes: 480, graceMinutes: grace }),
+      ).toBe(true);
       // Now 09:00 (540) → not yet.
-      expect(isPastGraceDeadline({ nowMinutesOfDay: 540, shiftStartMinutes: 480, graceMinutes: grace })).toBe(false);
+      expect(
+        isPastGraceDeadline({ nowMinutesOfDay: 540, shiftStartMinutes: 480, graceMinutes: grace }),
+      ).toBe(false);
       // Exactly at the deadline → not past (strict >).
-      expect(isPastGraceDeadline({ nowMinutesOfDay: 600, shiftStartMinutes: 480, graceMinutes: grace })).toBe(false);
+      expect(
+        isPastGraceDeadline({ nowMinutesOfDay: 600, shiftStartMinutes: 480, graceMinutes: grace }),
+      ).toBe(false);
     });
 
     it('never fires same-day when the deadline crosses midnight', () => {
       // Shift 23:00 (1380) + 2h = 25:00 → deadline lands on the next day.
-      expect(isPastGraceDeadline({ nowMinutesOfDay: 1439, shiftStartMinutes: 1380, graceMinutes: grace })).toBe(false);
+      expect(
+        isPastGraceDeadline({
+          nowMinutesOfDay: 1439,
+          shiftStartMinutes: 1380,
+          graceMinutes: grace,
+        }),
+      ).toBe(false);
     });
 
     it('catches previous-day shifts whose deadline crossed midnight', () => {
       // Yesterday 23:00 shift; deadline 01:00 today (25:00 - 24:00 = 60).
-      expect(isPastGraceDeadline({ nowMinutesOfDay: 90, shiftStartMinutes: 1380, graceMinutes: grace, isPreviousDay: true })).toBe(true);
-      expect(isPastGraceDeadline({ nowMinutesOfDay: 30, shiftStartMinutes: 1380, graceMinutes: grace, isPreviousDay: true })).toBe(false);
+      expect(
+        isPastGraceDeadline({
+          nowMinutesOfDay: 90,
+          shiftStartMinutes: 1380,
+          graceMinutes: grace,
+          isPreviousDay: true,
+        }),
+      ).toBe(true);
+      expect(
+        isPastGraceDeadline({
+          nowMinutesOfDay: 30,
+          shiftStartMinutes: 1380,
+          graceMinutes: grace,
+          isPreviousDay: true,
+        }),
+      ).toBe(false);
     });
 
     it('treats previous-day shifts with same-day deadlines as definitely past', () => {
       // Yesterday 08:00 shift: its deadline (10:00 yesterday) has long gone.
-      expect(isPastGraceDeadline({ nowMinutesOfDay: 1, shiftStartMinutes: 480, graceMinutes: grace, isPreviousDay: true })).toBe(true);
+      expect(
+        isPastGraceDeadline({
+          nowMinutesOfDay: 1,
+          shiftStartMinutes: 480,
+          graceMinutes: grace,
+          isPreviousDay: true,
+        }),
+      ).toBe(true);
     });
   });
 });

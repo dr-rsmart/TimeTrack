@@ -117,7 +117,10 @@ export async function main(argv = process.argv.slice(2)) {
     else console.log(`Applied exact-minute values to ${Number(result)} completed time entries.`);
     return 0;
   } catch (error) {
-    if (options.json) console.log(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+    if (options.json)
+      console.log(
+        JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+      );
     else console.error('[duration-backfill] failed:', error);
     return 1;
   } finally {

@@ -90,7 +90,7 @@ async function submitRelease(page) {
       (p) => p.getByRole('button', { name: /^next$/i }),
       (p) => p.getByText('Next', { exact: true }),
     ],
-    60000
+    60000,
   );
   await wait(5000);
   // A second "Next" may appear (release notes / country selection pages).
@@ -98,7 +98,7 @@ async function submitRelease(page) {
     page,
     'second "Next" (if present)',
     [(p) => p.getByRole('button', { name: /^next$/i })],
-    8000
+    8000,
   );
   await wait(3000);
   await clickVisible(
@@ -108,7 +108,7 @@ async function submitRelease(page) {
       (p) => p.getByRole('button', { name: /review release/i }),
       (p) => p.getByText('Review release', { exact: true }),
     ],
-    30000
+    30000,
   );
   await wait(4000);
   await clickVisible(
@@ -119,7 +119,7 @@ async function submitRelease(page) {
       (p) => p.getByText(/Start rollout to Closed testing/i),
       (p) => p.getByRole('button', { name: /start rollout/i }),
     ],
-    30000
+    30000,
   );
   await wait(3000);
   await clickVisible(
@@ -129,7 +129,7 @@ async function submitRelease(page) {
       (p) => p.getByRole('button', { name: /^confirm$/i }),
       (p) => p.getByRole('button', { name: /start rollout/i }),
     ],
-    15000
+    15000,
   );
 }
 
@@ -149,7 +149,7 @@ async function attachBundleVc8(page) {
       (p) => p.getByRole('button', { name: /library/i }),
       (p) => p.locator('a').filter({ hasText: /library/i }),
     ],
-    10000
+    10000,
   );
   if (fromLibrary) {
     await wait(4000);
@@ -181,7 +181,7 @@ async function attachBundleVc8(page) {
             .locator('input[type="checkbox"], [role="checkbox"], label')
             .first(),
       ],
-      20000
+      20000,
     );
     if (!picked) await shot(page, 'library-no-vc8');
     await wait(1500);
@@ -193,7 +193,7 @@ async function attachBundleVc8(page) {
         (p) => p.getByText('Add to release', { exact: true }),
         (p) => p.getByRole('button', { name: /^add$/i }),
       ],
-      15000
+      15000,
     );
     if (picked && added) {
       console.log('✅ Attached vc8 from the app bundle library.');
@@ -215,7 +215,7 @@ async function attachBundleVc8(page) {
       (p) => p.getByText(/app bundles to this release/i),
       (p) => p.locator('label').filter({ hasText: /upload/i }),
     ],
-    10000
+    10000,
   );
   if (clickedUpload) {
     const chooser = await chooserP;
@@ -297,8 +297,12 @@ async function run() {
   await shot(page, 'app-list');
 
   const pickDeveloper = async (label) => {
-    const hit = await clickVisible(page, `developer account "${label}"`,
-      [(p) => p.getByText(label, { exact: true })], 20000);
+    const hit = await clickVisible(
+      page,
+      `developer account "${label}"`,
+      [(p) => p.getByText(label, { exact: true })],
+      20000,
+    );
     if (hit) await wait(6000);
     return hit;
   };
@@ -310,10 +314,15 @@ async function run() {
     await pickDeveloper('dr-rsmart');
     rowReady = await isVisible(page, /TimeTrack: Workforce/i, 30000);
   }
-  const openedApp = await clickVisible(page, 'TimeTrack app row', [
-    (p) => p.getByText('TimeTrack: Workforce'),
-    (p) => p.locator('a').filter({ hasText: /TimeTrack/i }),
-  ], 30000);
+  const openedApp = await clickVisible(
+    page,
+    'TimeTrack app row',
+    [
+      (p) => p.getByText('TimeTrack: Workforce'),
+      (p) => p.locator('a').filter({ hasText: /TimeTrack/i }),
+    ],
+    30000,
+  );
   if (openedApp) await wait(6000);
 
   const m = page.url().match(/developers\/(\d+)\/app\/(\d+)/);
@@ -329,29 +338,39 @@ async function run() {
   // ── Closed testing -> Alpha track ──
   console.log('🧭 Opening the Closed testing section...');
   await page
-    .goto(
-      `https://play.google.com/console/u/0/developers/${devId}/app/${appId}/closed-testing`,
-      { waitUntil: 'domcontentloaded', timeout: 60000 }
-    )
+    .goto(`https://play.google.com/console/u/0/developers/${devId}/app/${appId}/closed-testing`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000,
+    })
     .catch(() => {});
   await wait(6000);
   await shot(page, 'closed-testing-list');
 
   // The tracks list shows a "Closed testing - Alpha" card whose right side
   // carries a "Manage track" link that opens the release page.
-  let entered = await clickVisible(page, '"Manage track" link (Alpha row)', [
-    (p) => p.getByRole('link', { name: /manage track/i }),
-    (p) => p.getByText('Manage track', { exact: true }),
-  ], 20000);
+  let entered = await clickVisible(
+    page,
+    '"Manage track" link (Alpha row)',
+    [
+      (p) => p.getByRole('link', { name: /manage track/i }),
+      (p) => p.getByText('Manage track', { exact: true }),
+    ],
+    20000,
+  );
   if (entered) await wait(5000);
 
   if (!/releases|track\//.test(page.url())) {
     // Fallback: click the track title itself.
-    entered = await clickVisible(page, '"Closed testing - Alpha" title', [
-      (p) => p.getByText('Closed testing - Alpha', { exact: true }),
-      (p) => p.getByText(/Closed testing\s*-\s*Alpha/i),
-      (p) => p.getByText('Alpha', { exact: true }),
-    ], 15000);
+    entered = await clickVisible(
+      page,
+      '"Closed testing - Alpha" title',
+      [
+        (p) => p.getByText('Closed testing - Alpha', { exact: true }),
+        (p) => p.getByText(/Closed testing\s*-\s*Alpha/i),
+        (p) => p.getByText('Alpha', { exact: true }),
+      ],
+      15000,
+    );
     if (entered) await wait(5000);
   }
 
@@ -363,16 +382,17 @@ async function run() {
 
   // ── Detect current track state ──
   const hasVc8 = await isVisible(page, /8 \(1\.0\.0\)/, 6000);
-  const hasDraft = (await isVisible(page, /edit release/i, 5000)) ||
+  const hasDraft =
+    (await isVisible(page, /edit release/i, 5000)) ||
     (await isVisible(page, /^\s*Untitled release\s*$/i, 4000)) ||
     (await isVisible(page, /\bDraft\b/, 4000));
   const alreadyLive = await isVisible(
     page,
     /rollout started|in review|review in progress|available to (selected )?testers|fully live|staged rollout/i,
-    6000
+    6000,
   );
   console.log(
-    `ℹ️  track state: hasVc8=${hasVc8} hasDraft=${hasDraft} hasLiveRelease7=${await isVisible(page, /7 \(1\.0\.0\)/, 4000)}`
+    `ℹ️  track state: hasVc8=${hasVc8} hasDraft=${hasDraft} hasLiveRelease7=${await isVisible(page, /7 \(1\.0\.0\)/, 4000)}`,
   );
 
   let submitted = false;
@@ -385,17 +405,27 @@ async function run() {
     let inEditor = false;
     if (hasDraft) {
       console.log('📝 Draft exists on closed "alpha" — opening its editor.');
-      inEditor = await clickVisible(page, '"Edit release" (draft editor)', [
-        (p) => p.getByRole('link', { name: /edit release/i }),
-        (p) => p.getByText('Edit release', { exact: true }),
-        (p) => p.getByRole('button', { name: /edit release/i }),
-      ], 20000);
+      inEditor = await clickVisible(
+        page,
+        '"Edit release" (draft editor)',
+        [
+          (p) => p.getByRole('link', { name: /edit release/i }),
+          (p) => p.getByText('Edit release', { exact: true }),
+          (p) => p.getByRole('button', { name: /edit release/i }),
+        ],
+        20000,
+      );
     } else {
       console.log('➕ Creating a new release on closed "alpha"...');
-      inEditor = await clickVisible(page, '"Create new release" (closed alpha)', [
-        (p) => p.getByRole('button', { name: /create new release/i }),
-        (p) => p.getByText('Create new release', { exact: true }),
-      ], 30000);
+      inEditor = await clickVisible(
+        page,
+        '"Create new release" (closed alpha)',
+        [
+          (p) => p.getByRole('button', { name: /create new release/i }),
+          (p) => p.getByText('Create new release', { exact: true }),
+        ],
+        30000,
+      );
     }
     if (inEditor) {
       await wait(6000);
@@ -423,14 +453,14 @@ async function run() {
     done = await isVisible(
       page,
       /rollout started|in review|review in progress|ready to send|fully live|staged rollout|available to testers/i,
-      15000
+      15000,
     );
     for (let i = 0; i < 12 && !done; i++) {
       await wait(10000);
       done = await isVisible(
         page,
         /rollout started|in review|review in progress|ready to send|fully live|staged rollout/i,
-        5000
+        5000,
       );
     }
   }

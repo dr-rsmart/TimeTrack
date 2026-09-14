@@ -15,8 +15,24 @@ import { reportApi, timeEntryApi, type PayrollRow, type TimeEntry } from '../ser
 import { useAuth } from '../context/AuthContext';
 import EditTimeEntryModal from '../components/time/EditTimeEntryModal';
 import {
-  Badge, Button, Card, CardContent, CardHeader, CardTitle, EmptyState, Input, Label,
-  Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Tabs,
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  Input,
+  Label,
+  Select,
+  Spinner,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Tabs,
 } from '../components/ui';
 import { toDateStr, downloadCsv, formatHours, formatDate, formatTime } from '../lib/utils';
 
@@ -131,16 +147,40 @@ export default function Reports() {
 
   const handleExportSummary = () => {
     const headers = [
-      'Employee Number', 'Employee', 'Position', 'Email', 'Branch', 'Geofence Location', 'Department', 'Days Worked',
-      'Ordinary Hours', 'Daily OT', 'Sunday OT', 'Holiday OT', 'Monthly OT',
-      'Total OT', 'Weighted OT', 'Total Hours',
+      'Employee Number',
+      'Employee',
+      'Position',
+      'Email',
+      'Branch',
+      'Geofence Location',
+      'Department',
+      'Days Worked',
+      'Ordinary Hours',
+      'Daily OT',
+      'Sunday OT',
+      'Holiday OT',
+      'Monthly OT',
+      'Total OT',
+      'Weighted OT',
+      'Total Hours',
     ];
     const data = rows.map((r) => [
-      r.employeeNumber ?? '', r.name, r.position ?? '', r.email, r.branch,
-      geofenceLocationsByEmail.get(r.email) ?? '', r.department, r.daysWorked,
-      r.ordinaryHours, r.dailyOvertimeHours, r.sundayOvertimeHours,
-      r.holidayOvertimeHours, r.monthlyOvertimeHours, r.totalOvertimeHours,
-      r.totalWeightedOvertime, r.totalHours,
+      r.employeeNumber ?? '',
+      r.name,
+      r.position ?? '',
+      r.email,
+      r.branch,
+      geofenceLocationsByEmail.get(r.email) ?? '',
+      r.department,
+      r.daysWorked,
+      r.ordinaryHours,
+      r.dailyOvertimeHours,
+      r.sundayOvertimeHours,
+      r.holidayOvertimeHours,
+      r.monthlyOvertimeHours,
+      r.totalOvertimeHours,
+      r.totalWeightedOvertime,
+      r.totalHours,
     ]);
     downloadCsv(`payroll-summary-${from}-to-${to}.csv`, headers, data);
     toast.success('Summary CSV exported');
@@ -148,18 +188,40 @@ export default function Reports() {
 
   const handleExportEntries = () => {
     const headers = [
-      'Employee Number', 'Employee', 'Position', 'Email', 'Branch', 'Geofence Location', 'Department',
-      'Date', 'Clock In', 'Clock Out', 'Break (min)', 'Entry Hours', 'Day Total Hours',
-      'Status', 'Manual Override',
+      'Employee Number',
+      'Employee',
+      'Position',
+      'Email',
+      'Branch',
+      'Geofence Location',
+      'Department',
+      'Date',
+      'Clock In',
+      'Clock Out',
+      'Break (min)',
+      'Entry Hours',
+      'Day Total Hours',
+      'Status',
+      'Manual Override',
     ];
     const data = timeEntries.map((e) => {
       const info = employeeInfoByEmail.get(e.employeeEmail);
       const dayTotal = employeeDayTotals.get(getEmployeeDayKey(e)) ?? 0;
       return [
-        info?.employeeNumber ?? '', e.employeeName ?? '', info?.position ?? '',
-        e.employeeEmail, e.branch ?? '', e.geofenceName ?? '', e.department ?? '',
-        formatDate(e.date), formatTime(e.clockIn), e.clockOut ? formatTime(e.clockOut) : '',
-        e.breakMinutes ?? '', e.totalHours ?? '', dayTotal, e.status,
+        info?.employeeNumber ?? '',
+        e.employeeName ?? '',
+        info?.position ?? '',
+        e.employeeEmail,
+        e.branch ?? '',
+        e.geofenceName ?? '',
+        e.department ?? '',
+        formatDate(e.date),
+        formatTime(e.clockIn),
+        e.clockOut ? formatTime(e.clockOut) : '',
+        e.breakMinutes ?? '',
+        e.totalHours ?? '',
+        dayTotal,
+        e.status,
         e.isManualOverride ? 'Yes' : 'No',
       ];
     });
@@ -183,14 +245,21 @@ export default function Reports() {
   const getEmployeeDayKey = (entry: TimeEntry) =>
     `${entry.employeeId ?? entry.employeeEmail.toLowerCase()}|${entry.date.slice(0, 10)}`;
   const employeeDayTotals = new Map<string, number>();
-  const groupedDailyTotals = new Map<string, { employees: Set<string>; entries: number; hours: number }>();
+  const groupedDailyTotals = new Map<
+    string,
+    { employees: Set<string>; entries: number; hours: number }
+  >();
   for (const entry of timeEntries) {
     const hours = entry.totalHours ?? 0;
     const dayKey = entry.date.slice(0, 10);
     const employeeDayKey = getEmployeeDayKey(entry);
     employeeDayTotals.set(employeeDayKey, (employeeDayTotals.get(employeeDayKey) ?? 0) + hours);
 
-    const day = groupedDailyTotals.get(dayKey) ?? { employees: new Set<string>(), entries: 0, hours: 0 };
+    const day = groupedDailyTotals.get(dayKey) ?? {
+      employees: new Set<string>(),
+      entries: 0,
+      hours: 0,
+    };
     day.employees.add(entry.employeeId ?? entry.employeeEmail.toLowerCase());
     day.entries += 1;
     day.hours += hours;
@@ -198,12 +267,20 @@ export default function Reports() {
   }
   const dailyTotals = [...groupedDailyTotals.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([date, total]) => ({ date, employees: total.employees.size, entries: total.entries, hours: total.hours }));
+    .map(([date, total]) => ({
+      date,
+      employees: total.employees.size,
+      entries: total.entries,
+      hours: total.hours,
+    }));
 
   const handleExportDailyTotals = () => {
     const headers = ['Date', 'Employees', 'Entries', 'Total Hours'];
     const data = dailyTotals.map((day) => [
-      formatDate(day.date), day.employees, day.entries, day.hours,
+      formatDate(day.date),
+      day.employees,
+      day.entries,
+      day.hours,
     ]);
     downloadCsv(`grouped-daily-totals-${from}-to-${to}.csv`, headers, data);
     toast.success('Grouped daily totals CSV exported');
@@ -234,7 +311,9 @@ export default function Reports() {
             <FileBarChart className="w-5 h-5 text-brand" />
             <h1 className="text-2xl font-bold">Payroll & Overtime Report</h1>
           </div>
-          <p className="text-sm text-muted-foreground">Precision overtime computation · {rows.length} employees in range</p>
+          <p className="text-sm text-muted-foreground">
+            Precision overtime computation · {rows.length} employees in range
+          </p>
         </div>
         <Button
           onClick={
@@ -264,16 +343,34 @@ export default function Reports() {
           </div>
           <div className="space-y-1">
             <Label htmlFor="r-branch">Branch</Label>
-            <Select id="r-branch" className="w-44" value={branch} onChange={(e) => setBranch(e.target.value)}>
+            <Select
+              id="r-branch"
+              className="w-44"
+              value={branch}
+              onChange={(e) => setBranch(e.target.value)}
+            >
               <option value="">All branches</option>
-              {branches.map((b) => <option key={b} value={b}>{b}</option>)}
+              {branches.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
             </Select>
           </div>
           <div className="space-y-1">
             <Label htmlFor="r-dept">Department</Label>
-            <Select id="r-dept" className="w-44" value={department} onChange={(e) => setDepartment(e.target.value)}>
+            <Select
+              id="r-dept"
+              className="w-44"
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+            >
               <option value="">All departments</option>
-              {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+              {departments.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
             </Select>
           </div>
           {(activeTab === 'entries' || activeTab === 'daily') && (
@@ -302,7 +399,11 @@ export default function Reports() {
         tabs={[
           { id: 'summary', label: 'Payroll Summary', icon: <FileBarChart className="w-4 h-4" /> },
           { id: 'entries', label: 'Time Entries', icon: <Clock className="w-4 h-4" /> },
-          { id: 'daily', label: 'Grouped Daily Totals', icon: <CalendarDays className="w-4 h-4" /> },
+          {
+            id: 'daily',
+            label: 'Grouped Daily Totals',
+            icon: <CalendarDays className="w-4 h-4" />,
+          },
         ]}
         active={activeTab}
         onChange={setActiveTab}
@@ -319,13 +420,17 @@ export default function Reports() {
               </CardTitle>
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                 <span>{rows.length} employees</span>
-                <span className="font-semibold text-foreground">{formatHours(totals.total)} total</span>
+                <span className="font-semibold text-foreground">
+                  {formatHours(totals.total)} total
+                </span>
               </div>
             </div>
           </CardHeader>
           <CardContent>
             {loading ? (
-              <div className="flex h-48 items-center justify-center"><Spinner className="h-8 w-8" /></div>
+              <div className="flex h-48 items-center justify-center">
+                <Spinner className="h-8 w-8" />
+              </div>
             ) : rows.length === 0 ? (
               <EmptyState message={loaded ? 'No payroll data for this period' : 'Loading…'} />
             ) : (
@@ -355,19 +460,33 @@ export default function Reports() {
                         <TableCell>{r.branch}</TableCell>
                         <TableCell>{r.daysWorked}</TableCell>
                         <TableCell className="text-right">{formatHours(r.ordinaryHours)}</TableCell>
-                        <TableCell className="text-right">{formatHours(r.dailyOvertimeHours)}</TableCell>
-                        <TableCell className="text-right">{formatHours(r.sundayOvertimeHours)}</TableCell>
-                        <TableCell className="text-right">{formatHours(r.holidayOvertimeHours)}</TableCell>
-                        <TableCell className="text-right font-medium">{formatHours(r.totalOvertimeHours)}</TableCell>
-                        <TableCell className="text-right">{formatHours(r.totalWeightedOvertime)}</TableCell>
-                        <TableCell className="text-right font-bold">{formatHours(r.totalHours)}</TableCell>
+                        <TableCell className="text-right">
+                          {formatHours(r.dailyOvertimeHours)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatHours(r.sundayOvertimeHours)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatHours(r.holidayOvertimeHours)}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatHours(r.totalOvertimeHours)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatHours(r.totalWeightedOvertime)}
+                        </TableCell>
+                        <TableCell className="text-right font-bold">
+                          {formatHours(r.totalHours)}
+                        </TableCell>
                       </TableRow>
                     ))}
                     {/* Totals row */}
                     <TableRow className="bg-muted/50 font-semibold">
                       <TableCell colSpan={3}>Totals ({rows.length} employees)</TableCell>
                       <TableCell className="text-right">{formatHours(totals.ordinary)}</TableCell>
-                      <TableCell className="text-right" colSpan={3}>{''}</TableCell>
+                      <TableCell className="text-right" colSpan={3}>
+                        {''}
+                      </TableCell>
                       <TableCell className="text-right">{formatHours(totals.overtime)}</TableCell>
                       <TableCell className="text-right">{formatHours(totals.weighted)}</TableCell>
                       <TableCell className="text-right">{formatHours(totals.total)}</TableCell>
@@ -391,75 +510,89 @@ export default function Reports() {
               </CardTitle>
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                 <span>{entryTotals.count} entries</span>
-                <span className="font-semibold text-foreground">{formatHours(entryTotals.hours)} total</span>
+                <span className="font-semibold text-foreground">
+                  {formatHours(entryTotals.hours)} total
+                </span>
               </div>
             </div>
           </CardHeader>
           <CardContent>
             {loadingEntries ? (
-              <div className="flex h-48 items-center justify-center"><Spinner className="h-8 w-8" /></div>
+              <div className="flex h-48 items-center justify-center">
+                <Spinner className="h-8 w-8" />
+              </div>
             ) : timeEntries.length === 0 ? (
-              <EmptyState message={entriesLoaded ? 'No time entries for this period' : 'Loading…'} />
+              <EmptyState
+                message={entriesLoaded ? 'No time entries for this period' : 'Loading…'}
+              />
             ) : (
               <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Employee</TableHead>
-                      <TableHead>Branch</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Clock In</TableHead>
-                      <TableHead>Clock Out</TableHead>
-                      <TableHead className="text-right">Break</TableHead>
-                      <TableHead className="text-right">Entry Hours</TableHead>
-                      <TableHead className="text-right">Day Total</TableHead>
-                      <TableHead>Status</TableHead>
-                      {canEdit && <TableHead className="text-right">Actions</TableHead>}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {timeEntries.map((e) => (
-                      <TableRow key={e.id}>
-                        <TableCell>
-                          <p className="font-medium">{e.employeeName || e.employeeEmail}</p>
-                          <p className="text-xs text-muted-foreground">{e.employeeEmail}</p>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Employee</TableHead>
+                    <TableHead>Branch</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Clock In</TableHead>
+                    <TableHead>Clock Out</TableHead>
+                    <TableHead className="text-right">Break</TableHead>
+                    <TableHead className="text-right">Entry Hours</TableHead>
+                    <TableHead className="text-right">Day Total</TableHead>
+                    <TableHead>Status</TableHead>
+                    {canEdit && <TableHead className="text-right">Actions</TableHead>}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {timeEntries.map((e) => (
+                    <TableRow key={e.id}>
+                      <TableCell>
+                        <p className="font-medium">{e.employeeName || e.employeeEmail}</p>
+                        <p className="text-xs text-muted-foreground">{e.employeeEmail}</p>
+                      </TableCell>
+                      <TableCell>{e.branch || '—'}</TableCell>
+                      <TableCell>{formatDate(e.date)}</TableCell>
+                      <TableCell>{formatTime(e.clockIn)}</TableCell>
+                      <TableCell>{e.clockOut ? formatTime(e.clockOut) : '—'}</TableCell>
+                      <TableCell className="text-right">
+                        {e.breakMinutes != null ? `${e.breakMinutes}m` : '—'}
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatHours(e.totalHours)}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {formatHours(employeeDayTotals.get(getEmployeeDayKey(e)) ?? 0)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant={e.status === 'active' ? 'success' : 'secondary'}>
+                            {e.status}
+                          </Badge>
+                          {e.isManualOverride && <Badge variant="warning">Manual</Badge>}
+                        </div>
+                      </TableCell>
+                      {canEdit && (
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-brand"
+                            title="Edit time entry"
+                            onClick={() => setEditEntry(e)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
                         </TableCell>
-                        <TableCell>{e.branch || '—'}</TableCell>
-                        <TableCell>{formatDate(e.date)}</TableCell>
-                        <TableCell>{formatTime(e.clockIn)}</TableCell>
-                        <TableCell>{e.clockOut ? formatTime(e.clockOut) : '—'}</TableCell>
-                        <TableCell className="text-right">{e.breakMinutes != null ? `${e.breakMinutes}m` : '—'}</TableCell>
-                        <TableCell className="text-right font-medium">{formatHours(e.totalHours)}</TableCell>
-                        <TableCell className="text-right font-semibold">{formatHours(employeeDayTotals.get(getEmployeeDayKey(e)) ?? 0)}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1.5">
-                            <Badge variant={e.status === 'active' ? 'success' : 'secondary'}>{e.status}</Badge>
-                            {e.isManualOverride && <Badge variant="warning">Manual</Badge>}
-                          </div>
-                        </TableCell>
-                        {canEdit && (
-                          <TableCell className="text-right">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 w-8 p-0 text-muted-foreground hover:text-brand"
-                              title="Edit time entry"
-                              onClick={() => setEditEntry(e)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        )}
-                      </TableRow>
-                    ))}
-                    {/* Totals row */}
-                    <TableRow className="bg-muted/50 font-semibold">
-                      <TableCell colSpan={6}>Totals ({entryTotals.count} entries)</TableCell>
-                      <TableCell className="text-right">{formatHours(entryTotals.hours)}</TableCell>
-                      <TableCell className="text-right">—</TableCell>
-                      <TableCell>{''}</TableCell>
-                      {canEdit && <TableCell>{''}</TableCell>}
+                      )}
                     </TableRow>
-                  </TableBody>
+                  ))}
+                  {/* Totals row */}
+                  <TableRow className="bg-muted/50 font-semibold">
+                    <TableCell colSpan={6}>Totals ({entryTotals.count} entries)</TableCell>
+                    <TableCell className="text-right">{formatHours(entryTotals.hours)}</TableCell>
+                    <TableCell className="text-right">—</TableCell>
+                    <TableCell>{''}</TableCell>
+                    {canEdit && <TableCell>{''}</TableCell>}
+                  </TableRow>
+                </TableBody>
               </Table>
             )}
           </CardContent>
@@ -477,15 +610,21 @@ export default function Reports() {
               </CardTitle>
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                 <span>{dailyTotals.length} days</span>
-                <span className="font-semibold text-foreground">{formatHours(entryTotals.hours)} total</span>
+                <span className="font-semibold text-foreground">
+                  {formatHours(entryTotals.hours)} total
+                </span>
               </div>
             </div>
           </CardHeader>
           <CardContent>
             {loadingEntries ? (
-              <div className="flex h-48 items-center justify-center"><Spinner className="h-8 w-8" /></div>
+              <div className="flex h-48 items-center justify-center">
+                <Spinner className="h-8 w-8" />
+              </div>
             ) : dailyTotals.length === 0 ? (
-              <EmptyState message={entriesLoaded ? 'No time entries for this period' : 'Loading…'} />
+              <EmptyState
+                message={entriesLoaded ? 'No time entries for this period' : 'Loading…'}
+              />
             ) : (
               <Table>
                 <TableHeader>
@@ -502,7 +641,9 @@ export default function Reports() {
                       <TableCell>{formatDate(day.date)}</TableCell>
                       <TableCell className="text-right">{day.employees}</TableCell>
                       <TableCell className="text-right">{day.entries}</TableCell>
-                      <TableCell className="text-right font-semibold">{formatHours(day.hours)}</TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {formatHours(day.hours)}
+                      </TableCell>
                     </TableRow>
                   ))}
                   <TableRow className="bg-muted/50 font-semibold">

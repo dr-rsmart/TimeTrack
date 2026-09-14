@@ -17,12 +17,29 @@ import { shiftApi, employeeApi, type Shift, type Employee, ApiError } from '../s
 import { useAuth } from '../context/AuthContext';
 import { useSSE } from '../hooks/useSSE';
 import {
-  Badge, Button, Card, CardContent, Input, Label, Modal, Select,
-  Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  Input,
+  Label,
+  Modal,
+  Select,
+  Spinner,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Textarea,
 } from '../components/ui';
 import { toDateStr, formatDate } from '../lib/utils';
 
-const statusVariant: Record<string, 'default' | 'secondary' | 'success' | 'warning' | 'destructive'> = {
+const statusVariant: Record<
+  string,
+  'default' | 'secondary' | 'success' | 'warning' | 'destructive'
+> = {
   scheduled: 'secondary',
   active: 'success',
   completed: 'default',
@@ -83,7 +100,7 @@ const emptyForm = {
   employeeIds: [] as string[],
   employeeId: '', // edit mode only (one shift = one employee)
   date: toDateStr(new Date()),
-  endDate: '',    // create mode only; empty = single day
+  endDate: '', // create mode only; empty = single day
   startTime: '08:00',
   endTime: '17:00',
   shiftType: 'full_day',
@@ -153,7 +170,10 @@ export default function Shifts() {
 
   useEffect(() => {
     if (canManage) {
-      employeeApi.list({ limit: 500 }).then((res) => setEmployees(res.items)).catch(() => {});
+      employeeApi
+        .list({ limit: 500 })
+        .then((res) => setEmployees(res.items))
+        .catch(() => {});
     }
   }, [canManage]);
 
@@ -249,7 +269,8 @@ export default function Shifts() {
         : [...f.employeeIds, id],
     }));
 
-  const selectAllEmployees = () => setForm((f) => ({ ...f, employeeIds: modalEmployees.map((e) => e.id) }));
+  const selectAllEmployees = () =>
+    setForm((f) => ({ ...f, employeeIds: modalEmployees.map((e) => e.id) }));
   const clearEmployees = () => setForm((f) => ({ ...f, employeeIds: [] }));
 
   /** Days covered by the create form's date range (null when dates are invalid). */
@@ -320,7 +341,9 @@ export default function Shifts() {
       (rangeDays ?? 1) > 1 &&
       form.useCustomDailyHours &&
       Object.values(form.weeklySchedule).some(
-        (config) => config.enabled && (!config.startTime || !config.endTime || config.endTime <= config.startTime),
+        (config) =>
+          config.enabled &&
+          (!config.startTime || !config.endTime || config.endTime <= config.startTime),
       )
     ) {
       toast.error('Each open day must have an end time after its start time.');
@@ -352,7 +375,8 @@ export default function Shifts() {
           endTime: form.endTime,
           shiftType: form.shiftType,
           notes: form.notes || undefined,
-          weeklySchedule: (rangeDays ?? 1) > 1 && form.useCustomDailyHours ? form.weeklySchedule : undefined,
+          weeklySchedule:
+            (rangeDays ?? 1) > 1 && form.useCustomDailyHours ? form.weeklySchedule : undefined,
         });
         toast.success(`Created ${res.created} shift${res.created === 1 ? '' : 's'}`);
         if (res.skipped > 0) {
@@ -389,7 +413,7 @@ export default function Shifts() {
   const updateStatus = async (shift: Shift, status: string) => {
     try {
       const notes = ['cancelled', 'no_show'].includes(status)
-        ? prompt('Reason for status change:') ?? shift.notes
+        ? (prompt('Reason for status change:') ?? shift.notes)
         : shift.notes;
       await shiftApi.update(shift.id, { status, notes });
       toast.success(`Shift marked ${status.replace('_', ' ')}`);
@@ -423,12 +447,16 @@ export default function Shifts() {
               <h1 className="text-2xl font-bold">Shift Schedule</h1>
             </div>
             <p className="text-sm text-muted-foreground">
-              {formatDate(view.start)} — {formatDate(view.end)} · {totalShifts} shift{totalShifts === 1 ? '' : 's'}
+              {formatDate(view.start)} — {formatDate(view.end)} · {totalShifts} shift
+              {totalShifts === 1 ? '' : 's'}
               {total > items.length ? ` (showing first ${items.length} of ${total})` : ''}
             </p>
           </div>
           {canManage && (
-            <Button onClick={() => openCreate()} className="bg-brand hover:bg-brand-dark text-white shadow-lg shadow-brand/20 rounded-xl">
+            <Button
+              onClick={() => openCreate()}
+              className="bg-brand hover:bg-brand-dark text-white shadow-lg shadow-brand/20 rounded-xl"
+            >
               <Plus className="h-4 w-4" /> Add Shift
             </Button>
           )}
@@ -436,13 +464,31 @@ export default function Shifts() {
 
         {/* View controls: navigation, mode switcher, range picker, store filter */}
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="icon" className="rounded-lg" onClick={() => navigate(-1)} aria-label="Previous period">
+          <Button
+            variant="outline"
+            size="icon"
+            className="rounded-lg"
+            onClick={() => navigate(-1)}
+            aria-label="Previous period"
+          >
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <Button variant="outline" size="sm" className="rounded-lg min-w-[160px]" onClick={resetView} title="Jump to the current period">
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-lg min-w-[160px]"
+            onClick={resetView}
+            title="Jump to the current period"
+          >
             {centerLabel}
           </Button>
-          <Button variant="outline" size="icon" className="rounded-lg" onClick={() => navigate(1)} aria-label="Next period">
+          <Button
+            variant="outline"
+            size="icon"
+            className="rounded-lg"
+            onClick={() => navigate(1)}
+            aria-label="Next period"
+          >
             <ChevronRight className="h-4 w-4" />
           </Button>
 
@@ -453,7 +499,11 @@ export default function Shifts() {
                 key={m}
                 size="sm"
                 variant={viewMode === m ? 'default' : 'ghost'}
-                className={viewMode === m ? 'rounded-none bg-brand text-white hover:bg-brand-dark' : 'rounded-none'}
+                className={
+                  viewMode === m
+                    ? 'rounded-none bg-brand text-white hover:bg-brand-dark'
+                    : 'rounded-none'
+                }
                 onClick={() => setViewMode(m)}
               >
                 {m === 'week' ? 'Week' : m === 'month' ? 'Month' : 'Range'}
@@ -463,17 +513,36 @@ export default function Shifts() {
 
           {viewMode === 'range' && (
             <div className="flex items-center gap-1.5">
-              <Input type="date" aria-label="Range start date" className="w-36" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+              <Input
+                type="date"
+                aria-label="Range start date"
+                className="w-36"
+                value={customFrom}
+                onChange={(e) => setCustomFrom(e.target.value)}
+              />
               <span className="text-muted-foreground">–</span>
-              <Input type="date" aria-label="Range end date" className="w-36" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+              <Input
+                type="date"
+                aria-label="Range end date"
+                className="w-36"
+                value={customTo}
+                onChange={(e) => setCustomTo(e.target.value)}
+              />
             </div>
           )}
 
           <div className="ml-auto">
-            <Select aria-label="Filter shifts by store" className="w-44" value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
+            <Select
+              aria-label="Filter shifts by store"
+              className="w-44"
+              value={branchFilter}
+              onChange={(e) => setBranchFilter(e.target.value)}
+            >
               <option value="">All stores</option>
               {branchOptions.map((b) => (
-                <option key={b} value={b}>{b}</option>
+                <option key={b} value={b}>
+                  {b}
+                </option>
               ))}
             </Select>
           </div>
@@ -483,12 +552,17 @@ export default function Shifts() {
       {renderDayCount < totalDays && (
         <div className="flex items-start gap-2 rounded-lg border border-brand/30 bg-brand/5 px-3 py-2 text-sm">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
-          <span>Showing the first {renderDayCount} of {totalDays} days in this range. Narrow the range to see all days.</span>
+          <span>
+            Showing the first {renderDayCount} of {totalDays} days in this range. Narrow the range
+            to see all days.
+          </span>
         </div>
       )}
 
       {loading ? (
-        <div className="flex h-48 items-center justify-center"><Spinner className="h-8 w-8" /></div>
+        <div className="flex h-48 items-center justify-center">
+          <Spinner className="h-8 w-8" />
+        </div>
       ) : (
         <div className="space-y-4">
           {days.map(({ date, shifts }, dayIdx) => (
@@ -498,82 +572,129 @@ export default function Shifts() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: Math.min(dayIdx * 0.02, 0.4) }}
             >
-            <Card className="border-border/50">
-              <CardContent className="p-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <h3 className="font-semibold">
-                    {date.toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'short' })}
-                    {toDateStr(date) === toDateStr(new Date()) && <Badge className="ml-2" variant="success">Today</Badge>}
-                  </h3>
-                  {canManage && (
-                    <Button variant="ghost" size="sm" onClick={() => openCreate(toDateStr(date))}>
-                      <Plus className="h-3 w-3" /> Add
-                    </Button>
-                  )}
-                </div>
-                {shifts.length === 0 ? (
-                  <p className="py-2 text-sm text-muted-foreground">No shifts scheduled</p>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Employee</TableHead>
-                        <TableHead>Time</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Notes</TableHead>
-                        {canManage && <TableHead className="text-right">Actions</TableHead>}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {shifts.map((s) => (
-                        <TableRow key={s.id}>
-                          <TableCell>
-                            <div className="font-medium">{s.employeeName || 'Unassigned'}</div>
-                            {s.branch && <div className="text-xs text-muted-foreground">{s.branch}</div>}
-                          </TableCell>
-                          <TableCell>{s.startTime ?? '—'} – {s.endTime ?? '—'}</TableCell>
-                          <TableCell>
-                            <Badge variant={s.shiftType === 'full_day' ? 'secondary' : s.shiftType === 'half_day' ? 'outline' : 'warning'}>
-                              {s.shiftType.replace('_', ' ')}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={statusVariant[s.status] ?? 'secondary'}>{s.status.replace('_', ' ')}</Badge>
-                          </TableCell>
-                          <TableCell className="max-w-[200px] truncate text-muted-foreground">{s.notes || '—'}</TableCell>
-                          {canManage && (
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-1">
-                                {s.status === 'scheduled' && (
-                                  <>
-                                    <Button variant="outline" size="sm" onClick={() => updateStatus(s, 'completed')}>Complete</Button>
-                                    <Button variant="outline" size="sm" onClick={() => updateStatus(s, 'cancelled')}>Cancel</Button>
-                                  </>
-                                )}
-                                <Button variant="ghost" size="sm" onClick={() => openEdit(s)}>Edit</Button>
-                                {!isEmployee && (
-                                  <Button variant="ghost" size="icon" onClick={() => handleDelete(s)} aria-label="Delete shift">
-                                    <Trash2 className="h-4 w-4 text-destructive" />
-                                  </Button>
-                                )}
-                              </div>
-                            </TableCell>
-                          )}
+              <Card className="border-border/50">
+                <CardContent className="p-4">
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="font-semibold">
+                      {date.toLocaleDateString('en-ZA', {
+                        weekday: 'long',
+                        day: 'numeric',
+                        month: 'short',
+                      })}
+                      {toDateStr(date) === toDateStr(new Date()) && (
+                        <Badge className="ml-2" variant="success">
+                          Today
+                        </Badge>
+                      )}
+                    </h3>
+                    {canManage && (
+                      <Button variant="ghost" size="sm" onClick={() => openCreate(toDateStr(date))}>
+                        <Plus className="h-3 w-3" /> Add
+                      </Button>
+                    )}
+                  </div>
+                  {shifts.length === 0 ? (
+                    <p className="py-2 text-sm text-muted-foreground">No shifts scheduled</p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Employee</TableHead>
+                          <TableHead>Time</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Notes</TableHead>
+                          {canManage && <TableHead className="text-right">Actions</TableHead>}
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
+                      </TableHeader>
+                      <TableBody>
+                        {shifts.map((s) => (
+                          <TableRow key={s.id}>
+                            <TableCell>
+                              <div className="font-medium">{s.employeeName || 'Unassigned'}</div>
+                              {s.branch && (
+                                <div className="text-xs text-muted-foreground">{s.branch}</div>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {s.startTime ?? '—'} – {s.endTime ?? '—'}
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  s.shiftType === 'full_day'
+                                    ? 'secondary'
+                                    : s.shiftType === 'half_day'
+                                      ? 'outline'
+                                      : 'warning'
+                                }
+                              >
+                                {s.shiftType.replace('_', ' ')}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={statusVariant[s.status] ?? 'secondary'}>
+                                {s.status.replace('_', ' ')}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="max-w-[200px] truncate text-muted-foreground">
+                              {s.notes || '—'}
+                            </TableCell>
+                            {canManage && (
+                              <TableCell className="text-right">
+                                <div className="flex justify-end gap-1">
+                                  {s.status === 'scheduled' && (
+                                    <>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => updateStatus(s, 'completed')}
+                                      >
+                                        Complete
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => updateStatus(s, 'cancelled')}
+                                      >
+                                        Cancel
+                                      </Button>
+                                    </>
+                                  )}
+                                  <Button variant="ghost" size="sm" onClick={() => openEdit(s)}>
+                                    Edit
+                                  </Button>
+                                  {!isEmployee && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => handleDelete(s)}
+                                      aria-label="Delete shift"
+                                    >
+                                      <Trash2 className="h-4 w-4 text-destructive" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                            )}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
             </motion.div>
           ))}
         </div>
       )}
 
       {/* Create/Edit modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Edit Shift' : 'Add Shift'}>
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editing ? 'Edit Shift' : 'Add Shift'}
+      >
         <form onSubmit={handleSubmit} className="space-y-4">
           {!editing ? (
             <>
@@ -590,14 +711,18 @@ export default function Shifts() {
                       branch: b,
                       // drop any selected employees that fall outside the chosen store
                       employeeIds: b
-                        ? f.employeeIds.filter((id) => employees.find((emp) => emp.id === id)?.branch === b)
+                        ? f.employeeIds.filter(
+                            (id) => employees.find((emp) => emp.id === id)?.branch === b,
+                          )
                         : f.employeeIds,
                     }));
                   }}
                 >
                   <option value="">All stores</option>
                   {branchOptions.map((b) => (
-                    <option key={b} value={b}>{b}</option>
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
                   ))}
                 </Select>
               </div>
@@ -607,8 +732,12 @@ export default function Shifts() {
                 <div className="flex items-center justify-between">
                   <Label>Employees · {form.employeeIds.length} selected</Label>
                   <div className="flex gap-1">
-                    <Button type="button" variant="ghost" size="sm" onClick={selectAllEmployees}>Select all</Button>
-                    <Button type="button" variant="ghost" size="sm" onClick={clearEmployees}>Clear</Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={selectAllEmployees}>
+                      Select all
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={clearEmployees}>
+                      Clear
+                    </Button>
                   </div>
                 </div>
                 <div className="max-h-44 space-y-0.5 overflow-y-auto rounded-lg border border-border p-2">
@@ -618,14 +747,19 @@ export default function Shifts() {
                     </p>
                   ) : (
                     modalEmployees.map((emp) => (
-                      <label key={emp.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent">
+                      <label
+                        key={emp.id}
+                        className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
+                      >
                         <input
                           type="checkbox"
                           className="h-4 w-4"
                           checked={form.employeeIds.includes(emp.id)}
                           onChange={() => toggleEmployee(emp.id)}
                         />
-                        <span>{emp.firstName} {emp.surname}</span>
+                        <span>
+                          {emp.firstName} {emp.surname}
+                        </span>
                         <span className="ml-auto text-xs text-muted-foreground">{emp.branch}</span>
                       </label>
                     ))
@@ -637,11 +771,25 @@ export default function Shifts() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="s-date">Start date</Label>
-                  <Input id="s-date" type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+                  <Input
+                    id="s-date"
+                    type="date"
+                    required
+                    value={form.date}
+                    onChange={(e) => setForm({ ...form, date: e.target.value })}
+                  />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="s-end-date">End date <span className="font-normal text-muted-foreground">(optional)</span></Label>
-                  <Input id="s-end-date" type="date" min={form.date} value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
+                  <Label htmlFor="s-end-date">
+                    End date <span className="font-normal text-muted-foreground">(optional)</span>
+                  </Label>
+                  <Input
+                    id="s-end-date"
+                    type="date"
+                    min={form.date}
+                    value={form.endDate}
+                    onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+                  />
                 </div>
               </div>
 
@@ -649,9 +797,19 @@ export default function Shifts() {
                 <div className="space-y-3">
                   <p className="rounded-lg bg-muted/70 px-3 py-2 text-sm text-muted-foreground">
                     <Info className="mr-1.5 inline h-3.5 w-3.5" />
-                    {projectedShifts > 0
-                      ? <>Creates {projectedShifts} shift{projectedShifts === 1 ? '' : 's'}: {scheduledDays} open day{scheduledDays === 1 ? '' : 's'} of {rangeDays} × {form.employeeIds.length} employee{form.employeeIds.length === 1 ? '' : 's'}.</>
-                      : <>Range covers {rangeDays} days ({scheduledDays} open) — select employees above to include them.</>}
+                    {projectedShifts > 0 ? (
+                      <>
+                        Creates {projectedShifts} shift{projectedShifts === 1 ? '' : 's'}:{' '}
+                        {scheduledDays} open day{scheduledDays === 1 ? '' : 's'} of {rangeDays} ×{' '}
+                        {form.employeeIds.length} employee{form.employeeIds.length === 1 ? '' : 's'}
+                        .
+                      </>
+                    ) : (
+                      <>
+                        Range covers {rangeDays} days ({scheduledDays} open) — select employees
+                        above to include them.
+                      </>
+                    )}
                   </p>
 
                   {/* Day-of-week customize toggle */}
@@ -659,13 +817,17 @@ export default function Shifts() {
                     <div className="flex items-center justify-between">
                       <div>
                         <span className="text-sm font-semibold">Custom Hours per Day of Week</span>
-                        <p className="text-xs text-muted-foreground">Set unique hours for weekdays, Saturdays, or mark Sundays Closed.</p>
+                        <p className="text-xs text-muted-foreground">
+                          Set unique hours for weekdays, Saturdays, or mark Sundays Closed.
+                        </p>
                       </div>
                       <input
                         type="checkbox"
                         id="s-custom-daily"
                         checked={form.useCustomDailyHours}
-                        onChange={(e) => setForm({ ...form, useCustomDailyHours: e.target.checked })}
+                        onChange={(e) =>
+                          setForm({ ...form, useCustomDailyHours: e.target.checked })
+                        }
                         className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand cursor-pointer"
                       />
                     </div>
@@ -674,9 +836,13 @@ export default function Shifts() {
                       <div className="space-y-2 pt-2 border-t border-border/50">
                         {/* Day list: Mon(1) to Sat(6), Sun(0) */}
                         {[1, 2, 3, 4, 5, 6, 0].map((dayIdx) => {
-                          const config = form.weeklySchedule[dayIdx] ?? defaultWeeklySchedule[dayIdx];
+                          const config =
+                            form.weeklySchedule[dayIdx] ?? defaultWeeklySchedule[dayIdx];
                           return (
-                            <div key={dayIdx} className="flex items-center gap-2 text-xs py-1 px-2 rounded-lg bg-background border border-border/40">
+                            <div
+                              key={dayIdx}
+                              className="flex items-center gap-2 text-xs py-1 px-2 rounded-lg bg-background border border-border/40"
+                            >
                               <span className="w-20 font-medium">{DAY_NAMES[dayIdx]}</span>
                               <label className="flex items-center gap-1 cursor-pointer mr-2">
                                 <input
@@ -691,7 +857,13 @@ export default function Shifts() {
                                   }}
                                   className="h-3.5 w-3.5 rounded text-brand cursor-pointer"
                                 />
-                                <span className={config.enabled ? 'text-emerald-600 font-semibold' : 'text-muted-foreground'}>
+                                <span
+                                  className={
+                                    config.enabled
+                                      ? 'text-emerald-600 font-semibold'
+                                      : 'text-muted-foreground'
+                                  }
+                                >
                                   {config.enabled ? 'Open' : 'Closed'}
                                 </span>
                               </label>
@@ -737,16 +909,28 @@ export default function Shifts() {
             <>
               <div className="space-y-2">
                 <Label htmlFor="s-employee">Employee</Label>
-                <Select id="s-employee" value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })}>
+                <Select
+                  id="s-employee"
+                  value={form.employeeId}
+                  onChange={(e) => setForm({ ...form, employeeId: e.target.value })}
+                >
                   <option value="">— Unassigned —</option>
                   {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>{emp.firstName} {emp.surname} ({emp.branch})</option>
+                    <option key={emp.id} value={emp.id}>
+                      {emp.firstName} {emp.surname} ({emp.branch})
+                    </option>
                   ))}
                 </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="s-edit-date">Date</Label>
-                <Input id="s-edit-date" type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+                <Input
+                  id="s-edit-date"
+                  type="date"
+                  required
+                  value={form.date}
+                  onChange={(e) => setForm({ ...form, date: e.target.value })}
+                />
               </div>
             </>
           )}
@@ -755,16 +939,32 @@ export default function Shifts() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="s-start">Start time</Label>
-              <Input id="s-start" type="time" required value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} />
+              <Input
+                id="s-start"
+                type="time"
+                required
+                value={form.startTime}
+                onChange={(e) => setForm({ ...form, startTime: e.target.value })}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="s-end">End time</Label>
-              <Input id="s-end" type="time" required value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} />
+              <Input
+                id="s-end"
+                type="time"
+                required
+                value={form.endTime}
+                onChange={(e) => setForm({ ...form, endTime: e.target.value })}
+              />
             </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="s-type">Shift type</Label>
-            <Select id="s-type" value={form.shiftType} onChange={(e) => setForm({ ...form, shiftType: e.target.value })}>
+            <Select
+              id="s-type"
+              value={form.shiftType}
+              onChange={(e) => setForm({ ...form, shiftType: e.target.value })}
+            >
               <option value="full_day">Full day</option>
               <option value="half_day">Half day</option>
               <option value="Holiday">Holiday</option>
@@ -776,11 +976,19 @@ export default function Shifts() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="s-notes">Notes</Label>
-            <Textarea id="s-notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+            <Textarea
+              id="s-notes"
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            />
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Create shift'}</Button>
+            <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Saving…' : editing ? 'Save changes' : 'Create shift'}
+            </Button>
           </div>
         </form>
       </Modal>

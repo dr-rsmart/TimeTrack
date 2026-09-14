@@ -9,6 +9,7 @@
 ## 1. Production Architecture Overview
 
 TimeTrack is an enterprise multi-tenant workforce management platform. The production topology consists of:
+
 - **API Tier:** Stateless Express 5 cluster running behind a reverse proxy (e.g. AWS ALB, NGINX, Cloudflare).
 - **Persistence Tier:** PostgreSQL 16+ with connection pooling (`connection_limit=50`, `pool_timeout=30s`) and tenant defense-in-depth isolation.
 - **Cache & Message Broker Tier:** Redis 7+ for distributed sliding-window rate limiting, session cache invalidation, and SSE pub/sub fan-out across API replicas.
@@ -36,14 +37,14 @@ node server/db_check.mjs
 
 ### Environment Configuration Requirements
 
-| Variable | Requirement | Description |
-|---|---|---|
-| `NODE_ENV` | `production` | Enables strict security headers (HSTS, secure cookies) and disables perf bypass. |
-| `PORT` | e.g. `4000` | Port for the HTTP server to bind. |
-| `DATABASE_URL` | `postgresql://...` | Connection URI with TLS (`sslmode=require` in production). |
-| `JWT_SECRET` | 48+ char random | Secret for signing session JWTs. **Refuses to boot with dev defaults.** |
-| `CORS_ORIGIN` | e.g. `https://time-track.tech` | Explicit frontend origin (wildcards disallowed). |
-| `REDIS_URL` | `redis://...` | Connection URI for Redis. Required for multi-instance deployments. |
+| Variable       | Requirement                    | Description                                                                      |
+| -------------- | ------------------------------ | -------------------------------------------------------------------------------- |
+| `NODE_ENV`     | `production`                   | Enables strict security headers (HSTS, secure cookies) and disables perf bypass. |
+| `PORT`         | e.g. `4000`                    | Port for the HTTP server to bind.                                                |
+| `DATABASE_URL` | `postgresql://...`             | Connection URI with TLS (`sslmode=require` in production).                       |
+| `JWT_SECRET`   | 48+ char random                | Secret for signing session JWTs. **Refuses to boot with dev defaults.**          |
+| `CORS_ORIGIN`  | e.g. `https://time-track.tech` | Explicit frontend origin (wildcards disallowed).                                 |
+| `REDIS_URL`    | `redis://...`                  | Connection URI for Redis. Required for multi-instance deployments.               |
 
 ---
 
@@ -52,10 +53,12 @@ node server/db_check.mjs
 ### 3.1 Health Check Endpoints
 
 The API provides two identical health check endpoints for load balancers and container orchestrators:
+
 - `GET /health` (Root probe for AWS ALB / Kubernetes liveness & readiness)
 - `GET /api/health` (Internal probe)
 
 **Expected HTTP 200 Response Payload:**
+
 ```json
 {
   "status": "ok",
@@ -80,7 +83,7 @@ The API provides two identical health check endpoints for load balancers and con
 }
 ```
 
-*HTTP 503 Service Unavailable is returned immediately if the PostgreSQL database fails its heartbeat ping.*
+_HTTP 503 Service Unavailable is returned immediately if the PostgreSQL database fails its heartbeat ping._
 
 ### 3.2 Distributed Tracing & Correlation IDs
 
@@ -90,20 +93,21 @@ The API provides two identical health check endpoints for load balancers and con
 
 ### 3.3 Monitoring Metrics & Service Level Objectives (SLOs)
 
-| Metric / SLI | Target / SLO | Alert Trigger | Severity | Action |
-|---|---|---|---|---|
-| **API Availability** | 99.9% uptime | Error rate > 1% for 5m | Critical | Page on-call; check DB/Redis latency |
-| **P95 Latency (Clock-In/Out)** | < 150ms | P95 > 500ms for 3m | Warning | Check DB connection pool saturation |
-| **P99 Latency (All Routes)** | < 1000ms | P99 > 2000ms for 3m | Warning | Investigate slow queries in pg_stat_statements |
-| **Database Pool Utilization** | < 80% of 50 | Active conns > 42 for 2m | Critical | Scale connection limit or investigate connection leaks |
-| **Redis Connection State** | Connected (100%) | Status != 'connected' for 1m | Warning | Check Redis Sentinel / cluster nodes |
-| **Rate Limit Violations** | < 0.5% of requests | 429 spike > 5% | Warning | Inspect potential credential stuffing / brute force |
+| Metric / SLI                   | Target / SLO       | Alert Trigger                | Severity | Action                                                 |
+| ------------------------------ | ------------------ | ---------------------------- | -------- | ------------------------------------------------------ |
+| **API Availability**           | 99.9% uptime       | Error rate > 1% for 5m       | Critical | Page on-call; check DB/Redis latency                   |
+| **P95 Latency (Clock-In/Out)** | < 150ms            | P95 > 500ms for 3m           | Warning  | Check DB connection pool saturation                    |
+| **P99 Latency (All Routes)**   | < 1000ms           | P99 > 2000ms for 3m          | Warning  | Investigate slow queries in pg_stat_statements         |
+| **Database Pool Utilization**  | < 80% of 50        | Active conns > 42 for 2m     | Critical | Scale connection limit or investigate connection leaks |
+| **Redis Connection State**     | Connected (100%)   | Status != 'connected' for 1m | Warning  | Check Redis Sentinel / cluster nodes                   |
+| **Rate Limit Violations**      | < 0.5% of requests | 429 spike > 5%               | Warning  | Inspect potential credential stuffing / brute force    |
 
 ---
 
 ## 4. Redis High Availability & Failover Behavior
 
 The Redis client (`server/src/redis.ts` and `server/src/sse.ts`) is configured for high availability:
+
 - **`reconnectOnError`:** Automatically detects `READONLY` errors during AWS ElastiCache / Redis Sentinel primary promotions and replays the failed command on the newly elected master.
 - **Exponential Backoff with Jitter:** Prevents connection thundering herd on network blips.
 - **Fail-Safe Fallback:** If Redis is completely unreachable, rate limiting and SSE event broadcasting degrade gracefully to in-memory mode without dropping HTTP traffic.
@@ -113,10 +117,12 @@ The Redis client (`server/src/redis.ts` and `server/src/sse.ts`) is configured f
 ## 5. Disaster Recovery Plan (DRP)
 
 ### 5.1 Recovery Objectives
+
 - **RTO (Recovery Time Objective):** < 15 minutes for full service restoration.
 - **RPO (Recovery Point Objective):** < 5 minutes of data loss (via continuous WAL archiving).
 
 ### 5.2 Backup & Restoration Playbook
+
 1. **Automated Database Backups (`backup_db.mjs`):**
    - Automated snapshot script located at `server/backup_db.mjs`.
    - Generates custom-format PostgreSQL dumps with retention pruning:
@@ -130,7 +136,7 @@ The Redis client (`server/src/redis.ts` and `server/src/sse.ts`) is configured f
    ```bash
    # Restore PostgreSQL database from snapshot:
    pg_restore --clean --if-exists -h $DB_HOST -U $DB_USER -d $DB_NAME backups/timetrack_backup_YYYY-MM-DD_HHmmss.dump
-   
+
    # Verify database integrity post-restore:
    node server/db_check.mjs
    ```
@@ -145,6 +151,7 @@ The Redis client (`server/src/redis.ts` and `server/src/sse.ts`) is configured f
 ### 6.1 API Application Rollback (Zero-Downtime)
 
 If a deployment contains code defects or regression:
+
 1. **Trigger Rolling Deployment of Previous Stable Image:**
    ```bash
    # Kubernetes example:
@@ -169,6 +176,7 @@ If a deployment contains code defects or regression:
 ### 6.3 Emergency Maintenance Mode
 
 If emergency maintenance is required:
+
 1. Configure reverse proxy (Cloudflare/ALB) to return a 503 Maintenance Page.
 2. Gracefully terminate API processes (`SIGTERM` triggers a 10s connection drain in `server/src/index.ts`).
 3. Complete database maintenance or restoration.

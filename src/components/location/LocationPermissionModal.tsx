@@ -7,7 +7,12 @@ interface LocationPermissionModalProps {
   suggestions?: string[];
 }
 
-export function LocationPermissionModal({ open, onClose, permission, suggestions }: LocationPermissionModalProps) {
+export function LocationPermissionModal({
+  open,
+  onClose,
+  permission,
+  suggestions,
+}: LocationPermissionModalProps) {
   if (!open) return null;
 
   const isDenied = permission === 'denied';
@@ -25,11 +30,13 @@ export function LocationPermissionModal({ open, onClose, permission, suggestions
           {isDenied ? (
             <>
               <p className="mb-4 text-slate-700">
-                Location access has been <strong>blocked</strong> for this site. 
-                TimeTrack needs your GPS location to validate clock-in/out at your work geofence.
+                Location access has been <strong>blocked</strong> for this site. TimeTrack needs
+                your GPS location to validate clock-in/out at your work geofence.
               </p>
               <div className="rounded-lg bg-slate-50 p-4 border border-slate-100">
-                <h4 className="font-semibold mb-2 text-sm text-slate-900">To enable location access:</h4>
+                <h4 className="font-semibold mb-2 text-sm text-slate-900">
+                  To enable location access:
+                </h4>
                 <ol className="list-decimal list-inside space-y-2 text-sm text-slate-600">
                   {suggestions?.map((s, i) => (
                     <li key={i}>{s}</li>
@@ -44,7 +51,9 @@ export function LocationPermissionModal({ open, onClose, permission, suggestions
                 Your browser will ask for permission shortly.
               </p>
               <div className="rounded-lg bg-slate-50 p-4 border border-slate-100">
-                <h4 className="font-semibold mb-2 text-sm text-slate-900">What we do with your location:</h4>
+                <h4 className="font-semibold mb-2 text-sm text-slate-900">
+                  What we do with your location:
+                </h4>
                 <ul className="space-y-1 text-sm text-slate-600">
                   <li>• Only used to verify you are within your assigned work area</li>
                   <li>• Not stored permanently on our servers</li>

@@ -89,7 +89,7 @@ const POS_INSIDE = { latitude: -33.9249, longitude: 18.4241 };
 // ~400m from centre (approaching: > radius, <= radius + 200)
 const POS_APPROACHING = { latitude: -33.9285, longitude: 18.4241 };
 // ~567m from centre (outside: > radius + 200)
-const POS_OUTSIDE = { latitude: -33.9300, longitude: 18.4241 };
+const POS_OUTSIDE = { latitude: -33.93, longitude: 18.4241 };
 
 describe('AutoGeofenceService — boundary engine', () => {
   beforeEach(() => {

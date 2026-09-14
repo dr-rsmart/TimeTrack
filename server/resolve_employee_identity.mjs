@@ -65,16 +65,36 @@ async function migrationApplied() {
 async function validateRows(rows, table) {
   const results = [];
   for (const mapping of rows) {
-    const source = table === 'TimeEntry'
-      ? await prisma.timeEntry.findUnique({ where: { id: mapping.id }, select: { id: true, employeeId: true, employeeEmail: true, companyProfileId: true } })
-      : await prisma.shift.findUnique({ where: { id: mapping.id }, select: { id: true, employeeId: true, employeeEmail: true, companyProfileId: true } });
+    const source =
+      table === 'TimeEntry'
+        ? await prisma.timeEntry.findUnique({
+            where: { id: mapping.id },
+            select: { id: true, employeeId: true, employeeEmail: true, companyProfileId: true },
+          })
+        : await prisma.shift.findUnique({
+            where: { id: mapping.id },
+            select: { id: true, employeeId: true, employeeEmail: true, companyProfileId: true },
+          });
     const target = mapping.employeeId
-      ? await prisma.employee.findUnique({ where: { id: mapping.employeeId }, select: { id: true, email: true, companyProfileId: true } })
+      ? await prisma.employee.findUnique({
+          where: { id: mapping.employeeId },
+          select: { id: true, email: true, companyProfileId: true },
+        })
       : null;
-    const validation = source && target
-      ? validateResolutionMapping({ source, target, mapping })
-      : { valid: false, errors: [!source ? `${table} source row not found` : 'target employee not found'] };
-    results.push({ table, id: mapping.id, employeeId: mapping.employeeId, valid: validation.valid, errors: validation.errors });
+    const validation =
+      source && target
+        ? validateResolutionMapping({ source, target, mapping })
+        : {
+            valid: false,
+            errors: [!source ? `${table} source row not found` : 'target employee not found'],
+          };
+    results.push({
+      table,
+      id: mapping.id,
+      employeeId: mapping.employeeId,
+      valid: validation.valid,
+      errors: validation.errors,
+    });
   }
   return results;
 }
@@ -101,7 +121,8 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   try {
-    if (!(await migrationApplied())) throw new Error('Migration 4_employee_identity_backfill is not applied.');
+    if (!(await migrationApplied()))
+      throw new Error('Migration 4_employee_identity_backfill is not applied.');
     const mapping = await readMapping(options.mapping);
     const duplicateSourceIds = [
       ...duplicateIds(mapping.timeEntries),
@@ -115,24 +136,42 @@ export async function main(argv = process.argv.slice(2)) {
       ...(await validateRows(mapping.shifts, 'Shift')),
     ];
     const invalid = results.filter((row) => !row.valid);
-    const report = { apply: options.apply, dryRun: !options.apply, valid: invalid.length === 0, results };
+    const report = {
+      apply: options.apply,
+      dryRun: !options.apply,
+      valid: invalid.length === 0,
+      results,
+    };
 
     if (invalid.length > 0 || !options.apply) {
       if (options.json) console.log(JSON.stringify(report, null, 2));
       else {
-        console.log(options.apply ? 'Identity resolution rejected:' : 'Identity resolution dry-run:');
+        console.log(
+          options.apply ? 'Identity resolution rejected:' : 'Identity resolution dry-run:',
+        );
         console.table(results);
       }
       return invalid.length > 0 ? 1 : 0;
     }
 
-    if (!options.actorId || !options.actorEmail) throw new Error('--actor-id and --actor-email are required with --apply.');
+    if (!options.actorId || !options.actorEmail)
+      throw new Error('--actor-id and --actor-email are required with --apply.');
 
     await prisma.$transaction(async (tx) => {
-      for (const row of [...mapping.timeEntries.map((m) => ({ ...m, table: 'TimeEntry' })), ...mapping.shifts.map((m) => ({ ...m, table: 'Shift' }))]) {
-        const guarded = row.table === 'TimeEntry'
-          ? await tx.timeEntry.updateMany({ where: { id: row.id, employeeId: null }, data: { employeeId: row.employeeId } })
-          : await tx.shift.updateMany({ where: { id: row.id, employeeId: null }, data: { employeeId: row.employeeId } });
+      for (const row of [
+        ...mapping.timeEntries.map((m) => ({ ...m, table: 'TimeEntry' })),
+        ...mapping.shifts.map((m) => ({ ...m, table: 'Shift' })),
+      ]) {
+        const guarded =
+          row.table === 'TimeEntry'
+            ? await tx.timeEntry.updateMany({
+                where: { id: row.id, employeeId: null },
+                data: { employeeId: row.employeeId },
+              })
+            : await tx.shift.updateMany({
+                where: { id: row.id, employeeId: null },
+                data: { employeeId: row.employeeId },
+              });
         if (guarded.count !== 1) {
           throw new Error(`${row.table} ${row.id} changed after preflight or is already resolved.`);
         }
@@ -160,7 +199,10 @@ export async function main(argv = process.argv.slice(2)) {
     else console.log(`Applied ${results.length} approved identity mappings transactionally.`);
     return 0;
   } catch (error) {
-    if (options.json) console.log(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+    if (options.json)
+      console.log(
+        JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+      );
     else console.error('[identity-resolve] failed:', error);
     return 1;
   } finally {

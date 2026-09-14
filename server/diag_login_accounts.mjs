@@ -23,19 +23,21 @@ async function main() {
      FROM "Employee" e
      LEFT JOIN "User" u ON lower(trim(u.email)) = lower(trim(e.email))
      WHERE u.id IS NULL
-     ORDER BY e."createdAt" DESC`
+     ORDER BY e."createdAt" DESC`,
   );
   console.log(`\n[1] Employees WITHOUT a login account: ${orphans.length}`);
   for (const o of orphans) {
-    console.log(`   - ${o.firstName} ${o.surname} <${o.email}> [${o.status}] branch=${o.branch} tenant=${o.companyProfileId ?? 'NULL'}`);
+    console.log(
+      `   - ${o.firstName} ${o.surname} <${o.email}> [${o.status}] branch=${o.branch} tenant=${o.companyProfileId ?? 'NULL'}`,
+    );
   }
 
   // 2. Email drift: stored value differs from lower(trim()) form
   const driftUsers = await prisma.$queryRawUnsafe(
-    `SELECT id, email FROM "User" WHERE email != lower(trim(email))`
+    `SELECT id, email FROM "User" WHERE email != lower(trim(email))`,
   );
   const driftEmps = await prisma.$queryRawUnsafe(
-    `SELECT id, email FROM "Employee" WHERE email != lower(trim(email))`
+    `SELECT id, email FROM "Employee" WHERE email != lower(trim(email))`,
   );
   console.log(`\n[2] Users with casing/whitespace drift: ${driftUsers.length}`);
   driftUsers.forEach((u) => console.log(`   - <${u.email}>`));
@@ -47,13 +49,19 @@ async function main() {
     `SELECT e.id, e.email, u."companyProfileId" AS userTenant
      FROM "Employee" e
      JOIN "User" u ON lower(trim(u.email)) = lower(trim(e.email))
-     WHERE e."companyProfileId" IS NULL AND u."companyProfileId" IS NOT NULL`
+     WHERE e."companyProfileId" IS NULL AND u."companyProfileId" IS NOT NULL`,
   );
   console.log(`\n[3] Employees missing tenant link (User has one): ${tenantOrphans.length}`);
   tenantOrphans.forEach((t) => console.log(`   - <${t.email}> -> tenant ${t.userTenant}`));
 
-  const healthy = orphans.length === 0 && driftUsers.length === 0 && driftEmps.length === 0 && tenantOrphans.length === 0;
-  console.log(`\n${healthy ? '✅ All login accounts healthy.' : '⚠️  Issues found — see above. Boot-time auto-heal will repair drift & tenant links on next restart.'}`);
+  const healthy =
+    orphans.length === 0 &&
+    driftUsers.length === 0 &&
+    driftEmps.length === 0 &&
+    tenantOrphans.length === 0;
+  console.log(
+    `\n${healthy ? '✅ All login accounts healthy.' : '⚠️  Issues found — see above. Boot-time auto-heal will repair drift & tenant links on next restart.'}`,
+  );
 }
 
 main()
@@ -62,4 +70,3 @@ main()
     process.exitCode = 1;
   })
   .finally(() => prisma.$disconnect());
-

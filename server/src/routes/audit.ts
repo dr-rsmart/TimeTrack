@@ -26,7 +26,13 @@ router.use(requireAuth);
 const AUDIT_ACCESS_LOG_INTERVAL_MS = 5 * 60_000;
 const lastAuditAccessLog = new Map<string, number>();
 
-function logAuditAccess(actorId: string, actorEmail: string, actorRole: string, ip: string | null, companyProfileId: string | null): void {
+function logAuditAccess(
+  actorId: string,
+  actorEmail: string,
+  actorRole: string,
+  ip: string | null,
+  companyProfileId: string | null,
+): void {
   const now = Date.now();
   const last = lastAuditAccessLog.get(actorId) ?? 0;
   if (now - last < AUDIT_ACCESS_LOG_INTERVAL_MS) return;
@@ -92,10 +98,7 @@ router.get('/', requireAdminOrManager, async (req, res) => {
           { actorId: authUser.id },
           // Audits within the manager's branch + department scope
           {
-            AND: [
-              { branch: managerEmployee.branch },
-              { department: managerEmployee.department },
-            ],
+            AND: [{ branch: managerEmployee.branch }, { department: managerEmployee.department }],
           },
         ];
       } else {
@@ -108,10 +111,7 @@ router.get('/', requireAdminOrManager, async (req, res) => {
     const findArgs: any = {
       where,
       take: limit + 1, // Fetch one extra to determine if next page exists
-      orderBy: [
-        { createdAt: 'desc' },
-        { id: 'desc' },
-      ],
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     };
 
     if (cursor) {
@@ -157,29 +157,47 @@ router.get('/', requireAdminOrManager, async (req, res) => {
 
     const [employeeRows, timeEntryRows, shiftRows, userRows] = await Promise.all([
       employeeIds.length > 0
-        ? prisma.employee.findMany({ where: { id: { in: employeeIds } }, select: { id: true, firstName: true, surname: true, email: true } })
+        ? prisma.employee.findMany({
+            where: { id: { in: employeeIds } },
+            select: { id: true, firstName: true, surname: true, email: true },
+          })
         : [],
       timeEntryIds.length > 0
-        ? prisma.timeEntry.findMany({ where: { id: { in: timeEntryIds } }, select: { id: true, employeeName: true, employeeEmail: true } })
+        ? prisma.timeEntry.findMany({
+            where: { id: { in: timeEntryIds } },
+            select: { id: true, employeeName: true, employeeEmail: true },
+          })
         : [],
       shiftIds.length > 0
-        ? prisma.shift.findMany({ where: { id: { in: shiftIds } }, select: { id: true, employeeName: true, employeeEmail: true } })
+        ? prisma.shift.findMany({
+            where: { id: { in: shiftIds } },
+            select: { id: true, employeeName: true, employeeEmail: true },
+          })
         : [],
       userIds.length > 0
-        ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, fullName: true, email: true } })
+        ? prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, fullName: true, email: true },
+          })
         : [],
     ]);
 
     const employeeNameMap = new Map(employeeRows.map((e) => [e.id, `${e.firstName} ${e.surname}`]));
-    const timeEntryNameMap = new Map(timeEntryRows.map((t) => [t.id, t.employeeName || t.employeeEmail]));
+    const timeEntryNameMap = new Map(
+      timeEntryRows.map((t) => [t.id, t.employeeName || t.employeeEmail]),
+    );
     const shiftNameMap = new Map(shiftRows.map((s) => [s.id, s.employeeName || s.employeeEmail]));
     const userNameMap = new Map(userRows.map((u) => [u.id, u.fullName || u.email]));
 
     // Also resolve actor names (the user who performed the action)
     const actorIds = [...new Set(items.map((i) => i.actorId))];
-    const actorRows = actorIds.length > 0
-      ? await prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, fullName: true } })
-      : [];
+    const actorRows =
+      actorIds.length > 0
+        ? await prisma.user.findMany({
+            where: { id: { in: actorIds } },
+            select: { id: true, fullName: true },
+          })
+        : [];
     const actorNameMap = new Map(actorRows.map((u) => [u.id, u.fullName]));
 
     // Redact IPs for managers
@@ -221,7 +239,9 @@ router.get('/entities', requireAuth, async (req, res) => {
   try {
     const authUser = req.authUser!;
     const where: Record<string, unknown> =
-      authUser.role !== 'master' ? { companyProfileId: authUser.companyProfileId ?? '__none__' } : {};
+      authUser.role !== 'master'
+        ? { companyProfileId: authUser.companyProfileId ?? '__none__' }
+        : {};
 
     const entities = await prisma.auditLog.groupBy({
       by: ['entity'],

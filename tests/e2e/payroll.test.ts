@@ -101,9 +101,9 @@ describe('Payroll Engine', () => {
     it('should handle multiple days with mixed overtime', () => {
       const settings = defaultSettings();
       const byDate = {
-        '2026-08-17': 8,  // Monday: 8 ordinary
+        '2026-08-17': 8, // Monday: 8 ordinary
         '2026-08-18': 10, // Tuesday: 8 ordinary + 2 OT
-        '2026-08-19': 6,  // Wednesday: 6 ordinary
+        '2026-08-19': 6, // Wednesday: 6 ordinary
       };
       const result = computeOvertime(byDate, undefined, settings);
 
@@ -128,7 +128,7 @@ describe('Payroll Engine', () => {
       const result = computeOvertime(
         { '2026-08-17': 0, '2026-08-18': -2, '2026-08-19': 8 },
         undefined,
-        settings
+        settings,
       );
 
       expect(result.ordinaryHours).toBe(8);
@@ -258,14 +258,19 @@ describe('Payroll Engine', () => {
 
     it('should exclude all leave types from overtime', () => {
       const settings = defaultSettings();
-      const leaveTypes = ['Holiday', 'Leave', 'Sick', 'PTO', 'Unpaid', 'Bereavement', 'Maternity', 'Paternity'];
+      const leaveTypes = [
+        'Holiday',
+        'Leave',
+        'Sick',
+        'PTO',
+        'Unpaid',
+        'Bereavement',
+        'Maternity',
+        'Paternity',
+      ];
 
       for (const lt of leaveTypes) {
-        const result = computeOvertime(
-          { '2026-08-17': 12 },
-          { '2026-08-17': lt },
-          settings
-        );
+        const result = computeOvertime({ '2026-08-17': 12 }, { '2026-08-17': lt }, settings);
         expect(result.dailyOvertimeHours).toBe(0);
         expect(result.ordinaryHours).toBe(12);
       }
@@ -274,11 +279,7 @@ describe('Payroll Engine', () => {
     it('should exclude Sunday leave hours from Sunday overtime', () => {
       const settings = defaultSettings();
       // Sunday with Leave type
-      const result = computeOvertime(
-        { '2026-08-16': 8 },
-        { '2026-08-16': 'Sick' },
-        settings
-      );
+      const result = computeOvertime({ '2026-08-16': 8 }, { '2026-08-16': 'Sick' }, settings);
 
       expect(result.sundayOvertimeHours).toBe(0);
       expect(result.ordinaryHours).toBe(8);
@@ -289,11 +290,7 @@ describe('Payroll Engine', () => {
         ...defaultSettings(),
         publicHolidays: ['2026-08-17'],
       };
-      const result = computeOvertime(
-        { '2026-08-17': 8 },
-        { '2026-08-17': 'PTO' },
-        settings
-      );
+      const result = computeOvertime({ '2026-08-17': 8 }, { '2026-08-17': 'PTO' }, settings);
 
       expect(result.holidayOvertimeHours).toBe(0);
       expect(result.ordinaryHours).toBe(8);
@@ -303,7 +300,7 @@ describe('Payroll Engine', () => {
       const settings = defaultSettings();
       const byDate = {
         '2026-08-17': 10, // Monday: work day (8 ord + 2 OT)
-        '2026-08-18': 8,  // Tuesday: sick leave (8 ordinary, no OT)
+        '2026-08-18': 8, // Tuesday: sick leave (8 ordinary, no OT)
       };
       const shiftTypes = {
         '2026-08-17': null,
@@ -582,9 +579,9 @@ describe('Payroll Engine', () => {
         publicHolidays: ['2026-08-18'],
       };
       const byDate = {
-        '2026-08-16': 6,  // Sunday: 6h Sunday OT
+        '2026-08-16': 6, // Sunday: 6h Sunday OT
         '2026-08-17': 10, // Monday: 8 ord + 2 daily OT
-        '2026-08-18': 8,  // Tuesday (holiday): 8h holiday OT
+        '2026-08-18': 8, // Tuesday (holiday): 8h holiday OT
       };
       const result = computeOvertime(byDate, undefined, settings);
 
@@ -593,9 +590,9 @@ describe('Payroll Engine', () => {
       expect(result.sundayOvertimeHours).toBe(6);
       expect(result.holidayOvertimeHours).toBe(8);
       expect(result.totalOvertimeHours).toBe(16); // 2 + 6 + 8
-      expect(result.sundayWeightedOvertime).toBe(9);   // 6 x 1.5
+      expect(result.sundayWeightedOvertime).toBe(9); // 6 x 1.5
       expect(result.holidayWeightedOvertime).toBe(16); // 8 x 2.0
-      expect(result.totalWeightedOvertime).toBe(27);   // 2 + 9 + 16
+      expect(result.totalWeightedOvertime).toBe(27); // 2 + 9 + 16
       expect(result.totalHours).toBe(24);
     });
   });

@@ -238,7 +238,8 @@ async function processBackgroundLocation({ data, error }) {
         };
     if (typeof st.clockedOutInside !== 'boolean') st.clockedOutInside = false;
     if (!st.pendingAction || typeof st.pendingAction !== 'object') st.pendingAction = null;
-    if (!st.pendingNotification || typeof st.pendingNotification !== 'object') st.pendingNotification = null;
+    if (!st.pendingNotification || typeof st.pendingNotification !== 'object')
+      st.pendingNotification = null;
 
     let clockedIn = (await AsyncStorage.getItem(CLOCKED_IN_KEY)) === 'true';
     // Seed the zone from clock state (mirrors web syncClockedIn). A clocked-in
@@ -271,8 +272,8 @@ async function processBackgroundLocation({ data, error }) {
       // ── Distance profile across ALL assigned geofences ──
       let nearest = geofences[0];
       let nearestDist = Infinity;
-      let inside = false;   // inside ANY geofence
-      let outside = true;   // outside ALL geofences (radius + exit buffer)
+      let inside = false; // inside ANY geofence
+      let outside = true; // outside ALL geofences (radius + exit buffer)
       for (const gf of geofences) {
         const radius = gf.radiusMeters || 300;
         const d = distanceMetres(pos, gf);
@@ -311,7 +312,11 @@ async function processBackgroundLocation({ data, error }) {
       if (inside && st.zone !== 'inside') {
         st.pendingExit = 0;
         st.pendingEnter += 1;
-        if (st.pendingEnter >= CONFIRMATIONS && !clockedIn && now - st.lastEventAt >= EVENT_COOLDOWN_MS) {
+        if (
+          st.pendingEnter >= CONFIRMATIONS &&
+          !clockedIn &&
+          now - st.lastEventAt >= EVENT_COOLDOWN_MS
+        ) {
           st.pendingEnter = 0;
           if (st.clockedOutInside) {
             // Double clock-in guard: employee clocked out while still on site.
@@ -321,7 +326,10 @@ async function processBackgroundLocation({ data, error }) {
           const pendingAction =
             st.pendingAction?.kind === 'in' && typeof st.pendingAction.key === 'string'
               ? st.pendingAction
-              : { kind: 'in', key: `native-in-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+              : {
+                  kind: 'in',
+                  key: `native-in-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                };
           st.pendingAction = pendingAction;
           await AsyncStorage.setItem(GEOFENCE_STATE_KEY, JSON.stringify(st));
           const { status, data: resBody } = await apiClock('in', pos, pendingAction.key);
@@ -330,7 +338,9 @@ async function processBackgroundLocation({ data, error }) {
             !reclockBlocked &&
             (status === 409 ||
               resBody?.code === 'DUPLICATE_ACTIVE' ||
-              String(resBody?.error || '').toLowerCase().includes('already clocked'));
+              String(resBody?.error || '')
+                .toLowerCase()
+                .includes('already clocked'));
           if (status === 201 || status === 200 || alreadyActive) {
             st.zone = 'inside';
             st.lastEventAt = Date.now();
@@ -360,17 +370,27 @@ async function processBackgroundLocation({ data, error }) {
       } else if (outside && st.zone !== 'outside') {
         st.pendingEnter = 0;
         st.pendingExit += 1;
-        if (st.pendingExit >= CONFIRMATIONS && clockedIn && now - st.lastEventAt >= EVENT_COOLDOWN_MS) {
+        if (
+          st.pendingExit >= CONFIRMATIONS &&
+          clockedIn &&
+          now - st.lastEventAt >= EVENT_COOLDOWN_MS
+        ) {
           st.pendingExit = 0;
           const pendingAction =
             st.pendingAction?.kind === 'out' && typeof st.pendingAction.key === 'string'
               ? st.pendingAction
-              : { kind: 'out', key: `native-out-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+              : {
+                  kind: 'out',
+                  key: `native-out-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                };
           st.pendingAction = pendingAction;
           await AsyncStorage.setItem(GEOFENCE_STATE_KEY, JSON.stringify(st));
           const { status, data: resBody } = await apiClock('out', pos, pendingAction.key);
           const noActive =
-            status === 404 || String(resBody?.error || '').toLowerCase().includes('no active');
+            status === 404 ||
+            String(resBody?.error || '')
+              .toLowerCase()
+              .includes('no active');
           if (status === 200 || noActive) {
             st.zone = 'outside';
             st.lastEventAt = Date.now();
@@ -529,8 +549,7 @@ export default function App() {
       });
     }
     const code = webError && webError.code != null ? webError.code : 'N/A';
-    const desc =
-      (webError && (webError.description || webError.title)) || 'Unknown network error';
+    const desc = (webError && (webError.description || webError.title)) || 'Unknown network error';
     return renderErrorScreen({
       heading: 'Unable to Connect',
       message:
@@ -569,12 +588,18 @@ export default function App() {
         try {
           await configureNotifications();
         } catch (error) {
-          console.warn('[TimeTrack] Could not configure notification channel:', error?.message || error);
+          console.warn(
+            '[TimeTrack] Could not configure notification channel:',
+            error?.message || error,
+          );
         }
         try {
           await Notifications.requestPermissionsAsync();
         } catch (error) {
-          console.warn('[TimeTrack] Could not request notification permission:', error?.message || error);
+          console.warn(
+            '[TimeTrack] Could not request notification permission:',
+            error?.message || error,
+          );
         }
       } catch {
         // Continue regardless; WebView still functions
@@ -615,7 +640,11 @@ export default function App() {
         // Multi-location builds send `geofences` (array); older builds send a
         // single `geofence` object. An empty/null assignment means the
         // employee is unassigned → stop monitoring (clear stored locations).
-        const list = Array.isArray(msg.geofences) ? msg.geofences : msg.geofence ? [msg.geofence] : [];
+        const list = Array.isArray(msg.geofences)
+          ? msg.geofences
+          : msg.geofence
+            ? [msg.geofence]
+            : [];
         const nextList = JSON.stringify(list);
         const nextSingle = list.length > 0 ? JSON.stringify(list[0]) : null;
         const prevList = await AsyncStorage.getItem(GEOFENCE_LIST_KEY);

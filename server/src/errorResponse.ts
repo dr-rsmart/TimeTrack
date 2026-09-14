@@ -30,7 +30,8 @@ export function sendError(
   const response: ErrorResponse = { error: message };
   if (options.code) response.code = options.code;
   if (options.details) response.details = options.details;
-  if (options.suggestions && options.suggestions.length > 0) response.suggestions = options.suggestions;
+  if (options.suggestions && options.suggestions.length > 0)
+    response.suggestions = options.suggestions;
   res.status(status).json(response);
 }
 
@@ -52,7 +53,11 @@ export function outsideScope(res: Response, entity: string = 'Employee'): void {
   sendError(res, 403, `${entity} is outside your management scope.`, { code: 'OUT_OF_SCOPE' });
 }
 
-export function badRequest(res: Response, message: string, details?: Record<string, unknown>): void {
+export function badRequest(
+  res: Response,
+  message: string,
+  details?: Record<string, unknown>,
+): void {
   sendError(res, 400, message, { code: 'BAD_REQUEST', details });
 }
 
@@ -67,7 +72,11 @@ export function internalError(res: Response, context?: string): void {
   sendError(res, 500, message, { code: 'INTERNAL_ERROR' });
 }
 
-export function validationError(res: Response, message: string, details?: Record<string, unknown>): void {
+export function validationError(
+  res: Response,
+  message: string,
+  details?: Record<string, unknown>,
+): void {
   sendError(res, 422, message, { code: 'VALIDATION_ERROR', details });
 }
 
@@ -75,18 +84,24 @@ export function badGateway(res: Response, message: string = 'Upstream service un
   sendError(res, 502, message, { code: 'BAD_GATEWAY' });
 }
 
-export function serviceUnavailable(res: Response, message: string = 'Service temporarily unavailable.'): void {
+export function serviceUnavailable(
+  res: Response,
+  message: string = 'Service temporarily unavailable.',
+): void {
   sendError(res, 503, message, { code: 'SERVICE_UNAVAILABLE' });
 }
 
 // ── Domain-Specific Errors ──
 
-export function shiftOverlap(res: Response, details?: { date?: string; startTime?: string; endTime?: string }): void {
+export function shiftOverlap(
+  res: Response,
+  details?: { date?: string; startTime?: string; endTime?: string },
+): void {
   sendError(res, 409, 'This shift overlaps with an existing shift for the same employee.', {
     code: 'SHIFT_OVERLAP',
     details,
     suggestions: [
-      'Check the employee\'s existing schedule for conflicts.',
+      "Check the employee's existing schedule for conflicts.",
       'Adjust the start or end time to avoid overlap.',
       'Cancel or reschedule the conflicting shift first.',
     ],
@@ -95,16 +110,24 @@ export function shiftOverlap(res: Response, details?: { date?: string; startTime
 
 export function alreadyClockedIn(res: Response, employeeName?: string): void {
   const name = employeeName ? ` ${employeeName}` : '';
-  sendError(res, 409, `Employee${name} is already clocked in. Clock out before starting a new session.`, {
-    code: 'ALREADY_CLOCKED_IN',
-    suggestions: ['Clock out the current session before starting a new one.'],
-  });
+  sendError(
+    res,
+    409,
+    `Employee${name} is already clocked in. Clock out before starting a new session.`,
+    {
+      code: 'ALREADY_CLOCKED_IN',
+      suggestions: ['Clock out the current session before starting a new one.'],
+    },
+  );
 }
 
 export function noActiveSession(res: Response): void {
   sendError(res, 404, 'No active clock-in session found.', {
     code: 'NO_ACTIVE_SESSION',
-    suggestions: ['The employee may have already clocked out.', 'Verify the employee\'s current status.'],
+    suggestions: [
+      'The employee may have already clocked out.',
+      "Verify the employee's current status.",
+    ],
   });
 }
 
@@ -141,7 +164,10 @@ export function duplicateRecord(res: Response, entity: string, field: string): v
 export function optimisticLockError(res: Response): void {
   sendError(res, 409, 'This record was modified by another user. Please refresh and try again.', {
     code: 'VERSION_CONFLICT',
-    suggestions: ['Refresh the page to get the latest data.', 'Re-apply your changes to the updated record.'],
+    suggestions: [
+      'Refresh the page to get the latest data.',
+      'Re-apply your changes to the updated record.',
+    ],
   });
 }
 
@@ -157,12 +183,7 @@ export function notFoundHandler(_req: Request, res: Response): void {
 /**
  * Central Express error-handling middleware.
  */
-export function errorHandler(
-  err: Error,
-  _req: Request,
-  res: Response,
-  _next: NextFunction
-): void {
+export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction): void {
   console.error('[server] Unhandled error:', err);
   internalError(res);
 }

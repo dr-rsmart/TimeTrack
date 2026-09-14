@@ -4,9 +4,27 @@
  * Session state, login/logout, and role helpers.
  */
 
-import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
-import { authApi, registerSessionHandler, suppressUnauthenticatedErrors, type CurrentUser, type SessionErrorCode } from '../services/api';
-import { postToNativeShell, isNativeShellPresent, isAutoClockEligible } from '../hooks/useAutoGeofence';
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ReactNode,
+} from 'react';
+import {
+  authApi,
+  registerSessionHandler,
+  suppressUnauthenticatedErrors,
+  type CurrentUser,
+  type SessionErrorCode,
+} from '../services/api';
+import {
+  postToNativeShell,
+  isNativeShellPresent,
+  isAutoClockEligible,
+} from '../hooks/useAutoGeofence';
 
 interface AuthContextValue {
   user: CurrentUser | null;
@@ -35,7 +53,10 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const [sessionError, setSessionError] = useState<{ code: SessionErrorCode; message: string } | null>(null);
+  const [sessionError, setSessionError] = useState<{
+    code: SessionErrorCode;
+    message: string;
+  } | null>(null);
 
   // Track whether a session is (or was) active so the global 401 handler can
   // distinguish "session forcibly ended" from "no session to begin with".

@@ -74,9 +74,13 @@ describe('Shift-end auto clock-out helpers', () => {
 
     it('fires the following day for overnight shifts', () => {
       const base = { shiftDateStr: '2026-08-17', endMinutes: 6 * 60, crossesMidnight: true };
-      expect(isShiftEndReached({ ...base, nowDateStr: '2026-08-18', nowMinutesOfDay: 6 * 60 + 1 })).toBe(true);
+      expect(
+        isShiftEndReached({ ...base, nowDateStr: '2026-08-18', nowMinutesOfDay: 6 * 60 + 1 }),
+      ).toBe(true);
       // 05:59 the next day → not yet.
-      expect(isShiftEndReached({ ...base, nowDateStr: '2026-08-18', nowMinutesOfDay: 6 * 60 - 1 })).toBe(false);
+      expect(
+        isShiftEndReached({ ...base, nowDateStr: '2026-08-18', nowMinutesOfDay: 6 * 60 - 1 }),
+      ).toBe(false);
     });
 
     it('fires for stale same-day shifts (backfill after cron downtime)', () => {
@@ -102,33 +106,44 @@ describe('Shift-end auto clock-out helpers', () => {
 
     it('converts fixed-offset zones exactly', () => {
       // Africa/Johannesburg is UTC+2 year-round (no DST).
-      expect(businessTimeToDate('Africa/Johannesburg', '2026-08-17', 17 * 60).toISOString())
-        .toBe('2026-08-17T15:00:00.000Z');
+      expect(businessTimeToDate('Africa/Johannesburg', '2026-08-17', 17 * 60).toISOString()).toBe(
+        '2026-08-17T15:00:00.000Z',
+      );
       // Half-hour offset zone (UTC+5:30).
-      expect(businessTimeToDate('Asia/Kolkata', '2026-08-17', 8 * 60).toISOString())
-        .toBe('2026-08-17T02:30:00.000Z');
+      expect(businessTimeToDate('Asia/Kolkata', '2026-08-17', 8 * 60).toISOString()).toBe(
+        '2026-08-17T02:30:00.000Z',
+      );
     });
 
     it('respects DST offsets (America/New_York winter vs summer)', () => {
       // EST = UTC-5 in January.
-      expect(businessTimeToDate('America/New_York', '2026-01-15', 8 * 60).toISOString())
-        .toBe('2026-01-15T13:00:00.000Z');
+      expect(businessTimeToDate('America/New_York', '2026-01-15', 8 * 60).toISOString()).toBe(
+        '2026-01-15T13:00:00.000Z',
+      );
       // EDT = UTC-4 in August.
-      expect(businessTimeToDate('America/New_York', '2026-08-17', 8 * 60).toISOString())
-        .toBe('2026-08-17T12:00:00.000Z');
+      expect(businessTimeToDate('America/New_York', '2026-08-17', 8 * 60).toISOString()).toBe(
+        '2026-08-17T12:00:00.000Z',
+      );
     });
 
     it('handles midnight and end-of-day minutes', () => {
-      expect(businessTimeToDate('Africa/Johannesburg', '2026-08-17', 0).toISOString())
-        .toBe('2026-08-16T22:00:00.000Z');
-      expect(businessTimeToDate('Africa/Johannesburg', '2026-08-17', 23 * 60 + 59).toISOString())
-        .toBe('2026-08-17T21:59:00.000Z');
+      expect(businessTimeToDate('Africa/Johannesburg', '2026-08-17', 0).toISOString()).toBe(
+        '2026-08-16T22:00:00.000Z',
+      );
+      expect(
+        businessTimeToDate('Africa/Johannesburg', '2026-08-17', 23 * 60 + 59).toISOString(),
+      ).toBe('2026-08-17T21:59:00.000Z');
     });
 
     it('round-trips through businessNow across offset shapes', () => {
       const dateStr = '2026-08-17';
       const minutes = 7 * 60 + 33;
-      for (const tz of ['Africa/Johannesburg', 'America/New_York', 'Asia/Kolkata', 'Australia/Eucla']) {
+      for (const tz of [
+        'Africa/Johannesburg',
+        'America/New_York',
+        'Asia/Kolkata',
+        'Australia/Eucla',
+      ]) {
         const instant = businessTimeToDate(tz, dateStr, minutes);
         const back = businessNow(tz, instant);
         expect(back.dateStr, `tz=${tz}`).toBe(dateStr);

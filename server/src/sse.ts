@@ -175,7 +175,7 @@ export function addClient(
     branch: string | null;
     department: string | null;
   },
-  lastEventId?: string | null
+  lastEventId?: string | null,
 ) {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -198,7 +198,8 @@ export function addClient(
           if (scope?.companyProfileId && info.companyProfileId !== scope.companyProfileId) continue;
           if (scope?.targetUserId && info.id !== scope.targetUserId) continue;
           if (scope?.branch && info.branch && info.branch !== scope.branch) continue;
-          if (scope?.department && info.department && info.department !== scope.department) continue;
+          if (scope?.department && info.department && info.department !== scope.department)
+            continue;
         }
         try {
           res.write(`id: ${buffered.seq}\ndata: ${JSON.stringify(buffered.message.event)}\n\n`);
@@ -207,7 +208,9 @@ export function addClient(
         }
       }
       if (missed.length > 0) {
-        console.log(`[sse] Replayed ${missed.length} buffered event(s) to reconnecting client ${info.id}.`);
+        console.log(
+          `[sse] Replayed ${missed.length} buffered event(s) to reconnecting client ${info.id}.`,
+        );
       }
     }
   }
@@ -225,7 +228,9 @@ export function addClient(
   }
 
   if (userConnectionCount >= MAX_CONCURRENT_PER_USER && oldestClientForUser) {
-    console.warn(`[sse] User ${info.id} exceeded max concurrent connections (${MAX_CONCURRENT_PER_USER}). Pruning oldest stream.`);
+    console.warn(
+      `[sse] User ${info.id} exceeded max concurrent connections (${MAX_CONCURRENT_PER_USER}). Pruning oldest stream.`,
+    );
     removeClient(oldestClientForUser.id);
   }
 
@@ -282,9 +287,14 @@ export function getClientCount(): number {
  * Writes the SSE `id:` field (monotonic sequence) so clients can resume via
  * Last-Event-ID after a disconnect.
  */
-function deliverToLocalClients(event: SSEEventMessage['event'], scope?: BroadcastScope, seq?: number) {
+function deliverToLocalClients(
+  event: SSEEventMessage['event'],
+  scope?: BroadcastScope,
+  seq?: number,
+) {
   const payloadStr = JSON.stringify(event);
-  const frame = seq !== undefined ? `id: ${seq}\ndata: ${payloadStr}\n\n` : `data: ${payloadStr}\n\n`;
+  const frame =
+    seq !== undefined ? `id: ${seq}\ndata: ${payloadStr}\n\n` : `data: ${payloadStr}\n\n`;
 
   for (const client of clients.values()) {
     // Check master role (sees everything across all tenants)
@@ -340,27 +350,24 @@ export function broadcastScoped(
   entity: string,
   action: string,
   payload?: any,
-  scope?: BroadcastScope
+  scope?: BroadcastScope,
 ) {
   const mappedEntity =
     entity === 'employee'
       ? 'Employee'
       : entity === 'shift'
-      ? 'Shift'
-      : entity === 'timeEntry'
-      ? 'TimeEntry'
-      : entity;
+        ? 'Shift'
+        : entity === 'timeEntry'
+          ? 'TimeEntry'
+          : entity;
 
   // GUARD: an unscoped broadcast is a cross-tenant primitive. Warn loudly if
   // a non-global entity is about to be delivered to every tenant — that
   // indicates a missing scope at the call site.
-  if (
-    (!scope || scope.companyProfileId == null) &&
-    !GLOBAL_SCOPE_ENTITIES.has(mappedEntity)
-  ) {
+  if ((!scope || scope.companyProfileId == null) && !GLOBAL_SCOPE_ENTITIES.has(mappedEntity)) {
     console.warn(
       `[sse] broadcastScoped("${mappedEntity}", "${action}") has no tenant scope — ` +
-        'the event will reach clients in ALL tenants. Pass a companyProfileId scope.'
+        'the event will reach clients in ALL tenants. Pass a companyProfileId scope.',
     );
   }
 
@@ -418,7 +425,9 @@ export function disconnectTenantClients(companyProfileId: string): number {
     }
   }
   if (removed > 0) {
-    console.log(`[sse] Disconnected ${removed} client(s) for suspended tenant ${companyProfileId}.`);
+    console.log(
+      `[sse] Disconnected ${removed} client(s) for suspended tenant ${companyProfileId}.`,
+    );
   }
   return removed;
 }

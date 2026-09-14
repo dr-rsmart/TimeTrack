@@ -24,7 +24,7 @@ async function getPublicIp() {
   const ipServices = [
     'https://api.ipify.org?format=json',
     'https://ipinfo.io/json',
-    'https://ifconfig.me/all.json'
+    'https://ifconfig.me/all.json',
   ];
 
   for (const service of ipServices) {
@@ -175,7 +175,7 @@ async function run() {
     HostName2: 'www',
     RecordType2: 'CNAME',
     Address2: wwwTarget,
-    TTL2: '1799'
+    TTL2: '1799',
   });
 
   const apiUrl = `https://api.namecheap.com/xml.response?${params.toString()}`;
@@ -187,14 +187,16 @@ async function run() {
     console.log('\n--- Namecheap API Response ---');
     if (xmlText.includes('ErrCount="0"') || xmlText.includes('IsSuccess="true"')) {
       console.log('✅ SUCCESS! DNS records updated successfully on Namecheap.');
-      console.log('   The changes are now propagating. Please wait 5-30 minutes for the SSL certificate');
+      console.log(
+        '   The changes are now propagating. Please wait 5-30 minutes for the SSL certificate',
+      );
       console.log('   to activate on time-track.tech.');
     } else {
       console.error('❌ API Error: Namecheap returned an error in the response.');
       // Extract errors from XML response
-      const errors = [...xmlText.matchAll(/<Error[^>]*>([^<]+)<\/Error>/g)].map(m => m[1]);
+      const errors = [...xmlText.matchAll(/<Error[^>]*>([^<]+)<\/Error>/g)].map((m) => m[1]);
       if (errors.length > 0) {
-        errors.forEach(err => console.error(`   - ${err}`));
+        errors.forEach((err) => console.error(`   - ${err}`));
       } else {
         console.log(xmlText);
       }

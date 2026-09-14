@@ -3,7 +3,11 @@ import { CircuitBreaker, CircuitBreakerError } from '../../server/src/circuitBre
 
 describe('CircuitBreaker', () => {
   it('allows successful executions in CLOSED state', async () => {
-    const breaker = new CircuitBreaker({ failureThreshold: 3, resetTimeoutMs: 1000, name: 'test-service' });
+    const breaker = new CircuitBreaker({
+      failureThreshold: 3,
+      resetTimeoutMs: 1000,
+      name: 'test-service',
+    });
     const fn = vi.fn().mockResolvedValue('ok');
 
     const res = await breaker.execute(fn);
@@ -13,7 +17,11 @@ describe('CircuitBreaker', () => {
   });
 
   it('trips to OPEN state after reaching failure threshold', async () => {
-    const breaker = new CircuitBreaker({ failureThreshold: 2, resetTimeoutMs: 500, name: 'test-service' });
+    const breaker = new CircuitBreaker({
+      failureThreshold: 2,
+      resetTimeoutMs: 500,
+      name: 'test-service',
+    });
     const failingFn = vi.fn().mockRejectedValue(new Error('Network error'));
 
     // Attempt 1: failure 1
@@ -31,7 +39,11 @@ describe('CircuitBreaker', () => {
   });
 
   it('uses fallback when provided in OPEN state', async () => {
-    const breaker = new CircuitBreaker({ failureThreshold: 1, resetTimeoutMs: 1000, name: 'test-service' });
+    const breaker = new CircuitBreaker({
+      failureThreshold: 1,
+      resetTimeoutMs: 1000,
+      name: 'test-service',
+    });
     const failingFn = vi.fn().mockRejectedValue(new Error('Failure'));
 
     await expect(breaker.execute(failingFn)).rejects.toThrow('Failure');
@@ -44,7 +56,11 @@ describe('CircuitBreaker', () => {
   });
 
   it('transitions from OPEN to HALF_OPEN and recovers upon successful probe', async () => {
-    const breaker = new CircuitBreaker({ failureThreshold: 1, resetTimeoutMs: 50, name: 'test-service' });
+    const breaker = new CircuitBreaker({
+      failureThreshold: 1,
+      resetTimeoutMs: 50,
+      name: 'test-service',
+    });
     const failingFn = vi.fn().mockRejectedValue(new Error('Fail'));
 
     await expect(breaker.execute(failingFn)).rejects.toThrow();

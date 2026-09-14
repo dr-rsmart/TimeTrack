@@ -20,7 +20,17 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { api } from '../../services/api';
-import { Card, CardContent, CardHeader, CardTitle, StatCard, Button, Badge, Spinner, EmptyState } from '../ui';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  StatCard,
+  Button,
+  Badge,
+  Spinner,
+  EmptyState,
+} from '../ui';
 
 interface PlatformStats {
   totalCompanies: number;
@@ -107,7 +117,11 @@ export default function MasterDashboardView() {
 
       {/* Platform KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0 }}
+        >
           <StatCard
             label="Companies"
             value={stats?.totalCompanies ?? 0}
@@ -115,7 +129,11 @@ export default function MasterDashboardView() {
             icon={<Building2 className="h-6 w-6" />}
           />
         </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+        >
           <StatCard
             label="Total Workforce"
             value={stats?.totalEmployees ?? 0}
@@ -123,7 +141,11 @@ export default function MasterDashboardView() {
             icon={<Users className="h-6 w-6" />}
           />
         </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+        >
           <StatCard
             label="Clocked In Now"
             value={stats?.activeClockIns ?? 0}
@@ -131,7 +153,11 @@ export default function MasterDashboardView() {
             icon={<Clock className="h-6 w-6" />}
           />
         </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+        >
           <StatCard
             label="Hours Today"
             value={`${(stats?.totalHoursToday ?? 0).toFixed(1)}h`}
@@ -202,14 +228,21 @@ export default function MasterDashboardView() {
               { label: 'Database', icon: Database, status: 'Operational', ok: true },
               { label: 'Real-time (SSE)', icon: Globe, status: 'Operational', ok: true },
             ].map((item) => (
-              <div key={item.label} className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+              <div
+                key={item.label}
+                className="flex items-center justify-between p-3 rounded-lg bg-secondary/30"
+              >
                 <div className="flex items-center gap-3">
                   <item.icon className="w-4 h-4 text-muted-foreground" />
                   <span className="text-sm font-medium">{item.label}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className={`w-2 h-2 rounded-full ${item.ok ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                  <span className={`text-xs font-medium ${item.ok ? 'text-emerald-500' : 'text-red-500'}`}>
+                  <span
+                    className={`w-2 h-2 rounded-full ${item.ok ? 'bg-emerald-500' : 'bg-red-500'}`}
+                  />
+                  <span
+                    className={`text-xs font-medium ${item.ok ? 'text-emerald-500' : 'text-red-500'}`}
+                  >
                     {item.status}
                   </span>
                 </div>

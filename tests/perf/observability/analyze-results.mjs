@@ -25,7 +25,9 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const dirIdx = args.indexOf('--dir');
-const RESULTS_DIR = path.resolve(dirIdx >= 0 && args[dirIdx + 1] ? args[dirIdx + 1] : path.join(__dirname, '..', 'results'));
+const RESULTS_DIR = path.resolve(
+  dirIdx >= 0 && args[dirIdx + 1] ? args[dirIdx + 1] : path.join(__dirname, '..', 'results'),
+);
 
 // ── SLA definitions (mirror protocol.js thresholds) ──
 const SLA = {
@@ -99,9 +101,10 @@ function analyzeSummary(name, summary) {
   // k6 v2: http_req_failed.value is the rate (0-1); v1: .rate
   const errRateRaw = failed.value ?? failed.rate ?? 0;
   const errRate = errRateRaw * 100;
-  const checkPass = (checks.passes != null && checks.fails != null && checks.passes + checks.fails > 0)
-    ? (checks.passes / (checks.passes + checks.fails)) * 100
-    : null;
+  const checkPass =
+    checks.passes != null && checks.fails != null && checks.passes + checks.fails > 0
+      ? (checks.passes / (checks.passes + checks.fails)) * 100
+      : null;
 
   rows.push(['Total requests', reqs.count ?? '—']);
   rows.push(['Peak VUs', vus.max ?? vus.value ?? '—']);
@@ -131,13 +134,23 @@ function analyzeSummary(name, summary) {
   }
   {
     const pass = errRate < SLA.error_rate_max_pct;
-    slaRows.push([`error rate < ${SLA.error_rate_max_pct}% (ABORT)`, `${errRate.toFixed(2)}%`, verdict(pass)]);
-    if (!pass) failures.push(`error rate ${errRate.toFixed(2)}% exceeds ${SLA.error_rate_max_pct}%`);
+    slaRows.push([
+      `error rate < ${SLA.error_rate_max_pct}% (ABORT)`,
+      `${errRate.toFixed(2)}%`,
+      verdict(pass),
+    ]);
+    if (!pass)
+      failures.push(`error rate ${errRate.toFixed(2)}% exceeds ${SLA.error_rate_max_pct}%`);
   }
   if (checkPass != null) {
     const pass = checkPass >= SLA.check_pass_min_pct;
-    slaRows.push([`check pass ≥ ${SLA.check_pass_min_pct}% (ABORT)`, `${checkPass.toFixed(2)}%`, verdict(pass)]);
-    if (!pass) failures.push(`check pass ${checkPass.toFixed(2)}% below ${SLA.check_pass_min_pct}%`);
+    slaRows.push([
+      `check pass ≥ ${SLA.check_pass_min_pct}% (ABORT)`,
+      `${checkPass.toFixed(2)}%`,
+      verdict(pass),
+    ]);
+    if (!pass)
+      failures.push(`check pass ${checkPass.toFixed(2)}% below ${SLA.check_pass_min_pct}%`);
   }
 
   // Custom trends
@@ -210,7 +223,8 @@ function main() {
       lines.push('');
       lines.push('| Metric | p50 | p95 | p99 |');
       lines.push('|--------|-----|-----|-----|');
-      for (const [k, p50, p95, p99] of a.trendRows) lines.push(`| ${k} | ${p50} | ${p95} | ${p99} |`);
+      for (const [k, p50, p95, p99] of a.trendRows)
+        lines.push(`| ${k} | ${p50} | ${p95} | ${p99} |`);
       lines.push('');
     }
     if (a.failures.length > 0) {
@@ -225,7 +239,9 @@ function main() {
   const allPassed = analyses.every((a) => a.passed);
   lines.push('---');
   lines.push('');
-  lines.push(`## Overall Verdict: ${allPassed ? '✅ ALL PHASES PASSED' : '❌ ONE OR MORE PHASES FAILED'}`);
+  lines.push(
+    `## Overall Verdict: ${allPassed ? '✅ ALL PHASES PASSED' : '❌ ONE OR MORE PHASES FAILED'}`,
+  );
   lines.push('');
 
   const report = lines.join('\n');

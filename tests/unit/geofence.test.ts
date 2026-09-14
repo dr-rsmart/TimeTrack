@@ -11,7 +11,12 @@ describe('Geofence Math & Validation Unit Tests', () => {
   });
 
   it('calculates accurate distance between Cape Town and Johannesburg (~1260km)', () => {
-    const dist = haversineDistance(CAPE_TOWN.lat, CAPE_TOWN.lon, JOHANNESBURG.lat, JOHANNESBURG.lon);
+    const dist = haversineDistance(
+      CAPE_TOWN.lat,
+      CAPE_TOWN.lon,
+      JOHANNESBURG.lat,
+      JOHANNESBURG.lon,
+    );
     expect(dist).toBeGreaterThan(1_250_000);
     expect(dist).toBeLessThan(1_280_000);
   });

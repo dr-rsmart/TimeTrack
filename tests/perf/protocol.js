@@ -187,7 +187,9 @@ export const options = {
     ],
     // Per-scenario latency SLAs
     'http_req_duration{scenario:health_check}': ['p(99)<500'],
-    'http_req_duration{scenario:concurrent_login}': [{ threshold: 'p(99)<3000', abortOnFail: true }],
+    'http_req_duration{scenario:concurrent_login}': [
+      { threshold: 'p(99)<3000', abortOnFail: true },
+    ],
     'http_req_duration{scenario:dashboard_load}': [{ threshold: 'p(99)<2500', abortOnFail: true }],
     'http_req_duration{scenario:db_query_stress}': [{ threshold: 'p(99)<3000', abortOnFail: true }],
     'http_req_duration{scenario:clock_write}': [{ threshold: 'p(99)<3000', abortOnFail: true }],
@@ -216,7 +218,7 @@ export function setup() {
     const res = http.post(
       `${BASE_URL}/api/auth/login`,
       JSON.stringify({ email, password: 'Password123' }),
-      { headers: getHeaders() }
+      { headers: getHeaders() },
     );
     try {
       const token = JSON.parse(res.body).token;
@@ -229,7 +231,7 @@ export function setup() {
     const res = http.post(
       `${BASE_URL}/api/auth/login`,
       JSON.stringify({ email: 'admin@timetrack.com', password: 'Password123' }),
-      { headers: getHeaders() }
+      { headers: getHeaders() },
     );
     demoToken = JSON.parse(res.body).token;
   } catch {}
@@ -256,11 +258,9 @@ function stressUserEmail(vuId) {
 }
 
 function login(email, password) {
-  const res = http.post(
-    `${BASE_URL}/api/auth/login`,
-    JSON.stringify({ email, password }),
-    { headers: getHeaders() }
-  );
+  const res = http.post(`${BASE_URL}/api/auth/login`, JSON.stringify({ email, password }), {
+    headers: getHeaders(),
+  });
   let token = null;
   try {
     token = JSON.parse(res.body).token;
@@ -297,7 +297,11 @@ export function healthCheckScenario() {
   const ok = check(res, {
     'health: status 200': (r) => r.status === 200,
     'health: body ok': (r) => {
-      try { return JSON.parse(r.body).status === 'ok'; } catch { return false; }
+      try {
+        return JSON.parse(r.body).status === 'ok';
+      } catch {
+        return false;
+      }
     },
   });
   guardAbort(ok, 'health');
@@ -411,7 +415,7 @@ export function clockWriteScenario(data) {
   const clockInRes = http.post(
     `${BASE_URL}/api/time-entries/clock-in`,
     JSON.stringify({ latitude: -26.2041, longitude: 28.0473 }),
-    { headers: h }
+    { headers: h },
   );
   clockInDuration.add(Date.now() - inStart);
 
@@ -426,7 +430,7 @@ export function clockWriteScenario(data) {
     const clockOutRes = http.post(
       `${BASE_URL}/api/time-entries/clock-out`,
       JSON.stringify({ latitude: -26.2041, longitude: 28.0473, breakMinutes: 0 }),
-      { headers: h }
+      { headers: h },
     );
     clockOutDuration.add(Date.now() - outStart);
 
@@ -454,7 +458,9 @@ export function multiTenantScenario(data) {
   const demoHeaders = getHeaders(demoToken);
 
   // Fetch employees as stress user — should only see stress tenant data
-  const stressEmployees = http.get(`${BASE_URL}/api/employees?limit=100`, { headers: stressHeaders });
+  const stressEmployees = http.get(`${BASE_URL}/api/employees?limit=100`, {
+    headers: stressHeaders,
+  });
   // Fetch employees as demo user — should only see demo tenant data
   const demoEmployees = http.get(`${BASE_URL}/api/employees?limit=100`, { headers: demoHeaders });
 

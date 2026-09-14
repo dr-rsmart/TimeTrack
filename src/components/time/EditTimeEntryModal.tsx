@@ -13,9 +13,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ShieldAlert, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { timeEntryApi, type TimeEntry, ApiError } from '../../services/api';
-import {
-  Button, Input, Label, Modal, Textarea,
-} from '../ui';
+import { Button, Input, Label, Modal, Textarea } from '../ui';
 import { toDateStr, formatTime } from '../../lib/utils';
 
 interface EditTimeEntryModalProps {
@@ -34,7 +32,12 @@ function toTimeStr(iso: string | null): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-export default function EditTimeEntryModal({ open, entry, onClose, onDone }: EditTimeEntryModalProps) {
+export default function EditTimeEntryModal({
+  open,
+  entry,
+  onClose,
+  onDone,
+}: EditTimeEntryModalProps) {
   const [date, setDate] = useState('');
   const [clockIn, setClockIn] = useState('');
   const [clockOut, setClockOut] = useState('');
@@ -200,7 +203,9 @@ export default function EditTimeEntryModal({ open, entry, onClose, onDone }: Edi
 
         {/* Reason / justification (required) */}
         <div className="space-y-2">
-          <Label htmlFor="edit-reason">Reason for adjustment (required, recorded in audit log)</Label>
+          <Label htmlFor="edit-reason">
+            Reason for adjustment (required, recorded in audit log)
+          </Label>
           <Textarea
             id="edit-reason"
             placeholder="e.g. Employee forgot to clock out / auto-clock-out failed / incorrect data captured…"

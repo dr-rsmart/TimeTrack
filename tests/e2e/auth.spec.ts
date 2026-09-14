@@ -24,7 +24,9 @@ test.describe('Authentication & Session Management', () => {
     await expect(page).toHaveURL(/.*login/);
   });
 
-  test('should redirect unauthenticated users accessing protected routes to login', async ({ page }) => {
+  test('should redirect unauthenticated users accessing protected routes to login', async ({
+    page,
+  }) => {
     await page.goto('/employees');
     await expect(page).toHaveURL(/.*login/);
 
@@ -35,7 +37,9 @@ test.describe('Authentication & Session Management', () => {
     await expect(page).toHaveURL(/.*login/);
   });
 
-  test('should successfully login with valid credentials and establish session', async ({ page }) => {
+  test('should successfully login with valid credentials and establish session', async ({
+    page,
+  }) => {
     await page.goto('/login');
     await page.fill('input[type="email"]', 'admin@timetrack.com');
     await page.fill('input[type="password"]', 'Password123');
@@ -55,7 +59,9 @@ test.describe('Authentication & Session Management', () => {
     await page.waitForURL(/\/$|\/dashboard/, { timeout: 10000 });
 
     // Find and click logout button (typically in header/menu)
-    const logoutBtn = page.locator('button:has-text("Logout"), button:has-text("Sign out"), [data-testid="logout"]').first();
+    const logoutBtn = page
+      .locator('button:has-text("Logout"), button:has-text("Sign out"), [data-testid="logout"]')
+      .first();
     if (await logoutBtn.isVisible()) {
       await logoutBtn.click();
       await page.waitForURL(/.*login/, { timeout: 10000 });
@@ -86,7 +92,9 @@ test.describe('Authentication & Session Management', () => {
     expect(me.email || me.user?.email).toBe('admin@timetrack.com');
   });
 
-  test('should keep the session persistent and revoke it on explicit logout', async ({ request }) => {
+  test('should keep the session persistent and revoke it on explicit logout', async ({
+    request,
+  }) => {
     const loginRes = await request.post(`${API_BASE}/api/auth/login`, {
       data: { email: 'admin@timetrack.com', password: 'Password123' },
       headers: { 'x-perf-bypass': 'tt_perf_bench_2026' },

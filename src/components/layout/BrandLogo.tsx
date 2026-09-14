@@ -19,7 +19,11 @@ const sizeClasses = {
   lg: { icon: 'w-12 h-12', text: 'text-xl' },
 };
 
-export default function BrandLogo({ size = 'md', animated = false, showWordmark = true }: BrandLogoProps) {
+export default function BrandLogo({
+  size = 'md',
+  animated = false,
+  showWordmark = true,
+}: BrandLogoProps) {
   const classes = sizeClasses[size];
 
   return (
@@ -35,7 +39,9 @@ export default function BrandLogo({ size = 'md', animated = false, showWordmark 
       />
       {showWordmark && (
         <div className="flex flex-col">
-          <span className={cn('font-bold tracking-tight text-foreground leading-none', classes.text)}>
+          <span
+            className={cn('font-bold tracking-tight text-foreground leading-none', classes.text)}
+          >
             <span className="gradient-text">TimeTrack</span>
           </span>
           <span className="text-[9px] text-muted-foreground font-medium tracking-widest uppercase">

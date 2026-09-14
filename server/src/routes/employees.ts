@@ -39,7 +39,9 @@ router.use(requireAuth);
 
 // Helper: tenant where clause
 function tenantWhere(authUser: { role: string; companyProfileId: string | null }) {
-  return authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+  return authUser.role === 'master'
+    ? {}
+    : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 }
 
 /**
@@ -136,7 +138,9 @@ router.get('/', requireAuth, async (req, res) => {
         include: {
           geofence: { select: { id: true, name: true } },
           employeeGeofences: { select: { geofence: { select: { id: true, name: true } } } },
-          manager: { select: { id: true, firstName: true, surname: true, role: true, branch: true } },
+          manager: {
+            select: { id: true, firstName: true, surname: true, role: true, branch: true },
+          },
         },
       }),
       prisma.employee.count({ where }),
@@ -149,12 +153,13 @@ router.get('/', requireAuth, async (req, res) => {
     let enrichedItems: Array<Record<string, unknown>> = items;
     try {
       const emails = items.map((i) => i.email.toLowerCase().trim());
-      const accountRows = emails.length > 0
-        ? await prisma.$queryRawUnsafe<Array<{ email: string }>>(
-            `SELECT DISTINCT lower(trim(email)) AS email FROM "User" WHERE lower(trim(email)) = ANY($1::text[])`,
-            emails,
-          )
-        : [];
+      const accountRows =
+        emails.length > 0
+          ? await prisma.$queryRawUnsafe<Array<{ email: string }>>(
+              `SELECT DISTINCT lower(trim(email)) AS email FROM "User" WHERE lower(trim(email)) = ANY($1::text[])`,
+              emails,
+            )
+          : [];
       const accountSet = new Set(accountRows.map((r) => r.email));
       enrichedItems = items.map((i) => ({
         ...i,
@@ -216,7 +221,10 @@ router.get('/:id', requireAuth, async (req, res) => {
 
     const item = await prisma.employee.findUnique({
       where: { id },
-      include: { geofence: true, manager: { select: { id: true, firstName: true, surname: true } } },
+      include: {
+        geofence: true,
+        manager: { select: { id: true, firstName: true, surname: true } },
+      },
     });
     if (!item) return notFound(res, 'Employee');
 
@@ -232,7 +240,11 @@ router.get('/:id', requireAuth, async (req, res) => {
       const inScope = await isEmployeeInManagerScope(authUser, item.email);
       if (!inScope) return outsideScope(res, 'Employee');
     }
-    if (authUser.role !== 'master' && item.companyProfileId && item.companyProfileId !== authUser.companyProfileId) {
+    if (
+      authUser.role !== 'master' &&
+      item.companyProfileId &&
+      item.companyProfileId !== authUser.companyProfileId
+    ) {
       return accessDenied(res, 'Employee belongs to a different company.');
     }
 
@@ -272,10 +284,14 @@ router.post(
 
       // Manager restrictions mirror the single-create handler: managers can
       // only import plain employees into their own branch/department.
-      let managerDefaults: { branch: string; department: string; managerId: string | null } | null = null;
+      let managerDefaults: { branch: string; department: string; managerId: string | null } | null =
+        null;
       if (authUser.role === 'manager') {
         const managerEmp = await prisma.employee.findFirst({
-          where: { email: authUser.email, companyProfileId: authUser.companyProfileId ?? undefined },
+          where: {
+            email: authUser.email,
+            companyProfileId: authUser.companyProfileId ?? undefined,
+          },
           select: { branch: true, department: true, id: true },
         });
         managerDefaults = {
@@ -335,14 +351,20 @@ router.post(
           );
           for (const r of found) existing.add(r.email);
         } catch (dupErr) {
-          console.warn('[employees] Bulk import duplicate pre-check failed; relying on unique constraint:', dupErr);
+          console.warn(
+            '[employees] Bulk import duplicate pre-check failed; relying on unique constraint:',
+            dupErr,
+          );
         }
       }
 
       const importable: typeof validRows = [];
       for (const v of validRows) {
         if (existing.has(v.email)) {
-          errors.push({ row: v.idx, message: `An employee with email ${v.email} already exists in this company.` });
+          errors.push({
+            row: v.idx,
+            message: `An employee with email ${v.email} already exists in this company.`,
+          });
         } else {
           importable.push(v);
         }
@@ -361,9 +383,11 @@ router.post(
           data.department = managerDefaults.department;
           data.managerId = managerDefaults.managerId;
         }
-        let userRole = (['master', 'admin', 'manager', 'employee'].includes(String(data.role))
-          ? String(data.role)
-          : 'employee') as 'master' | 'admin' | 'manager' | 'employee';
+        let userRole = (
+          ['master', 'admin', 'manager', 'employee'].includes(String(data.role))
+            ? String(data.role)
+            : 'employee'
+        ) as 'master' | 'admin' | 'manager' | 'employee';
         // Bulk import can never mint master accounts.
         if (userRole === 'master') userRole = 'admin';
 
@@ -415,7 +439,10 @@ router.post(
           if (code === 'P2002') {
             errors.push({ row: idx, message: `An employee with email ${email} already exists.` });
           } else {
-            console.error(`[employees] Bulk import failed for submitted row ${idx} (${email}):`, rowErr);
+            console.error(
+              `[employees] Bulk import failed for submitted row ${idx} (${email}):`,
+              rowErr,
+            );
             errors.push({ row: idx, message: `Unexpected error creating ${email}.` });
           }
         }
@@ -476,7 +503,8 @@ router.post('/', requireAdminOrManager, validate(createEmployeeSchema), async (r
       data.managerId = managerEmp?.id ?? null;
     }
 
-    const companyProfileId = authUser.role === 'master' ? (data.companyProfileId as string) : authUser.companyProfileId;
+    const companyProfileId =
+      authUser.role === 'master' ? (data.companyProfileId as string) : authUser.companyProfileId;
 
     if (typeof data.email === 'string') {
       data.email = data.email.toLowerCase().trim();
@@ -492,19 +520,29 @@ router.post('/', requireAdminOrManager, validate(createEmployeeSchema), async (r
     try {
       await assertGeofencesBelongToCompany(geofenceIds, companyProfileId);
     } catch (assignmentError) {
-      return badRequest(res, assignmentError instanceof Error ? assignmentError.message : 'Invalid work location assignment.');
+      return badRequest(
+        res,
+        assignmentError instanceof Error
+          ? assignmentError.message
+          : 'Invalid work location assignment.',
+      );
     }
     const normalizedEmail = data.email as string;
 
     // Check duplicate email within tenant case-insensitively
     const existing = await prisma.employee.findFirst({
-      where: { email: { equals: normalizedEmail, mode: 'insensitive' }, companyProfileId: companyProfileId ?? null },
+      where: {
+        email: { equals: normalizedEmail, mode: 'insensitive' },
+        companyProfileId: companyProfileId ?? null,
+      },
     });
     if (existing) return duplicateRecord(res, 'Employee', 'email');
 
     const defaultPasswordHash = await bcrypt.hash('Password123', 10);
     const userRole = (data.role as string) || 'employee';
-    const validRole = ['master', 'admin', 'manager', 'employee'].includes(userRole) ? userRole : 'employee';
+    const validRole = ['master', 'admin', 'manager', 'employee'].includes(userRole)
+      ? userRole
+      : 'employee';
 
     // ── ATOMIC creation: Employee + login User in ONE transaction ──
     // Previously the Employee was created first and the login User was created
@@ -534,7 +572,9 @@ router.post('/', requireAdminOrManager, validate(createEmployeeSchema), async (r
         });
       }
 
-      const existingUser = await tx.user.findUnique({ where: { email: emp.email.toLowerCase().trim() } });
+      const existingUser = await tx.user.findUnique({
+        where: { email: emp.email.toLowerCase().trim() },
+      });
       if (!existingUser) {
         await tx.user.create({
           data: {
@@ -623,7 +663,11 @@ router.put('/:id', requireAuth, validate(updateEmployeeSchema), async (req, res)
     }
 
     // Tenant check
-    if (authUser.role !== 'master' && existing.companyProfileId && existing.companyProfileId !== authUser.companyProfileId) {
+    if (
+      authUser.role !== 'master' &&
+      existing.companyProfileId &&
+      existing.companyProfileId !== authUser.companyProfileId
+    ) {
       return accessDenied(res, 'Employee belongs to a different company.');
     }
 
@@ -651,7 +695,12 @@ router.put('/:id', requireAuth, validate(updateEmployeeSchema), async (req, res)
       try {
         await assertGeofencesBelongToCompany(geofenceIds, existing.companyProfileId);
       } catch (assignmentError) {
-        return badRequest(res, assignmentError instanceof Error ? assignmentError.message : 'Invalid work location assignment.');
+        return badRequest(
+          res,
+          assignmentError instanceof Error
+            ? assignmentError.message
+            : 'Invalid work location assignment.',
+        );
       }
       // Keep the legacy primary mirror synchronized with the canonical list.
       data.geofenceId = geofenceIds[0] ?? null;
@@ -725,11 +774,17 @@ router.put('/:id', requireAuth, validate(updateEmployeeSchema), async (req, res)
           },
         });
       } catch (histErr) {
-        console.error('[employees] Failed to record employment history for manager change:', histErr);
+        console.error(
+          '[employees] Failed to record employment history for manager change:',
+          histErr,
+        );
       }
     }
 
-    const changes = computeChanges(existing as unknown as Record<string, unknown>, item as unknown as Record<string, unknown>);
+    const changes = computeChanges(
+      existing as unknown as Record<string, unknown>,
+      item as unknown as Record<string, unknown>,
+    );
     logAudit({
       entity: 'Employee',
       entityId: item.id,
@@ -769,7 +824,11 @@ router.post('/:id/reset-password', requireAdminOrManager, async (req, res) => {
     if (!existing) return notFound(res, 'Employee');
 
     // Tenant check
-    if (authUser.role !== 'master' && existing.companyProfileId && existing.companyProfileId !== authUser.companyProfileId) {
+    if (
+      authUser.role !== 'master' &&
+      existing.companyProfileId &&
+      existing.companyProfileId !== authUser.companyProfileId
+    ) {
       return accessDenied(res, 'Employee belongs to a different company.');
     }
     // Manager scope check
@@ -847,7 +906,11 @@ router.post('/:id/reactivate', requireAdminOrManager, async (req, res) => {
     if (!existing) return notFound(res, 'Employee');
 
     // Tenant check
-    if (authUser.role !== 'master' && existing.companyProfileId && existing.companyProfileId !== authUser.companyProfileId) {
+    if (
+      authUser.role !== 'master' &&
+      existing.companyProfileId &&
+      existing.companyProfileId !== authUser.companyProfileId
+    ) {
       return accessDenied(res, 'Employee belongs to a different company.');
     }
     // Manager scope check
@@ -911,7 +974,11 @@ router.delete('/:id', requireAdminOrManager, async (req, res) => {
     const existing = await prisma.employee.findUnique({ where: { id } });
     if (!existing) return notFound(res, 'Employee');
 
-    if (authUser.role !== 'master' && existing.companyProfileId && existing.companyProfileId !== authUser.companyProfileId) {
+    if (
+      authUser.role !== 'master' &&
+      existing.companyProfileId &&
+      existing.companyProfileId !== authUser.companyProfileId
+    ) {
       return accessDenied(res, 'Employee belongs to a different company.');
     }
     if (authUser.role === 'manager') {
@@ -961,11 +1028,16 @@ router.delete('/:id', requireAdminOrManager, async (req, res) => {
       department: existing.department,
     });
 
-    broadcastScoped('employee', hardDelete ? 'delete' : 'update', { id, status: 'terminated' }, {
-      companyProfileId: existing.companyProfileId,
-      branch: existing.branch,
-      department: existing.department,
-    });
+    broadcastScoped(
+      'employee',
+      hardDelete ? 'delete' : 'update',
+      { id, status: 'terminated' },
+      {
+        companyProfileId: existing.companyProfileId,
+        branch: existing.branch,
+        department: existing.department,
+      },
+    );
 
     res.json({ success: true, deleted: id, softDelete: !hardDelete });
   } catch (err) {

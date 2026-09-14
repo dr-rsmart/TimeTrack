@@ -66,7 +66,9 @@ test.describe.serial('Session revocation on password rotation (pwdEpoch)', () =>
     expect(delRes.status()).toBe(200);
   });
 
-  test('step 1: fresh login on the default password issues a usable session', async ({ request }) => {
+  test('step 1: fresh login on the default password issues a usable session', async ({
+    request,
+  }) => {
     const loginRes = await request.post(`${API_BASE}/api/auth/login`, {
       headers: PERF_BYPASS,
       data: { email: ADMIN_EMAIL, password: TEMP_PASSWORD },
@@ -82,7 +84,9 @@ test.describe.serial('Session revocation on password rotation (pwdEpoch)', () =>
     expect((await meRes.json()).email).toBe(ADMIN_EMAIL);
   });
 
-  test('step 2: token signed BEFORE rotation is revoked after the password change', async ({ request }) => {
+  test('step 2: token signed BEFORE rotation is revoked after the password change', async ({
+    request,
+  }) => {
     // Token A: signed at the pre-rotation epoch.
     const loginRes = await request.post(`${API_BASE}/api/auth/login`, {
       headers: PERF_BYPASS,
@@ -114,7 +118,9 @@ test.describe.serial('Session revocation on password rotation (pwdEpoch)', () =>
     expect(staleLogin.status()).toBe(401);
   });
 
-  test('step 3: LOGIN AFTER rotation stamps the current epoch (NB2 regression)', async ({ request }) => {
+  test('step 3: LOGIN AFTER rotation stamps the current epoch (NB2 regression)', async ({
+    request,
+  }) => {
     // Under the NB2 bug, /login signed tokens with epoch 0 regardless of the
     // stored pwdEpoch, so a just-rotated user was immediately locked out of
     // their next login. This test fails if that regression ever ships again.
@@ -140,7 +146,9 @@ test.describe.serial('Session revocation on password rotation (pwdEpoch)', () =>
     expect(meAgain.status()).toBe(200);
   });
 
-  test('step 4: wrong current password is a 400 payload error and does NOT end the session', async ({ request }) => {
+  test('step 4: wrong current password is a 400 payload error and does NOT end the session', async ({
+    request,
+  }) => {
     // Regression: /change-password used to answer a wrong "current password"
     // with 401, which the SPA's global session handler misread as session
     // death — logging the user out with a scary "Session ended" banner

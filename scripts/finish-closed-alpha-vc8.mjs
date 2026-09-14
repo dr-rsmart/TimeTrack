@@ -55,7 +55,11 @@ async function run() {
   const page = context.pages()[0] || (await context.newPage());
 
   if (await isVisible(page, /choose developer account/i, 8000)) {
-    await page.getByText('dr-rsmart', { exact: true }).first().click().catch(() => {});
+    await page
+      .getByText('dr-rsmart', { exact: true })
+      .first()
+      .click()
+      .catch(() => {});
     await wait(5000);
   }
 
@@ -63,10 +67,10 @@ async function run() {
   const devId = '8121995548332442173';
   const appId = '4976072281005342488';
   await page
-    .goto(
-      `https://play.google.com/console/u/0/developers/${devId}/app/${appId}/closed-testing`,
-      { waitUntil: 'domcontentloaded', timeout: 60000 }
-    )
+    .goto(`https://play.google.com/console/u/0/developers/${devId}/app/${appId}/closed-testing`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000,
+    })
     .catch(() => {});
   await wait(6000);
 
@@ -126,7 +130,7 @@ async function run() {
     const makers = [
       () =>
         page.locator(
-          'xpath=//*[contains(text(),"timetrack-vc8-webview-failsafe.aab")]/following::button[1]'
+          'xpath=//*[contains(text(),"timetrack-vc8-webview-failsafe.aab")]/following::button[1]',
         ),
       () => page.getByRole('button', { name: /remove|dismiss|delete|close/i }).first(),
     ];
@@ -155,14 +159,21 @@ async function run() {
   }
   if (!hasBundle) {
     console.log('ℹ️  Bundle row missing — attaching vc8 from the app bundle library...');
-    await page.getByText(/add from library/i).first().click().catch(() => {});
+    await page
+      .getByText(/add from library/i)
+      .first()
+      .click()
+      .catch(() => {});
     await wait(4000);
     const row = page
       .locator('tr')
       .filter({ has: page.locator('td').filter({ hasText: /^8$/ }) })
       .first();
     if ((await row.count()) > 0) {
-      await row.getByRole('checkbox').click().catch(() => row.click().catch(() => {}));
+      await row
+        .getByRole('checkbox')
+        .click()
+        .catch(() => row.click().catch(() => {}));
       await wait(1500);
       await page
         .getByRole('button', { name: /add to release|^add$/i })
@@ -210,7 +221,7 @@ async function run() {
   const done = await isVisible(
     page,
     /rollout started|in review|review in progress|available to (selected )?testers|staged rollout/i,
-    20000
+    20000,
   );
   if (done) {
     console.log('✅ Release 8 rollout submitted on closed testing "alpha".');

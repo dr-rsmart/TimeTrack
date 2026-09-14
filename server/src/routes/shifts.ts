@@ -37,7 +37,9 @@ const router = Router();
 router.use(requireAuth);
 
 function tenantWhere(authUser: { role: string; companyProfileId: string | null }) {
-  return authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+  return authUser.role === 'master'
+    ? {}
+    : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 }
 
 /** Detect overlapping shifts for the same employee on the same date. */
@@ -89,7 +91,10 @@ router.get('/', requireAuth, async (req, res) => {
         },
         select: { id: true, email: true },
       });
-      Object.assign(where, employee ? employeeIdentityFilter([employee]) : { employeeId: '__none__' });
+      Object.assign(
+        where,
+        employee ? employeeIdentityFilter([employee]) : { employeeId: '__none__' },
+      );
     } else if (authUser.role === 'manager') {
       const scopeFilter = await getManagerScopeFilter(authUser);
       // Scope via employee relation
@@ -110,7 +115,9 @@ router.get('/', requireAuth, async (req, res) => {
         take: limit,
         skip: offset,
         orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
-        include: { employee: { select: { id: true, firstName: true, surname: true, email: true } } },
+        include: {
+          employee: { select: { id: true, firstName: true, surname: true, email: true } },
+        },
       }),
       prisma.shift.count({ where }),
     ]);
@@ -147,11 +154,16 @@ router.post('/', requireAdminOrManager, validate(createShiftSchema), async (req,
     if (data.employeeId && data.startTime && data.endTime) {
       const overlaps = await findOverlaps(data.employeeId, data.date, data.startTime, data.endTime);
       if (overlaps > 0) {
-        return shiftOverlap(res, { date: data.date, startTime: data.startTime, endTime: data.endTime });
+        return shiftOverlap(res, {
+          date: data.date,
+          startTime: data.startTime,
+          endTime: data.endTime,
+        });
       }
     }
 
-    const companyProfileId = authUser.role === 'master' ? employee?.companyProfileId : authUser.companyProfileId;
+    const companyProfileId =
+      authUser.role === 'master' ? employee?.companyProfileId : authUser.companyProfileId;
 
     const shift = await prisma.shift.create({
       data: {
@@ -211,17 +223,30 @@ router.put('/:id', requireAdminOrManager, validate(updateShiftSchema), async (re
       return accessDenied(res, 'Shift belongs to a different company.');
     }
     if (authUser.role === 'manager' && (existing.employeeId || existing.employeeEmail)) {
-      const inScope = await isEmployeeInManagerScope(authUser, existing.employeeEmail ?? '', existing.employeeId);
+      const inScope = await isEmployeeInManagerScope(
+        authUser,
+        existing.employeeEmail ?? '',
+        existing.employeeId,
+      );
       if (!inScope) return outsideScope(res, 'Employee');
     }
 
     // Terminal statuses require a reason note
     const newStatus = data.status as string | undefined;
-    if (newStatus && ['cancelled', 'no_show'].includes(newStatus) && !data.notes && !existing.notes) {
-      return badRequest(res, 'A reason note is required when marking a shift as cancelled or no-show.', {
-        field: 'notes',
-        requirement: 'Provide a notes field explaining the reason.',
-      });
+    if (
+      newStatus &&
+      ['cancelled', 'no_show'].includes(newStatus) &&
+      !data.notes &&
+      !existing.notes
+    ) {
+      return badRequest(
+        res,
+        'A reason note is required when marking a shift as cancelled or no-show.',
+        {
+          field: 'notes',
+          requirement: 'Provide a notes field explaining the reason.',
+        },
+      );
     }
 
     // Overlap detection on reschedule
@@ -233,7 +258,11 @@ router.put('/:id', requireAdminOrManager, validate(updateShiftSchema), async (re
       if (existing.employeeId && startTime && endTime) {
         const overlaps = await findOverlaps(existing.employeeId, dateStr, startTime, endTime, id);
         if (overlaps > 0) {
-          return shiftOverlap(res, { date: dateStr, startTime: startTime ?? undefined, endTime: endTime ?? undefined });
+          return shiftOverlap(res, {
+            date: dateStr,
+            startTime: startTime ?? undefined,
+            endTime: endTime ?? undefined,
+          });
         }
       }
       if (data.date) data.date = parseDate(dateStr);
@@ -244,7 +273,10 @@ router.put('/:id', requireAdminOrManager, validate(updateShiftSchema), async (re
       data: { ...data, updatedBy: authUser.id },
     });
 
-    const changes = computeChanges(existing as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>);
+    const changes = computeChanges(
+      existing as unknown as Record<string, unknown>,
+      updated as unknown as Record<string, unknown>,
+    );
     logAudit({
       entity: 'Shift',
       entityId: id,
@@ -284,7 +316,11 @@ router.delete('/:id', requireAdminOrManager, async (req, res) => {
       return accessDenied(res, 'Shift belongs to a different company.');
     }
     if (authUser.role === 'manager' && (existing.employeeId || existing.employeeEmail)) {
-      const inScope = await isEmployeeInManagerScope(authUser, existing.employeeEmail ?? '', existing.employeeId);
+      const inScope = await isEmployeeInManagerScope(
+        authUser,
+        existing.employeeEmail ?? '',
+        existing.employeeId,
+      );
       if (!inScope) return outsideScope(res, 'Employee');
     }
 
@@ -302,11 +338,16 @@ router.delete('/:id', requireAdminOrManager, async (req, res) => {
       department: existing.department,
     });
 
-    broadcastScoped('shift', 'delete', { id }, {
-      companyProfileId: existing.companyProfileId,
-      branch: existing.branch,
-      department: existing.department,
-    });
+    broadcastScoped(
+      'shift',
+      'delete',
+      { id },
+      {
+        companyProfileId: existing.companyProfileId,
+        branch: existing.branch,
+        department: existing.department,
+      },
+    );
 
     res.json({ success: true, deleted: id });
   } catch (err) {
@@ -360,17 +401,26 @@ router.post('/bulk', requireAdminOrManager, validate(bulkCreateShiftsSchema), as
     for (const employee of employees) {
       if (authUser.role === 'manager') {
         const inScope = await isEmployeeInManagerScope(authUser, employee.email);
-        if (!inScope) return outsideScope(res, `Employee ${employee.firstName} ${employee.surname}`);
+        if (!inScope)
+          return outsideScope(res, `Employee ${employee.firstName} ${employee.surname}`);
       }
       if (authUser.role !== 'master' && employee.companyProfileId !== authUser.companyProfileId) {
-        return accessDenied(res, `Employee ${employee.firstName} ${employee.surname} belongs to a different company.`);
+        return accessDenied(
+          res,
+          `Employee ${employee.firstName} ${employee.surname} belongs to a different company.`,
+        );
       }
     }
 
     // Overlap detection per employee × day (unless skipOverlaps is true).
     // All conflicting shifts across the whole range are fetched in ONE query
     // and indexed by "employeeId|YYYY-MM-DD" for fast lookups.
-    const skipped: Array<{ employeeId: string; employeeName: string; date?: string; reason: string }> = [];
+    const skipped: Array<{
+      employeeId: string;
+      employeeName: string;
+      date?: string;
+      reason: string;
+    }> = [];
     let overlapWindows: Map<string, ShiftTimeWindow[]> | null = null;
     if (!skipOverlaps) {
       overlapWindows = new Map();
@@ -458,7 +508,10 @@ router.post('/bulk', requireAdminOrManager, validate(bulkCreateShiftsSchema), as
             date: parseDate(day),
             startTime: startTime ?? null,
             endTime: endTime ?? null,
-            shiftType: (shiftType as 'full_day' | 'half_day' | 'Holiday' | 'Leave' | 'Sick' | 'PTO' | 'Unpaid') ?? 'full_day',
+            shiftType:
+              (shiftType as
+                'full_day' | 'half_day' | 'Holiday' | 'Leave' | 'Sick' | 'PTO' | 'Unpaid') ??
+              'full_day',
             employeeId: employee.id,
             location: location ?? null,
             notes: notes ?? null,
@@ -496,9 +549,14 @@ router.post('/bulk', requireAdminOrManager, validate(bulkCreateShiftsSchema), as
     });
 
     // Broadcast SSE event
-    broadcastScoped('shift', 'bulkCreate', { count: created.length, date: dates[0], endDate: dates[dates.length - 1] }, {
-      companyProfileId: authUser.companyProfileId,
-    });
+    broadcastScoped(
+      'shift',
+      'bulkCreate',
+      { count: created.length, date: dates[0], endDate: dates[dates.length - 1] },
+      {
+        companyProfileId: authUser.companyProfileId,
+      },
+    );
 
     res.status(201).json({
       success: true,

@@ -138,7 +138,10 @@ export async function main(argv = process.argv.slice(2)) {
     const blocked = !readyForContract;
     return options.strict && blocked ? 1 : 0;
   } catch (error) {
-    if (options.json) console.log(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+    if (options.json)
+      console.log(
+        JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+      );
     else console.error('[duration-preflight] failed:', error);
     return 1;
   } finally {

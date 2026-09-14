@@ -4,12 +4,7 @@ export type ShiftStatus = 'scheduled' | 'active' | 'completed' | 'cancelled' | '
 export type ShiftType = 'full_day' | 'half_day' | 'Holiday' | 'Leave' | 'Sick' | 'PTO' | 'Unpaid';
 export type AttendanceStatus = 'active' | 'completed';
 export type AttendanceAction =
-  | 'clock_in'
-  | 'clock_out'
-  | 'force_clock_out'
-  | 'manual_create'
-  | 'manual_adjust'
-  | 'delete';
+  'clock_in' | 'clock_out' | 'force_clock_out' | 'manual_create' | 'manual_adjust' | 'delete';
 
 export declare const ROLE: Readonly<{
   MASTER: 'master';
@@ -84,10 +79,7 @@ export type ApiErrorCode =
   | 'VALIDATION_ERROR'
   | 'VERSION_CONFLICT';
 
-export declare const API_ERROR_CODE: Readonly<Record<
-  ApiErrorCode,
-  ApiErrorCode
->>;
+export declare const API_ERROR_CODE: Readonly<Record<ApiErrorCode, ApiErrorCode>>;
 
 export type SessionErrorCode =
   | 'COMPANY_SUSPENDED'
@@ -200,7 +192,12 @@ export interface BulkClockInResponse {
 
 export interface BulkClockOutResponse {
   success: boolean;
-  clockedOut: Array<{ email: string; id: string; employeeName: string | null; totalHours: number | null }>;
+  clockedOut: Array<{
+    email: string;
+    id: string;
+    employeeName: string | null;
+    totalHours: number | null;
+  }>;
   skipped: BulkPunchSkipped[];
 }
 

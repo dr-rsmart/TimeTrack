@@ -51,11 +51,34 @@ interface ProfileData {
 }
 
 /** Role display configuration */
-const roleConfig: Record<string, { label: string; icon: typeof Shield; colorClass: string; bgClass: string }> = {
-  master: { label: 'Platform Master', icon: Shield, colorClass: 'text-blue-600', bgClass: 'bg-blue-600' },
-  admin: { label: 'Company Admin', icon: Shield, colorClass: 'text-red-600', bgClass: 'bg-red-600' },
-  manager: { label: 'Manager', icon: Briefcase, colorClass: 'text-amber-600', bgClass: 'bg-amber-600' },
-  employee: { label: 'Staff Member', icon: User, colorClass: 'text-emerald-600', bgClass: 'bg-emerald-600' },
+const roleConfig: Record<
+  string,
+  { label: string; icon: typeof Shield; colorClass: string; bgClass: string }
+> = {
+  master: {
+    label: 'Platform Master',
+    icon: Shield,
+    colorClass: 'text-blue-600',
+    bgClass: 'bg-blue-600',
+  },
+  admin: {
+    label: 'Company Admin',
+    icon: Shield,
+    colorClass: 'text-red-600',
+    bgClass: 'bg-red-600',
+  },
+  manager: {
+    label: 'Manager',
+    icon: Briefcase,
+    colorClass: 'text-amber-600',
+    bgClass: 'bg-amber-600',
+  },
+  employee: {
+    label: 'Staff Member',
+    icon: User,
+    colorClass: 'text-emerald-600',
+    bgClass: 'bg-emerald-600',
+  },
 };
 
 /** Fields each role is allowed to edit (self-service) */
@@ -209,8 +232,14 @@ export default function ProfilePage() {
       toast.error('Deletion of Platform Root Master is protected. Contact System DevOps.');
       return;
     }
-    if (confirm('Warning: Are you sure you want to request account deletion? This will notify your administrator.')) {
-      toast.info('Account deletion request submitted. Your administrator will process this request.');
+    if (
+      confirm(
+        'Warning: Are you sure you want to request account deletion? This will notify your administrator.',
+      )
+    ) {
+      toast.info(
+        'Account deletion request submitted. Your administrator will process this request.',
+      );
     }
   };
 
@@ -301,12 +330,16 @@ export default function ProfilePage() {
       <Card className="border-border/50 rounded-3xl shadow-xl overflow-hidden">
         {/* Card Top Branding Badge Section */}
         <div className="p-6 sm:p-8 border-b border-border/40 bg-gradient-to-r from-primary/5 to-primary/10 flex items-center gap-5">
-          <div className={`w-16 h-16 rounded-2xl ${config.bgClass} text-white font-extrabold text-2xl flex items-center justify-center shadow-lg select-none`}>
+          <div
+            className={`w-16 h-16 rounded-2xl ${config.bgClass} text-white font-extrabold text-2xl flex items-center justify-center shadow-lg select-none`}
+          >
             {initials}
           </div>
           <div>
             <h2 className="text-xl font-bold tracking-tight">{displayName}</h2>
-            <div className={`flex items-center gap-1.5 text-sm font-semibold mt-1 ${config.colorClass}`}>
+            <div
+              className={`flex items-center gap-1.5 text-sm font-semibold mt-1 ${config.colorClass}`}
+            >
               <RoleIcon className="w-4 h-4" />
               <span>{config.label}</span>
             </div>
@@ -322,12 +355,14 @@ export default function ProfilePage() {
         {/* Card Body Rows */}
         <CardContent className="p-0">
           <div className="divide-y divide-border/40 text-sm">
-
             {/* Row: Email */}
             <ProfileRow icon={Mail} label="Email">
               <div className="flex items-center justify-between gap-4 w-full">
                 <span className="font-semibold truncate">{profile?.email}</span>
-                <Badge variant="outline" className="bg-secondary/50 text-muted-foreground border-border/60 px-2.5 py-0.5 rounded-lg text-xs font-bold shrink-0">
+                <Badge
+                  variant="outline"
+                  className="bg-secondary/50 text-muted-foreground border-border/60 px-2.5 py-0.5 rounded-lg text-xs font-bold shrink-0"
+                >
                   Read-only
                 </Badge>
               </div>
@@ -336,8 +371,13 @@ export default function ProfilePage() {
             {/* Row: Employee No */}
             <ProfileRow icon={IdCard} label="Employee No.">
               <div className="flex items-center justify-between gap-4 w-full">
-                <span className="font-semibold">{profile?.employeeNumber || profile?.employeeId?.slice(0, 8) || '—'}</span>
-                <Badge variant="outline" className="bg-secondary/50 text-muted-foreground border-border/60 px-2.5 py-0.5 rounded-lg text-xs font-bold shrink-0">
+                <span className="font-semibold">
+                  {profile?.employeeNumber || profile?.employeeId?.slice(0, 8) || '—'}
+                </span>
+                <Badge
+                  variant="outline"
+                  className="bg-secondary/50 text-muted-foreground border-border/60 px-2.5 py-0.5 rounded-lg text-xs font-bold shrink-0"
+                >
                   Read-only
                 </Badge>
               </div>
@@ -443,7 +483,6 @@ export default function ProfilePage() {
                 </Badge>
               </ProfileRow>
             )}
-
           </div>
         </CardContent>
       </Card>

@@ -1,11 +1,13 @@
 # Migration 1: Session Revocation + Structural Unique Index
 
 ## Details
+
 - **Created**: 2026-08-26 (Audit Cycle 15 remediation)
 - **Database**: PostgreSQL 15+
 - **Applied By**: `npx prisma migrate deploy`
 
 ## Changes
+
 1. `User.pwdEpoch` (INTEGER NOT NULL DEFAULT 0)
    - Bumped on every password change/reset; JWTs carrying an older epoch are
      rejected (revocation-on-rotation, closes the 8h stolen-token window).
@@ -19,6 +21,7 @@
      ceremony already created it.
 
 ## Operator note — switching a db-push-provisioned database to migrate
+
 Databases created with `prisma db push` have no `_prisma_migrations` rows.
 To adopt recorded migrations without re-applying them:
 

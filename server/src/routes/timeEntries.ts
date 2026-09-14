@@ -32,18 +32,16 @@ import {
   adjustTimeEntry,
   deleteTimeEntry,
 } from '../application/attendance.js';
-import {
-  accessDenied,
-  internalError,
-  sendError,
-} from '../errorResponse.js';
+import { accessDenied, internalError, sendError } from '../errorResponse.js';
 
 const router = Router();
 
 router.use(requireAuth);
 
 function tenantWhere(authUser: { role: string; companyProfileId: string | null }) {
-  return authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+  return authUser.role === 'master'
+    ? {}
+    : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 }
 
 function scopeIdempotencyKeyForRoute(
@@ -54,7 +52,7 @@ function scopeIdempotencyKeyForRoute(
   return scopeIdempotencyKey(action, actorId, value);
 }
 
-// â”€â”€ GET / (List time entries) â”€â”€
+// ── GET / (List time entries) ──
 router.get('/', requireAuth, async (req, res) => {
   try {
     const authUser = req.authUser!;
@@ -76,7 +74,10 @@ router.get('/', requireAuth, async (req, res) => {
         },
         select: { id: true, email: true },
       });
-      Object.assign(where, employee ? employeeIdentityFilter([employee]) : { employeeId: '__none__' });
+      Object.assign(
+        where,
+        employee ? employeeIdentityFilter([employee]) : { employeeId: '__none__' },
+      );
     } else if (authUser.role === 'manager') {
       // SECURITY: use the canonical guarded scope filter (direct reports OR
       // explicit same branch+dept). The previous inline implementation used
@@ -117,7 +118,10 @@ router.get('/', requireAuth, async (req, res) => {
         },
         select: { id: true, email: true },
       });
-      Object.assign(where, employee ? employeeIdentityFilter([employee]) : { employeeId: '__none__' });
+      Object.assign(
+        where,
+        employee ? employeeIdentityFilter([employee]) : { employeeId: '__none__' },
+      );
     }
     if (status) where.status = status;
 
@@ -138,7 +142,7 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
-// â”€â”€ GET /active (Current active session for a user) â”€â”€
+// ── GET /active (Current active session for a user) ──
 router.get('/active', requireAuth, async (req, res) => {
   try {
     const authUser = req.authUser!;
@@ -173,7 +177,11 @@ router.get('/active', requireAuth, async (req, res) => {
 });
 
 /** Translate an application error into the existing API error envelope. */
-function sendAttendanceUseCaseError(res: import('express').Response, error: unknown, context: string): void {
+function sendAttendanceUseCaseError(
+  res: import('express').Response,
+  error: unknown,
+  context: string,
+): void {
   if (error instanceof AttendanceUseCaseError) {
     sendError(res, error.status, error.message, {
       code: error.code,
@@ -186,7 +194,7 @@ function sendAttendanceUseCaseError(res: import('express').Response, error: unkn
   internalError(res, context);
 }
 
-// â”€â”€ POST /clock-in â”€â”€ (application use case adapter)
+// ── POST /clock-in ── (application use case adapter)
 router.post('/clock-in', requireAuth, clockRateLimit, validate(clockInSchema), async (req, res) => {
   try {
     const authUser = req.authUser!;
@@ -200,7 +208,11 @@ router.post('/clock-in', requireAuth, clockRateLimit, validate(clockInSchema), a
       targetEmail: typeof body.employee_email === 'string' ? body.employee_email : undefined,
       position,
       justification: typeof body.justification === 'string' ? body.justification : undefined,
-      idempotencyKey: scopeIdempotencyKeyForRoute('clock_in', authUser.id, req.get('Idempotency-Key')),
+      idempotencyKey: scopeIdempotencyKeyForRoute(
+        'clock_in',
+        authUser.id,
+        req.get('Idempotency-Key'),
+      ),
       clientIp: getClientIp(req),
     });
     // Keep the normal TimeEntry shape while exposing replay status to native
@@ -212,28 +224,38 @@ router.post('/clock-in', requireAuth, clockRateLimit, validate(clockInSchema), a
   }
 });
 
-// â”€â”€ POST /clock-out â”€â”€ (application use case adapter)
-router.post('/clock-out', requireAuth, clockRateLimit, validate(clockOutSchema), async (req, res) => {
-  try {
-    const authUser = req.authUser!;
-    const body = req.body as Record<string, unknown>;
-    const position =
-      typeof body.latitude === 'number' && typeof body.longitude === 'number'
-        ? { latitude: body.latitude, longitude: body.longitude }
-        : null;
-    const result = await clockOutUseCase({
-      actor: authUser,
-      targetEmail: typeof body.employee_email === 'string' ? body.employee_email : undefined,
-      position,
-      breakMinutes: typeof body.breakMinutes === 'number' ? body.breakMinutes : 0,
-      idempotencyKey: scopeIdempotencyKeyForRoute('clock_out', authUser.id, req.get('Idempotency-Key')),
-      clientIp: getClientIp(req),
-    });
-    res.status(200).json({ ...result.entry, replayed: result.replayed });
-  } catch (error) {
-    sendAttendanceUseCaseError(res, error, 'recording clock-out');
-  }
-});
+// ── POST /clock-out ── (application use case adapter)
+router.post(
+  '/clock-out',
+  requireAuth,
+  clockRateLimit,
+  validate(clockOutSchema),
+  async (req, res) => {
+    try {
+      const authUser = req.authUser!;
+      const body = req.body as Record<string, unknown>;
+      const position =
+        typeof body.latitude === 'number' && typeof body.longitude === 'number'
+          ? { latitude: body.latitude, longitude: body.longitude }
+          : null;
+      const result = await clockOutUseCase({
+        actor: authUser,
+        targetEmail: typeof body.employee_email === 'string' ? body.employee_email : undefined,
+        position,
+        breakMinutes: typeof body.breakMinutes === 'number' ? body.breakMinutes : 0,
+        idempotencyKey: scopeIdempotencyKeyForRoute(
+          'clock_out',
+          authUser.id,
+          req.get('Idempotency-Key'),
+        ),
+        clientIp: getClientIp(req),
+      });
+      res.status(200).json({ ...result.entry, replayed: result.replayed });
+    } catch (error) {
+      sendAttendanceUseCaseError(res, error, 'recording clock-out');
+    }
+  },
+);
 
 // ── POST /manual (Manager/Admin manual entry) ──
 router.post('/manual', requireAdminOrManager, validate(manualTimeEntrySchema), async (req, res) => {
@@ -264,38 +286,50 @@ router.post('/manual', requireAdminOrManager, validate(manualTimeEntrySchema), a
 });
 
 // ── POST /bulk-clock-in (Manager/Admin bulk proxy clock-in) ──
-router.post('/bulk-clock-in', requireAdminOrManager, clockRateLimit, validate(bulkClockInSchema), async (req, res) => {
-  try {
-    const authUser = req.authUser!;
-    const body = req.body as { employeeEmails: string[]; justification?: string };
-    const result = await bulkClockInUseCase({
-      actor: authUser,
-      employeeEmails: body.employeeEmails,
-      justification: body.justification,
-      clientIp: getClientIp(req),
-    });
-    res.status(201).json({ success: true, ...result });
-  } catch (error) {
-    sendAttendanceUseCaseError(res, error, 'bulk clock-in');
-  }
-});
+router.post(
+  '/bulk-clock-in',
+  requireAdminOrManager,
+  clockRateLimit,
+  validate(bulkClockInSchema),
+  async (req, res) => {
+    try {
+      const authUser = req.authUser!;
+      const body = req.body as { employeeEmails: string[]; justification?: string };
+      const result = await bulkClockInUseCase({
+        actor: authUser,
+        employeeEmails: body.employeeEmails,
+        justification: body.justification,
+        clientIp: getClientIp(req),
+      });
+      res.status(201).json({ success: true, ...result });
+    } catch (error) {
+      sendAttendanceUseCaseError(res, error, 'bulk clock-in');
+    }
+  },
+);
 
 // ── POST /bulk-clock-out (Manager/Admin bulk force clock-out) ──
-router.post('/bulk-clock-out', requireAdminOrManager, clockRateLimit, validate(bulkClockOutSchema), async (req, res) => {
-  try {
-    const authUser = req.authUser!;
-    const body = req.body as { employeeEmails: string[]; breakMinutes?: number | null };
-    const result = await bulkClockOutUseCase({
-      actor: authUser,
-      employeeEmails: body.employeeEmails,
-      breakMinutes: body.breakMinutes ?? 0,
-      clientIp: getClientIp(req),
-    });
-    res.json({ success: true, ...result });
-  } catch (error) {
-    sendAttendanceUseCaseError(res, error, 'bulk clock-out');
-  }
-});
+router.post(
+  '/bulk-clock-out',
+  requireAdminOrManager,
+  clockRateLimit,
+  validate(bulkClockOutSchema),
+  async (req, res) => {
+    try {
+      const authUser = req.authUser!;
+      const body = req.body as { employeeEmails: string[]; breakMinutes?: number | null };
+      const result = await bulkClockOutUseCase({
+        actor: authUser,
+        employeeEmails: body.employeeEmails,
+        breakMinutes: body.breakMinutes ?? 0,
+        clientIp: getClientIp(req),
+      });
+      res.json({ success: true, ...result });
+    } catch (error) {
+      sendAttendanceUseCaseError(res, error, 'bulk clock-out');
+    }
+  },
+);
 
 // ── PUT /:id (Admin/Manager edit existing time entry) ──
 router.put('/:id', requireAdminOrManager, validate(updateTimeEntrySchema), async (req, res) => {

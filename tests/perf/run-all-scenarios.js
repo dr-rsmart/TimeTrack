@@ -58,7 +58,11 @@ export function healthScenario() {
   check(res, {
     'health 200': (r) => r.status === 200,
     'health ok': (r) => {
-      try { return JSON.parse(r.body).status === 'ok'; } catch { return false; }
+      try {
+        return JSON.parse(r.body).status === 'ok';
+      } catch {
+        return false;
+      }
     },
   });
   sleep(0.2);
@@ -68,7 +72,7 @@ export function loginScenario() {
   const res = http.post(
     `${BASE_URL}/api/auth/login`,
     JSON.stringify({ email: 'admin@timetrack.com', password: 'Password123' }),
-    { headers: headers() }
+    { headers: headers() },
   );
   check(res, {
     'login 200': (r) => r.status === 200,
@@ -80,10 +84,12 @@ export function dashboardScenario() {
   const loginRes = http.post(
     `${BASE_URL}/api/auth/login`,
     JSON.stringify({ email: 'admin@timetrack.com', password: 'Password123' }),
-    { headers: headers() }
+    { headers: headers() },
   );
   let token = null;
-  try { token = JSON.parse(loginRes.body).token; } catch {}
+  try {
+    token = JSON.parse(loginRes.body).token;
+  } catch {}
 
   const h = headers(token);
   const sum = http.get(`${BASE_URL}/api/dashboard/summary`, { headers: h });
@@ -98,10 +104,12 @@ export function dbScenario() {
   const loginRes = http.post(
     `${BASE_URL}/api/auth/login`,
     JSON.stringify({ email: 'thabo@timetrack.com', password: 'Password123' }),
-    { headers: headers() }
+    { headers: headers() },
   );
   let token = null;
-  try { token = JSON.parse(loginRes.body).token; } catch {}
+  try {
+    token = JSON.parse(loginRes.body).token;
+  } catch {}
 
   const h = headers(token);
   const te = http.get(`${BASE_URL}/api/time-entries?limit=20`, { headers: h });

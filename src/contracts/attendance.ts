@@ -1,8 +1,5 @@
 /** Compatibility entrypoint for frontend attendance contracts. */
-export {
-  ATTENDANCE_ACTION,
-  ATTENDANCE_STATUS,
-} from '../../contracts/index.js';
+export { ATTENDANCE_ACTION, ATTENDANCE_STATUS } from '../../contracts/index.js';
 export type {
   AttendanceAction,
   AttendanceStatus,

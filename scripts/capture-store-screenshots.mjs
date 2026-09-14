@@ -11,11 +11,17 @@ function checkEndpoint(url) {
   return new Promise((resolve) => {
     try {
       const u = new URL(url);
-      const req = http.get({ host: u.hostname, port: u.port, path: u.pathname, timeout: 2000 }, (res) => {
-        resolve(res.statusCode >= 200 && res.statusCode < 400);
-      });
+      const req = http.get(
+        { host: u.hostname, port: u.port, path: u.pathname, timeout: 2000 },
+        (res) => {
+          resolve(res.statusCode >= 200 && res.statusCode < 400);
+        },
+      );
       req.on('error', () => resolve(false));
-      req.on('timeout', () => { req.destroy(); resolve(false); });
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(false);
+      });
     } catch {
       resolve(false);
     }
@@ -345,7 +351,9 @@ async function captureProfile(browser, dev) {
     await page.click('button[type="submit"]');
 
     // Wait for SPA route change
-    await page.waitForFunction(() => !window.location.pathname.includes('login'), null, { timeout: 10000 });
+    await page.waitForFunction(() => !window.location.pathname.includes('login'), null, {
+      timeout: 10000,
+    });
     await page.waitForTimeout(1000);
 
     // ── 02. Dashboard Attendance & KPIs ──
@@ -364,11 +372,17 @@ async function captureProfile(browser, dev) {
     await page.waitForTimeout(600);
     await page.evaluate(() => {
       const tabs = Array.from(document.querySelectorAll('button, [role="tab"]'));
-      const tab = tabs.find((t) => t.textContent && (t.textContent.includes('Geofence') || t.textContent.includes('Location')));
+      const tab = tabs.find(
+        (t) =>
+          t.textContent &&
+          (t.textContent.includes('Geofence') || t.textContent.includes('Location')),
+      );
       if (tab) tab.click();
     });
     await page.waitForTimeout(1000);
-    await page.screenshot({ path: path.join(targetDir, '04_WorkLocation_Geofence_Management.png') });
+    await page.screenshot({
+      path: path.join(targetDir, '04_WorkLocation_Geofence_Management.png'),
+    });
 
     // ── 05. Timesheets & Payroll Reports ──
     console.log(`  [5/7] Capturing 05_Payroll_Timesheets_Reports.png...`);
@@ -409,7 +423,9 @@ async function main() {
   await browser.close();
 
   for (const proc of procs) {
-    try { proc.kill(); } catch {}
+    try {
+      proc.kill();
+    } catch {}
   }
 
   console.log('\n======================================================');

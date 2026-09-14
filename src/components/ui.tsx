@@ -3,7 +3,15 @@
  * Kept intentionally small and dependency-light.
  */
 
-import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import {
+  forwardRef,
+  type ButtonHTMLAttributes,
+  type HTMLAttributes,
+  type InputHTMLAttributes,
+  type ReactNode,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../lib/utils';
 
@@ -50,7 +58,10 @@ Button.displayName = 'Button';
 // ── Card ──
 export function Card({ className, children, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn('rounded-lg border bg-card text-card-foreground shadow-sm', className)} {...rest}>
+    <div
+      className={cn('rounded-lg border bg-card text-card-foreground shadow-sm', className)}
+      {...rest}
+    >
       {children}
     </div>
   );
@@ -61,10 +72,20 @@ export function CardHeader({ className, children }: { className?: string; childr
 }
 
 export function CardTitle({ className, children }: { className?: string; children: ReactNode }) {
-  return <h3 className={cn('text-lg font-semibold leading-none tracking-tight', className)}>{children}</h3>;
+  return (
+    <h3 className={cn('text-lg font-semibold leading-none tracking-tight', className)}>
+      {children}
+    </h3>
+  );
 }
 
-export function CardDescription({ className, children }: { className?: string; children: ReactNode }) {
+export function CardDescription({
+  className,
+  children,
+}: {
+  className?: string;
+  children: ReactNode;
+}) {
   return <p className={cn('text-sm text-muted-foreground', className)}>{children}</p>;
 }
 
@@ -88,18 +109,19 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
 Input.displayName = 'Input';
 
 // ── Textarea ──
-export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
-  ({ className, ...props }, ref) => (
-    <textarea
-      ref={ref}
-      className={cn(
-        'flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
-        className,
-      )}
-      {...props}
-    />
-  ),
-);
+export const Textarea = forwardRef<
+  HTMLTextAreaElement,
+  TextareaHTMLAttributes<HTMLTextAreaElement>
+>(({ className, ...props }, ref) => (
+  <textarea
+    ref={ref}
+    className={cn(
+      'flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
+      className,
+    )}
+    {...props}
+  />
+));
 Textarea.displayName = 'Textarea';
 
 // ── Select ──
@@ -120,7 +142,15 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
 Select.displayName = 'Select';
 
 // ── Label ──
-export function Label({ className, children, htmlFor }: { className?: string; children: ReactNode; htmlFor?: string }) {
+export function Label({
+  className,
+  children,
+  htmlFor,
+}: {
+  className?: string;
+  children: ReactNode;
+  htmlFor?: string;
+}) {
   return (
     <label htmlFor={htmlFor} className={cn('text-sm font-medium leading-none', className)}>
       {children}
@@ -139,9 +169,26 @@ const badgeVariants: Record<BadgeVariant, string> = {
   outline: 'border border-input text-foreground',
 };
 
-export function Badge({ className, variant = 'default', children, title }: { className?: string; variant?: BadgeVariant; children: ReactNode; title?: string }) {
+export function Badge({
+  className,
+  variant = 'default',
+  children,
+  title,
+}: {
+  className?: string;
+  variant?: BadgeVariant;
+  children: ReactNode;
+  title?: string;
+}) {
   return (
-    <span title={title} className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', badgeVariants[variant], className)}>
+    <span
+      title={title}
+      className={cn(
+        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold',
+        badgeVariants[variant],
+        className,
+      )}
+    >
       {children}
     </span>
   );
@@ -165,15 +212,38 @@ export function TableBody({ children }: { children: ReactNode }) {
 }
 
 export function TableRow({ className, children }: { className?: string; children: ReactNode }) {
-  return <tr className={cn('border-b transition-colors hover:bg-muted/50', className)}>{children}</tr>;
+  return (
+    <tr className={cn('border-b transition-colors hover:bg-muted/50', className)}>{children}</tr>
+  );
 }
 
 export function TableHead({ className, children }: { className?: string; children: ReactNode }) {
-  return <th className={cn('h-12 px-4 text-left align-middle font-medium text-muted-foreground', className)}>{children}</th>;
+  return (
+    <th
+      className={cn(
+        'h-12 px-4 text-left align-middle font-medium text-muted-foreground',
+        className,
+      )}
+    >
+      {children}
+    </th>
+  );
 }
 
-export function TableCell({ className, children, colSpan }: { className?: string; children: ReactNode; colSpan?: number }) {
-  return <td className={cn('p-4 align-middle', className)} colSpan={colSpan}>{children}</td>;
+export function TableCell({
+  className,
+  children,
+  colSpan,
+}: {
+  className?: string;
+  children: ReactNode;
+  colSpan?: number;
+}) {
+  return (
+    <td className={cn('p-4 align-middle', className)} colSpan={colSpan}>
+      {children}
+    </td>
+  );
 }
 
 // ── Modal ──
@@ -208,7 +278,11 @@ export function Modal({
         >
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold">{title}</h2>
-            <button onClick={onClose} className="text-muted-foreground hover:text-foreground" aria-label="Close">
+            <button
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Close"
+            >
               ✕
             </button>
           </div>
@@ -224,7 +298,10 @@ export function Modal({
 export function Spinner({ className }: { className?: string }) {
   return (
     <div
-      className={cn('h-6 w-6 animate-spin rounded-full border-2 border-muted border-t-primary', className)}
+      className={cn(
+        'h-6 w-6 animate-spin rounded-full border-2 border-muted border-t-primary',
+        className,
+      )}
       role="status"
       aria-label="Loading"
     />
@@ -290,12 +367,19 @@ export function StatCard({
           </div>
         )}
         <div className="min-w-0">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{label}</p>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            {label}
+          </p>
           <p className="text-2xl font-bold tracking-tight">{value}</p>
           <div className="flex items-center gap-2">
             {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
             {trend && (
-              <span className={cn('text-xs font-semibold', trendUp ? 'text-emerald-500' : 'text-red-500')}>
+              <span
+                className={cn(
+                  'text-xs font-semibold',
+                  trendUp ? 'text-emerald-500' : 'text-red-500',
+                )}
+              >
                 {trend}
               </span>
             )}

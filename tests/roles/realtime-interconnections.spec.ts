@@ -10,8 +10,11 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
   let employeeToken: string;
   let testCompanyId: string;
   let sharedEmployeeId: string;
-  let sharedEmployeeEmail: string = 'pieter@timetrack.com';
-  let sharedGeo: { latitude: number; longitude: number } = { latitude: -26.1076, longitude: 28.0567 };
+  const sharedEmployeeEmail: string = 'pieter@timetrack.com';
+  let sharedGeo: { latitude: number; longitude: number } = {
+    latitude: -26.1076,
+    longitude: 28.0567,
+  };
   let createdShiftId: string | null = null;
   let createdTimeEntryId: string | null = null;
 
@@ -66,7 +69,8 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
     if (geoLookup.status() === 200) {
       const geoBody = await geoLookup.json();
       const assignedGfId = geoBody.employee?.geofenceId;
-      const targetGf = (geoBody.geofences || []).find((g: any) => g.id === assignedGfId) || geoBody.geofences?.[0];
+      const targetGf =
+        (geoBody.geofences || []).find((g: any) => g.id === assignedGfId) || geoBody.geofences?.[0];
       if (targetGf && targetGf.latitude != null && targetGf.longitude != null) {
         sharedGeo = { latitude: targetGf.latitude, longitude: targetGf.longitude };
       }
@@ -80,7 +84,9 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
   });
 
   // ── 1. EMPLOYEE CLOCK-IN → REFLECTS INSTANTLY IN ADMIN & MANAGER DASHBOARDS ──
-  test('Interconnection 1: Employee Clock-In reflects immediately in Manager & Admin active tracking', async ({ request }) => {
+  test('Interconnection 1: Employee Clock-In reflects immediately in Manager & Admin active tracking', async ({
+    request,
+  }) => {
     // Clean any prior active session for Pieter
     const activeCheck = await request.get(`${API_BASE}/api/time-entries/active`, {
       headers: getHeader(employeeToken),
@@ -112,7 +118,11 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
     });
     expect(mgrQueryRes.status()).toBe(200);
     const mgrEntries = await mgrQueryRes.json();
-    expect(mgrEntries.items.some((e: any) => e.employeeEmail === sharedEmployeeEmail && e.status === 'active')).toBe(true);
+    expect(
+      mgrEntries.items.some(
+        (e: any) => e.employeeEmail === sharedEmployeeEmail && e.status === 'active',
+      ),
+    ).toBe(true);
 
     // 3. Admin immediately sees the new active clock-in
     const adminActiveRes = await request.get(`${API_BASE}/api/time-entries?status=active`, {
@@ -120,7 +130,11 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
     });
     expect(adminActiveRes.status()).toBe(200);
     const adminActiveEntries = await adminActiveRes.json();
-    expect(adminActiveEntries.items.some((e: any) => e.employeeEmail === sharedEmployeeEmail && e.status === 'active')).toBe(true);
+    expect(
+      adminActiveEntries.items.some(
+        (e: any) => e.employeeEmail === sharedEmployeeEmail && e.status === 'active',
+      ),
+    ).toBe(true);
 
     // 4. Employee clocks out
     const clockOutRes = await request.post(`${API_BASE}/api/time-entries/clock-out`, {
@@ -135,7 +149,9 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
   });
 
   // ── 2. ADMIN SHIFT CREATION → REFLECTS INSTANTLY IN EMPLOYEE & MANAGER VIEWS ──
-  test('Interconnection 2: Admin Shift Assignment reflects immediately in Employee Schedule & Manager Team View', async ({ request }) => {
+  test('Interconnection 2: Admin Shift Assignment reflects immediately in Employee Schedule & Manager Team View', async ({
+    request,
+  }) => {
     const shiftDate = '2026-12-15';
 
     // 1. Admin creates shift for Pieter
@@ -178,7 +194,9 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
   });
 
   // ── 3. MANAGER TIME OVERRIDE → REFLECTS IN EMPLOYEE HISTORY & ADMIN PAYROLL ──
-  test('Interconnection 3: Manager Manual Time Override reflects in Employee records & Admin Payroll Analytics', async ({ request }) => {
+  test('Interconnection 3: Manager Manual Time Override reflects in Employee records & Admin Payroll Analytics', async ({
+    request,
+  }) => {
     const overrideDate = '2026-11-05';
 
     // 1. Manager logs manual override for subordinate Pieter
@@ -206,9 +224,12 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
     expect(empHistory.items.some((e: any) => e.id === manualEntry.id)).toBe(true);
 
     // 3. Admin generates payroll report for that period and sees the hours aggregated
-    const adminPayrollRes = await request.get(`${API_BASE}/api/reports/payroll?from=2026-11-01&to=2026-11-30`, {
-      headers: getHeader(adminToken),
-    });
+    const adminPayrollRes = await request.get(
+      `${API_BASE}/api/reports/payroll?from=2026-11-01&to=2026-11-30`,
+      {
+        headers: getHeader(adminToken),
+      },
+    );
     expect(adminPayrollRes.status()).toBe(200);
     const payrollData = await adminPayrollRes.json();
     const pieterRow = payrollData.rows.find((r: any) => r.email === sharedEmployeeEmail);
@@ -222,7 +243,9 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
   });
 
   // ── 4. CONCURRENT MUTEX & OPTIMISTIC LOCKING COLLISION ──
-  test('Interconnection 4: Concurrent Updates from Admin and Manager trigger 409 Optimistic Lock Collision', async ({ request }) => {
+  test('Interconnection 4: Concurrent Updates from Admin and Manager trigger 409 Optimistic Lock Collision', async ({
+    request,
+  }) => {
     // 1. Fetch current employee state and version
     const empRes = await request.get(`${API_BASE}/api/employees/${sharedEmployeeId}`, {
       headers: getHeader(adminToken),
@@ -256,7 +279,9 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
   });
 
   // ── 5. MASTER TENANT SUSPENSION → IMMEDIATE CACHE INVALIDATION & GLOBAL LOCKOUT ──
-  test('Interconnection 5: Master Company Suspension immediately blocks all Tenant Users (Admin, Manager, Employee)', async ({ request }) => {
+  test('Interconnection 5: Master Company Suspension immediately blocks all Tenant Users (Admin, Manager, Employee)', async ({
+    request,
+  }) => {
     // 1. Fresh master login session for dedicated operator action
     const mLogin = await request.post(`${API_BASE}/api/auth/login`, {
       headers: PERF_BYPASS,
@@ -293,9 +318,12 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
     const tempAdminToken = (await tempAdminLogin.json()).token;
 
     // 3. Master suspends the tenant company
-    const suspendRes = await request.post(`${API_BASE}/api/master/companies/${tempCompanyId}/toggle`, {
-      headers: getHeader(freshMasterToken),
-    });
+    const suspendRes = await request.post(
+      `${API_BASE}/api/master/companies/${tempCompanyId}/toggle`,
+      {
+        headers: getHeader(freshMasterToken),
+      },
+    );
     if (suspendRes.status() !== 200) {
       console.error('SUSPEND ERROR:', suspendRes.status(), await suspendRes.json());
     }
@@ -321,9 +349,12 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
     expect(empBlocked.code).toBe('COMPANY_SUSPENDED');
 
     // 6. Master reactivates the company
-    const activateRes = await request.post(`${API_BASE}/api/master/companies/${tempCompanyId}/toggle`, {
-      headers: getHeader(freshMasterToken),
-    });
+    const activateRes = await request.post(
+      `${API_BASE}/api/master/companies/${tempCompanyId}/toggle`,
+      {
+        headers: getHeader(freshMasterToken),
+      },
+    );
     expect(activateRes.status()).toBe(200);
     const activateData = await activateRes.json();
     expect(activateData.isActive).toBe(true);
@@ -341,7 +372,9 @@ test.describe.serial('Cross-Role Real-Time Interconnections & Synchronizations',
   });
 
   // ── 6. AUDIT LOGGING & ROLE-SCOPED IP PRIVACY REFLECTION ──
-  test('Interconnection 6: Audit log captures actions across roles with real-time IP redaction for non-admins', async ({ request }) => {
+  test('Interconnection 6: Audit log captures actions across roles with real-time IP redaction for non-admins', async ({
+    request,
+  }) => {
     // 1. Admin views audit logs -> sees unredacted IP addresses
     const adminAuditRes = await request.get(`${API_BASE}/api/audit?limit=10`, {
       headers: getHeader(adminToken),

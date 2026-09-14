@@ -57,9 +57,9 @@ export default {
         '3xl': 'calc(var(--radius) + 16px)',
       },
       boxShadow: {
-        'glass': '0 4px 30px rgba(0, 0, 0, 0.06)',
-        'glow': '0 0 24px rgba(0, 93, 236, 0.18)',
-        'card': '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.05)',
+        glass: '0 4px 30px rgba(0, 0, 0, 0.06)',
+        glow: '0 0 24px rgba(0, 93, 236, 0.18)',
+        card: '0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.05)',
       },
       keyframes: {
         'fade-in-up': {

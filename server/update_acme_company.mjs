@@ -43,7 +43,9 @@ async function main() {
   }
 
   console.log(`Found company: "${company.name}" (id: ${company.id})`);
-  console.log(`Current owner: ${company.owner ? `${company.owner.fullName} <${company.owner.email}>` : 'none'}`);
+  console.log(
+    `Current owner: ${company.owner ? `${company.owner.fullName} <${company.owner.email}>` : 'none'}`,
+  );
 
   const fullName = `${NEW_ADMIN_FIRST_NAME} ${NEW_ADMIN_SURNAME}`;
 
@@ -81,7 +83,9 @@ async function main() {
           companyProfileId: company.id,
         },
       });
-      console.log(`Created admin user ${fullName} <${NEW_ADMIN_EMAIL}> (temp password: ${DEFAULT_PASSWORD})`);
+      console.log(
+        `Created admin user ${fullName} <${NEW_ADMIN_EMAIL}> (temp password: ${DEFAULT_PASSWORD})`,
+      );
     }
 
     // 4. Link as owner if not already
@@ -126,7 +130,9 @@ async function main() {
   });
   console.log('\n✅ Update complete:');
   console.log(`   Company: "${updated.name}"`);
-  console.log(`   Admin:   ${updated.owner ? `${updated.owner.fullName} <${updated.owner.email}>` : 'NOT LINKED'}`);
+  console.log(
+    `   Admin:   ${updated.owner ? `${updated.owner.fullName} <${updated.owner.email}>` : 'NOT LINKED'}`,
+  );
 }
 
 main()

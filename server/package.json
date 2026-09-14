@@ -12,12 +12,17 @@
     "seed:stress": "tsx src/seed-stress.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "db:push": "prisma db push --schema=prisma/schema.prisma",
     "db:setup": "prisma db push --schema=prisma/schema.prisma && tsx src/seed.ts",
     "db:migrate:deploy": "prisma migrate deploy --schema=prisma/schema.prisma",
     "db:migrate:dev": "prisma migrate dev --schema=prisma/schema.prisma",
     "db:migrate:status": "prisma migrate status --schema=prisma/schema.prisma",
     "db:backup": "node backup_db.mjs",
+    "db:restore-drill": "node restore_drill.mjs",
     "identity:preflight": "node identity_preflight.mjs",
     "identity:resolve": "node resolve_employee_identity.mjs",
     "duration:preflight": "node duration_preflight.mjs",
@@ -40,15 +45,30 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.20.1",
+    "eslint": "^9.39.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.6",
     "prisma": "^6.19.3",
     "tsx": "^4.19.2",
     "typescript": "^5.8.2",
-    "vitest": "^3.2.4"
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.2",
+    "qs": "^6.16.0"
+  },
+  "allowScripts": {
+    "@prisma/client": true,
+    "@prisma/engines": true,
+    "prisma": true
   }
 }

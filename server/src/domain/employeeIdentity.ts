@@ -27,10 +27,7 @@ export function employeeIdentityFilter(employees: EmployeeIdentity[]): Record<st
   const emails = employees.map((employee) => normalizeEmployeeEmail(employee.email));
 
   return {
-    OR: [
-      { employeeId: { in: ids } },
-      { employeeId: null, employeeEmail: { in: emails } },
-    ],
+    OR: [{ employeeId: { in: ids } }, { employeeId: null, employeeEmail: { in: emails } }],
   };
 }
 

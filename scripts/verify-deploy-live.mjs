@@ -55,17 +55,24 @@ async function checkAuthedEndpoints() {
   const myRes = await fetch(`${BASE}/api/settings/geofences/my`, { headers: authHeaders });
   if (!myRes.ok) throw new Error(`geofences/my failed (${myRes.status})`);
   const my = await myRes.json();
-  const hasGeofenceIds = my.employee && Object.prototype.hasOwnProperty.call(my.employee, 'geofenceIds');
-  console.log(`[verify-live] /settings/geofences/my → geofenceIds field: ${hasGeofenceIds ? `YES ${JSON.stringify(my.employee.geofenceIds)}` : 'NO (old code)'}`);
+  const hasGeofenceIds =
+    my.employee && Object.prototype.hasOwnProperty.call(my.employee, 'geofenceIds');
+  console.log(
+    `[verify-live] /settings/geofences/my → geofenceIds field: ${hasGeofenceIds ? `YES ${JSON.stringify(my.employee.geofenceIds)}` : 'NO (old code)'}`,
+  );
   return hasGeofenceIds;
 }
 
 async function main() {
   const health = await getHealth();
-  console.log(`[verify-live] health ok — uptime ${health.uptime}s, db ${health.database?.status}, latency ${health.database?.latencyMs}ms`);
+  console.log(
+    `[verify-live] health ok — uptime ${health.uptime}s, db ${health.database?.status}, latency ${health.database?.latencyMs}ms`,
+  );
 
   const markers = await checkBundleMarkers();
-  console.log(`[verify-live] bundle ${markers.asset} → geofenceIds: ${markers.geofenceIds ? 'YES' : 'NO'}, weeklySchedule: ${markers.weeklySchedule ? 'YES' : 'NO'}`);
+  console.log(
+    `[verify-live] bundle ${markers.asset} → geofenceIds: ${markers.geofenceIds ? 'YES' : 'NO'}, weeklySchedule: ${markers.weeklySchedule ? 'YES' : 'NO'}`,
+  );
 
   if (EMAIL && PASSWORD) {
     try {
@@ -92,4 +99,3 @@ main().catch((err) => {
   console.error(`[verify-live] ❌ ${err.message}`);
   process.exit(1);
 });
-

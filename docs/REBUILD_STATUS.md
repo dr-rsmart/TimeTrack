@@ -173,6 +173,7 @@ npm run identity:resolve -- --mapping <approved-file> --apply --actor-id <id> --
 No live identity mappings were applied by this rebuild session. The database
 owner must review preflight output and provide approved mappings before using
 `--apply`.
+
 ### Slice 8 — Exact persisted attendance duration
 
 Implemented:

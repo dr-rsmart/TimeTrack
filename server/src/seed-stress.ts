@@ -30,18 +30,66 @@ const PHASE_CONFIG: Record<string, { employees: number; label: string }> = {
 };
 
 const FIRST_NAMES = [
-  'Sipho', 'Thabo', 'Naledi', 'Ayesha', 'Riaan', 'Pieter', 'Lerato', 'Zanele',
-  'Mandla', 'Nomsa', 'Johan', 'Fatima', 'David', 'Sarah', 'Michael', 'Grace',
-  'Daniel', 'Precious', 'Kagiso', 'Tebogo', 'Nandi', 'Sibusiso', 'Lindiwe', 'Themba',
+  'Sipho',
+  'Thabo',
+  'Naledi',
+  'Ayesha',
+  'Riaan',
+  'Pieter',
+  'Lerato',
+  'Zanele',
+  'Mandla',
+  'Nomsa',
+  'Johan',
+  'Fatima',
+  'David',
+  'Sarah',
+  'Michael',
+  'Grace',
+  'Daniel',
+  'Precious',
+  'Kagiso',
+  'Tebogo',
+  'Nandi',
+  'Sibusiso',
+  'Lindiwe',
+  'Themba',
 ];
 const SURNAMES = [
-  'Ndlovu', 'Mokoena', 'Khumalo', 'Pillay', 'Botha', 'van der Merwe', 'Dlamini',
-  'Nkosi', 'Zulu', 'Mthembu', 'Smith', 'Naidoo', 'Govender', 'Moodley', 'Chetty',
-  'Pretorius', 'du Toit', 'Venter', 'Kruger', 'Mahlangu', 'Sithole', 'Mnguni',
+  'Ndlovu',
+  'Mokoena',
+  'Khumalo',
+  'Pillay',
+  'Botha',
+  'van der Merwe',
+  'Dlamini',
+  'Nkosi',
+  'Zulu',
+  'Mthembu',
+  'Smith',
+  'Naidoo',
+  'Govender',
+  'Moodley',
+  'Chetty',
+  'Pretorius',
+  'du Toit',
+  'Venter',
+  'Kruger',
+  'Mahlangu',
+  'Sithole',
+  'Mnguni',
 ];
 const BRANCHES = ['Sandton HQ', 'Cape Town', 'Durban', 'Pretoria', 'Bloemfontein'];
 const DEPARTMENTS = ['Operations', 'Finance', 'Sales', 'Support', 'Engineering', 'HR', 'Logistics'];
-const POSITIONS = ['Clerk', 'Analyst', 'Coordinator', 'Specialist', 'Technician', 'Supervisor', 'Associate'];
+const POSITIONS = [
+  'Clerk',
+  'Analyst',
+  'Coordinator',
+  'Specialist',
+  'Technician',
+  'Supervisor',
+  'Associate',
+];
 
 function toDateStr(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -164,11 +212,22 @@ async function main() {
   for (let batch = 0; batch < employeeCount; batch += BATCH_SIZE) {
     const batchSize = Math.min(BATCH_SIZE, employeeCount - batch);
     const empData: Array<{
-      firstName: string; surname: string; email: string; position: string;
-      role: 'employee' | 'manager'; branch: string; department: string;
-      employeeNumber: string; hireDate: Date; phone: string;
-      employmentType: string; jurisdiction: string; salaryInfo: object;
-      companyProfileId: string; createdBy: string; updatedBy: string;
+      firstName: string;
+      surname: string;
+      email: string;
+      position: string;
+      role: 'employee' | 'manager';
+      branch: string;
+      department: string;
+      employeeNumber: string;
+      hireDate: Date;
+      phone: string;
+      employmentType: string;
+      jurisdiction: string;
+      salaryInfo: object;
+      companyProfileId: string;
+      createdBy: string;
+      updatedBy: string;
       geofenceId: string;
     }> = [];
 
@@ -199,13 +258,22 @@ async function main() {
     }
 
     const created = await prisma.employee.createMany({ data: empData, skipDuplicates: true });
-    console.log(`[seed-stress]   Batch ${Math.floor(batch / BATCH_SIZE) + 1}: ${created.count} employees created`);
+    console.log(
+      `[seed-stress]   Batch ${Math.floor(batch / BATCH_SIZE) + 1}: ${created.count} employees created`,
+    );
   }
 
   // Fetch created employee IDs for shift/entry generation
   const employees = await prisma.employee.findMany({
     where: { companyProfileId: company.id },
-    select: { id: true, email: true, firstName: true, surname: true, branch: true, department: true },
+    select: {
+      id: true,
+      email: true,
+      firstName: true,
+      surname: true,
+      branch: true,
+      department: true,
+    },
   });
   console.log(`[seed-stress] Total employees in DB: ${employees.length}`);
 
@@ -232,12 +300,20 @@ async function main() {
   let shiftCount = 0;
   const SHIFT_BATCH = 1000;
   let shiftBatch: Array<{
-    date: Date; startTime: string; endTime: string;
+    date: Date;
+    startTime: string;
+    endTime: string;
     status: 'scheduled' | 'active' | 'completed' | 'cancelled' | 'no_show';
     shiftType: 'full_day' | 'half_day' | 'Leave' | 'Sick' | 'PTO';
-    employeeId: string; branch: string; department: string;
-    employeeEmail: string; employeeName: string; location: string;
-    companyProfileId: string; createdBy: string; updatedBy: string;
+    employeeId: string;
+    branch: string;
+    department: string;
+    employeeEmail: string;
+    employeeName: string;
+    location: string;
+    companyProfileId: string;
+    createdBy: string;
+    updatedBy: string;
   }> = [];
 
   for (let dayOffset = 7; dayOffset >= 0; dayOffset--) {
@@ -249,8 +325,12 @@ async function main() {
       if (Math.random() < 0.05) continue; // 5% absence rate
       const isPast = dayOffset > 0;
       const status: 'scheduled' | 'active' | 'completed' | 'cancelled' | 'no_show' = isPast
-        ? (Math.random() < 0.9 ? 'completed' : 'no_show')
-        : (dayOffset === 0 ? 'active' : 'scheduled');
+        ? Math.random() < 0.9
+          ? 'completed'
+          : 'no_show'
+        : dayOffset === 0
+          ? 'active'
+          : 'scheduled';
 
       shiftBatch.push({
         date,
@@ -285,11 +365,23 @@ async function main() {
   console.log('[seed-stress] Generating time entries (7 days)...');
   let entryCount = 0;
   let entryBatch: Array<{
-    employeeId: string; employeeEmail: string; employeeName: string;
-    branch: string; department: string; clockIn: Date; clockOut: Date;
-    date: Date; totalMinutes: number; totalHours: number; status: string; breakMinutes: number;
-    geofenceName: string; isAutoGeofence: boolean; companyProfileId: string;
-    createdBy: string; updatedBy: string;
+    employeeId: string;
+    employeeEmail: string;
+    employeeName: string;
+    branch: string;
+    department: string;
+    clockIn: Date;
+    clockOut: Date;
+    date: Date;
+    totalMinutes: number;
+    totalHours: number;
+    status: string;
+    breakMinutes: number;
+    geofenceName: string;
+    isAutoGeofence: boolean;
+    companyProfileId: string;
+    createdBy: string;
+    updatedBy: string;
   }> = [];
 
   for (let dayOffset = 7; dayOffset >= 1; dayOffset--) {
@@ -353,7 +445,9 @@ async function main() {
   console.log('');
   console.log('  Login credentials for k6:');
   console.log(`    Admin:  ${STRESS_TENANT_EMAIL} / Password123`);
-  console.log(`    Users:  stress.user0@timetrack.com ... stress.user${employeeCount - 1}@timetrack.com / Password123`);
+  console.log(
+    `    Users:  stress.user0@timetrack.com ... stress.user${employeeCount - 1}@timetrack.com / Password123`,
+  );
   console.log('═══════════════════════════════════════════════════════');
 }
 

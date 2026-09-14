@@ -52,10 +52,12 @@ test.describe('Geofence Validation & Clocking Lifecycle', () => {
     const authHeaders = { Authorization: `Bearer ${token}`, ...PERF_BYPASS };
 
     // 2. Force clock-out any existing active session first (cleanup)
-    await request.post(`${API_BASE}/api/time-entries/clock-out`, {
-      data: { breakMinutes: 0 },
-      headers: authHeaders,
-    }).catch(() => {});
+    await request
+      .post(`${API_BASE}/api/time-entries/clock-out`, {
+        data: { breakMinutes: 0 },
+        headers: authHeaders,
+      })
+      .catch(() => {});
 
     // 3. Clock in (no coordinates = geofence bypass for API test)
     const clockInRes = await request.post(`${API_BASE}/api/time-entries/clock-in`, {

@@ -16,9 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { LogIn, LogOut, Search, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { employeeApi, timeEntryApi, type Employee, ApiError } from '../../services/api';
-import {
-  Badge, Button, Input, Label, Modal, Spinner, Textarea,
-} from '../ui';
+import { Badge, Button, Input, Label, Modal, Spinner, Textarea } from '../ui';
 
 interface StaffClockModalProps {
   open: boolean;
@@ -55,7 +53,9 @@ export default function StaffClockModal({ open, onClose, onDone }: StaffClockMod
           setEmployees(
             res.items
               .filter((e) => e.status === 'active')
-              .sort((a, b) => `${a.surname} ${a.firstName}`.localeCompare(`${b.surname} ${b.firstName}`)),
+              .sort((a, b) =>
+                `${a.surname} ${a.firstName}`.localeCompare(`${b.surname} ${b.firstName}`),
+              ),
           );
         }
       } catch (err) {
@@ -108,7 +108,8 @@ export default function StaffClockModal({ open, onClose, onDone }: StaffClockMod
     );
   }, [employees, search]);
 
-  const allFilteredSelected = filtered.length > 0 && filtered.every((e) => selectedEmails.has(e.email));
+  const allFilteredSelected =
+    filtered.length > 0 && filtered.every((e) => selectedEmails.has(e.email));
 
   const toggleSelection = (email: string) => {
     setSelectedEmails((prev) => {
@@ -138,9 +139,7 @@ export default function StaffClockModal({ open, onClose, onDone }: StaffClockMod
         .slice(0, 3)
         .map((s) => `${s.email}: ${s.reason}`)
         .join(' · ');
-      toast.info(
-        `Skipped ${skipped.length}: ${detail}${skipped.length > 3 ? ' …' : ''}`,
-      );
+      toast.info(`Skipped ${skipped.length}: ${detail}${skipped.length > 3 ? ' …' : ''}`);
     }
     if (okCount === 0 && skipped.length === 0) toast.error('Nothing to do');
   };
@@ -232,9 +231,13 @@ export default function StaffClockModal({ open, onClose, onDone }: StaffClockMod
           </div>
 
           {loadingEmployees ? (
-            <div className="flex h-24 items-center justify-center"><Spinner /></div>
+            <div className="flex h-24 items-center justify-center">
+              <Spinner />
+            </div>
           ) : filtered.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">No staff match your search.</p>
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              No staff match your search.
+            </p>
           ) : (
             <div className="max-h-64 overflow-y-auto rounded-lg border divide-y">
               {filtered.map((e) => {
@@ -259,9 +262,13 @@ export default function StaffClockModal({ open, onClose, onDone }: StaffClockMod
                       </p>
                     </div>
                     {isActive ? (
-                      <Badge variant="success" className="shrink-0">Clocked in</Badge>
+                      <Badge variant="success" className="shrink-0">
+                        Clocked in
+                      </Badge>
                     ) : (
-                      <Badge variant="secondary" className="shrink-0">Not clocked in</Badge>
+                      <Badge variant="secondary" className="shrink-0">
+                        Not clocked in
+                      </Badge>
                     )}
                   </label>
                 );

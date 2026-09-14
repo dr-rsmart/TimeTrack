@@ -73,7 +73,7 @@ const emptyOperatorForm = {
 
 export default function Register() {
   const { refresh: refreshAuth } = useAuth();
-  
+
   // Tabs: 'onboarding' | 'master-accounts'
   const [activeTab, setActiveTab] = useState<'onboarding' | 'master-accounts'>('onboarding');
 
@@ -98,7 +98,10 @@ export default function Register() {
   const [savingOperator, setSavingOperator] = useState(false);
 
   // Temporary password reveal modal (shown after create / reset)
-  const [tempPasswordInfo, setTempPasswordInfo] = useState<{ email: string; password: string } | null>(null);
+  const [tempPasswordInfo, setTempPasswordInfo] = useState<{
+    email: string;
+    password: string;
+  } | null>(null);
 
   // Fetch Companies
   const fetchCompanies = useCallback(async () => {
@@ -139,7 +142,12 @@ export default function Register() {
   // Handle Company Create/Update Submit
   const handleCompanySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!companyForm.name || !companyForm.adminEmail || !companyForm.adminFirstName || !companyForm.adminSurname) {
+    if (
+      !companyForm.name ||
+      !companyForm.adminEmail ||
+      !companyForm.adminFirstName ||
+      !companyForm.adminSurname
+    ) {
       toast.error('Please fill in all required fields.');
       return;
     }
@@ -210,7 +218,11 @@ export default function Register() {
 
   // Handle Delete
   const handleDeleteCompany = async (company: CompanyDetail) => {
-    if (!confirm(`Are you absolutely sure you want to permanently delete "${company.name}" and all of its workforce records? This cannot be undone.`)) {
+    if (
+      !confirm(
+        `Are you absolutely sure you want to permanently delete "${company.name}" and all of its workforce records? This cannot be undone.`,
+      )
+    ) {
       return;
     }
     try {
@@ -250,7 +262,9 @@ export default function Register() {
 
   // Handle Operator Password Reset
   const handleResetOperatorPassword = async (op: MasterOperator) => {
-    if (!confirm(`Reset the password for ${op.email}? A new temporary password will be generated.`)) {
+    if (
+      !confirm(`Reset the password for ${op.email}? A new temporary password will be generated.`)
+    ) {
       return;
     }
     try {
@@ -286,15 +300,17 @@ export default function Register() {
   };
 
   // Filters
-  const filteredCompanies = companies.filter((c) =>
-    c.name.toLowerCase().includes(companySearch.toLowerCase()) ||
-    c.adminEmail.toLowerCase().includes(companySearch.toLowerCase()) ||
-    c.id.toLowerCase().includes(companySearch.toLowerCase())
+  const filteredCompanies = companies.filter(
+    (c) =>
+      c.name.toLowerCase().includes(companySearch.toLowerCase()) ||
+      c.adminEmail.toLowerCase().includes(companySearch.toLowerCase()) ||
+      c.id.toLowerCase().includes(companySearch.toLowerCase()),
   );
 
-  const filteredOperators = operators.filter((o) =>
-    o.fullName.toLowerCase().includes(operatorSearch.toLowerCase()) ||
-    o.email.toLowerCase().includes(operatorSearch.toLowerCase())
+  const filteredOperators = operators.filter(
+    (o) =>
+      o.fullName.toLowerCase().includes(operatorSearch.toLowerCase()) ||
+      o.email.toLowerCase().includes(operatorSearch.toLowerCase()),
   );
 
   return (
@@ -368,7 +384,13 @@ export default function Register() {
               <Spinner className="h-10 w-10" />
             </div>
           ) : filteredCompanies.length === 0 ? (
-            <EmptyState message={companySearch ? "No matching companies found." : "No companies registered. Click 'Onboard Company' to register."} />
+            <EmptyState
+              message={
+                companySearch
+                  ? 'No matching companies found.'
+                  : "No companies registered. Click 'Onboard Company' to register."
+              }
+            />
           ) : (
             <div className="grid gap-5 md:grid-cols-2">
               {filteredCompanies.map((company) => {
@@ -398,21 +420,23 @@ export default function Register() {
                             <h3 className="font-bold text-base tracking-tight text-foreground">
                               {company.name}
                             </h3>
-                            <Badge variant="outline" className="uppercase text-[10px] bg-brand/5 text-brand border-brand/15 px-2 py-0">
+                            <Badge
+                              variant="outline"
+                              className="uppercase text-[10px] bg-brand/5 text-brand border-brand/15 px-2 py-0"
+                            >
                               {company.billingTier}
                             </Badge>
                             {!company.isActive && (
-                              <Badge variant="destructive" className="uppercase text-[10px] font-bold px-2 py-0 bg-red-100 text-red-800 border-red-200">
+                              <Badge
+                                variant="destructive"
+                                className="uppercase text-[10px] font-bold px-2 py-0 bg-red-100 text-red-800 border-red-200"
+                              >
                                 SUSPENDED
                               </Badge>
                             )}
                           </div>
-                          <p className="text-xs text-muted-foreground font-medium mt-1">
-                            —
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {company.adminEmail}
-                          </p>
+                          <p className="text-xs text-muted-foreground font-medium mt-1">—</p>
+                          <p className="text-xs text-muted-foreground">{company.adminEmail}</p>
                         </div>
                       </div>
 
@@ -511,7 +535,7 @@ export default function Register() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                  <TableHead>Full Name</TableHead>
+                    <TableHead>Full Name</TableHead>
                     <TableHead>Email</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Registered</TableHead>
@@ -554,10 +578,15 @@ export default function Register() {
       <Modal
         open={companyModalOpen}
         onClose={() => setCompanyModalOpen(false)}
-        title={editingCompany ? `Edit Company Profile: ${editingCompany.name}` : "Onboard Tenant Company"}
+        title={
+          editingCompany ? `Edit Company Profile: ${editingCompany.name}` : 'Onboard Tenant Company'
+        }
         wide
       >
-        <form onSubmit={handleCompanySubmit} className="space-y-6 pt-4 max-h-[75vh] overflow-y-auto px-1">
+        <form
+          onSubmit={handleCompanySubmit}
+          className="space-y-6 pt-4 max-h-[75vh] overflow-y-auto px-1"
+        >
           {/* Section 1: Company Profile Details */}
           <div className="space-y-4">
             <h3 className="text-sm font-bold tracking-wide uppercase text-brand flex items-center gap-2 border-b border-border/40 pb-1.5">
@@ -567,7 +596,12 @@ export default function Register() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="company-name" className="text-xs uppercase font-bold tracking-wide text-muted-foreground">Company Name *</Label>
+                <Label
+                  htmlFor="company-name"
+                  className="text-xs uppercase font-bold tracking-wide text-muted-foreground"
+                >
+                  Company Name *
+                </Label>
                 <Input
                   id="company-name"
                   required
@@ -578,17 +612,29 @@ export default function Register() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="company-contact" className="text-xs uppercase font-bold tracking-wide text-muted-foreground">Primary Contact Name</Label>
+                <Label
+                  htmlFor="company-contact"
+                  className="text-xs uppercase font-bold tracking-wide text-muted-foreground"
+                >
+                  Primary Contact Name
+                </Label>
                 <Input
                   id="company-contact"
                   placeholder="e.g. Ricardo Smart"
                   value={companyForm.primaryContactName}
-                  onChange={(e) => setCompanyForm({ ...companyForm, primaryContactName: e.target.value })}
+                  onChange={(e) =>
+                    setCompanyForm({ ...companyForm, primaryContactName: e.target.value })
+                  }
                 />
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="company-phone" className="text-xs uppercase font-bold tracking-wide text-muted-foreground">Company Phone</Label>
+                <Label
+                  htmlFor="company-phone"
+                  className="text-xs uppercase font-bold tracking-wide text-muted-foreground"
+                >
+                  Company Phone
+                </Label>
                 <Input
                   id="company-phone"
                   placeholder="e.g. +27 11 123 4567"
@@ -598,7 +644,12 @@ export default function Register() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="company-tier" className="text-xs uppercase font-bold tracking-wide text-muted-foreground">Billing Tier Option</Label>
+                <Label
+                  htmlFor="company-tier"
+                  className="text-xs uppercase font-bold tracking-wide text-muted-foreground"
+                >
+                  Billing Tier Option
+                </Label>
                 <Select
                   id="company-tier"
                   value={companyForm.billingTier}
@@ -611,7 +662,12 @@ export default function Register() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="company-vat" className="text-xs uppercase font-bold tracking-wide text-muted-foreground">VAT Tax Number</Label>
+                <Label
+                  htmlFor="company-vat"
+                  className="text-xs uppercase font-bold tracking-wide text-muted-foreground"
+                >
+                  VAT Tax Number
+                </Label>
                 <Input
                   id="company-vat"
                   placeholder="e.g. VAT-450912389"
@@ -621,18 +677,30 @@ export default function Register() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="company-reg" className="text-xs uppercase font-bold tracking-wide text-muted-foreground">Reg Registration Number</Label>
+                <Label
+                  htmlFor="company-reg"
+                  className="text-xs uppercase font-bold tracking-wide text-muted-foreground"
+                >
+                  Reg Registration Number
+                </Label>
                 <Input
                   id="company-reg"
                   placeholder="e.g. 2024/091234/07"
                   value={companyForm.registrationNumber}
-                  onChange={(e) => setCompanyForm({ ...companyForm, registrationNumber: e.target.value })}
+                  onChange={(e) =>
+                    setCompanyForm({ ...companyForm, registrationNumber: e.target.value })
+                  }
                 />
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="company-address" className="text-xs uppercase font-bold tracking-wide text-muted-foreground">Corporate Headquarters Address</Label>
+              <Label
+                htmlFor="company-address"
+                className="text-xs uppercase font-bold tracking-wide text-muted-foreground"
+              >
+                Corporate Headquarters Address
+              </Label>
               <Input
                 id="company-address"
                 placeholder="e.g. 100 Rivonia Road, Sandton, Johannesburg"
@@ -650,29 +718,48 @@ export default function Register() {
             </h3>
 
             <div className="space-y-1.5">
-              <Label htmlFor="admin-fullname" className="text-xs uppercase font-bold tracking-wide text-muted-foreground">Admin Full Name</Label>
+              <Label
+                htmlFor="admin-fullname"
+                className="text-xs uppercase font-bold tracking-wide text-muted-foreground"
+              >
+                Admin Full Name
+              </Label>
               <Input
                 id="admin-fullname"
                 disabled
                 className="bg-secondary/40 font-semibold cursor-not-allowed text-muted-foreground"
-                value={`${companyForm.adminFirstName} ${companyForm.adminSurname}`.trim() || 'Admin User'}
+                value={
+                  `${companyForm.adminFirstName} ${companyForm.adminSurname}`.trim() || 'Admin User'
+                }
               />
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="admin-fname" className="text-xs uppercase font-bold tracking-wide text-muted-foreground">Admin First Name *</Label>
+                <Label
+                  htmlFor="admin-fname"
+                  className="text-xs uppercase font-bold tracking-wide text-muted-foreground"
+                >
+                  Admin First Name *
+                </Label>
                 <Input
                   id="admin-fname"
                   required
                   placeholder="Admin"
                   value={companyForm.adminFirstName}
-                  onChange={(e) => setCompanyForm({ ...companyForm, adminFirstName: e.target.value })}
+                  onChange={(e) =>
+                    setCompanyForm({ ...companyForm, adminFirstName: e.target.value })
+                  }
                 />
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="admin-surname" className="text-xs uppercase font-bold tracking-wide text-muted-foreground">Admin Surname *</Label>
+                <Label
+                  htmlFor="admin-surname"
+                  className="text-xs uppercase font-bold tracking-wide text-muted-foreground"
+                >
+                  Admin Surname *
+                </Label>
                 <Input
                   id="admin-surname"
                   required
@@ -684,7 +771,12 @@ export default function Register() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="admin-email" className="text-xs uppercase font-bold tracking-wide text-muted-foreground">Admin Email Address *</Label>
+              <Label
+                htmlFor="admin-email"
+                className="text-xs uppercase font-bold tracking-wide text-muted-foreground"
+              >
+                Admin Email Address *
+              </Label>
               <Input
                 id="admin-email"
                 required
@@ -711,7 +803,13 @@ export default function Register() {
               disabled={savingCompany}
               className="bg-brand hover:bg-brand-dark text-white shadow-lg shadow-brand/20 rounded-xl px-6 h-11"
             >
-              {savingCompany ? <Spinner className="h-5 w-5 border-white" /> : editingCompany ? 'Save Changes' : 'Onboard Company'}
+              {savingCompany ? (
+                <Spinner className="h-5 w-5 border-white" />
+              ) : editingCompany ? (
+                'Save Changes'
+              ) : (
+                'Onboard Company'
+              )}
             </Button>
           </div>
         </form>
@@ -733,13 +831,22 @@ export default function Register() {
               <p className="text-xs font-bold text-foreground">Profile Photo</p>
               <p className="text-[10px] text-muted-foreground mt-0.5">Click to upload (max 2MB)</p>
             </div>
-            <button type="button" className="ml-auto p-2 rounded-lg hover:bg-brand/5 text-brand" title="Upload Photo">
+            <button
+              type="button"
+              className="ml-auto p-2 rounded-lg hover:bg-brand/5 text-brand"
+              title="Upload Photo"
+            >
               <Camera className="w-5 h-5" />
             </button>
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="op-fullname" className="text-xs uppercase font-bold tracking-wide text-muted-foreground">Full Name *</Label>
+            <Label
+              htmlFor="op-fullname"
+              className="text-xs uppercase font-bold tracking-wide text-muted-foreground"
+            >
+              Full Name *
+            </Label>
             <Input
               id="op-fullname"
               required
@@ -758,7 +865,12 @@ export default function Register() {
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="op-email" className="text-xs uppercase font-bold tracking-wide text-muted-foreground">Email *</Label>
+            <Label
+              htmlFor="op-email"
+              className="text-xs uppercase font-bold tracking-wide text-muted-foreground"
+            >
+              Email *
+            </Label>
             <Input
               id="op-email"
               required
@@ -771,28 +883,55 @@ export default function Register() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="op-fname" className="text-xs uppercase font-bold tracking-wide text-muted-foreground">First Name</Label>
+              <Label
+                htmlFor="op-fname"
+                className="text-xs uppercase font-bold tracking-wide text-muted-foreground"
+              >
+                First Name
+              </Label>
               <Input
                 id="op-fname"
                 placeholder="e.g. John"
                 value={operatorForm.firstName}
-                onChange={(e) => setOperatorForm({ ...operatorForm, firstName: e.target.value, fullName: `${e.target.value} ${operatorForm.surname}`.trim() })}
+                onChange={(e) =>
+                  setOperatorForm({
+                    ...operatorForm,
+                    firstName: e.target.value,
+                    fullName: `${e.target.value} ${operatorForm.surname}`.trim(),
+                  })
+                }
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="op-surname" className="text-xs uppercase font-bold tracking-wide text-muted-foreground">Surname</Label>
+              <Label
+                htmlFor="op-surname"
+                className="text-xs uppercase font-bold tracking-wide text-muted-foreground"
+              >
+                Surname
+              </Label>
               <Input
                 id="op-surname"
                 placeholder="e.g. Doe"
                 value={operatorForm.surname}
-                onChange={(e) => setOperatorForm({ ...operatorForm, surname: e.target.value, fullName: `${operatorForm.firstName} ${e.target.value}`.trim() })}
+                onChange={(e) =>
+                  setOperatorForm({
+                    ...operatorForm,
+                    surname: e.target.value,
+                    fullName: `${operatorForm.firstName} ${e.target.value}`.trim(),
+                  })
+                }
               />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="op-role" className="text-xs uppercase font-bold tracking-wide text-muted-foreground">Role</Label>
+            <Label
+              htmlFor="op-role"
+              className="text-xs uppercase font-bold tracking-wide text-muted-foreground"
+            >
+              Role
+            </Label>
             <Select
               id="op-role"
               value={operatorForm.role}
@@ -816,7 +955,9 @@ export default function Register() {
               disabled={savingOperator}
               className="bg-brand hover:bg-brand-dark text-white shadow-lg shadow-brand/20 rounded-xl px-6 h-11 flex items-center gap-2"
             >
-              {savingOperator ? <Spinner className="h-5 w-5 border-white" /> : (
+              {savingOperator ? (
+                <Spinner className="h-5 w-5 border-white" />
+              ) : (
                 <>
                   <UserPlus className="w-4 h-4" />
                   Add Master Account
@@ -836,8 +977,9 @@ export default function Register() {
         {tempPasswordInfo && (
           <div className="space-y-4 pt-2">
             <p className="text-sm text-muted-foreground">
-              Share this one-time password with <span className="font-semibold text-foreground">{tempPasswordInfo.email}</span>.
-              They will be required to change it on first login.
+              Share this one-time password with{' '}
+              <span className="font-semibold text-foreground">{tempPasswordInfo.email}</span>. They
+              will be required to change it on first login.
             </p>
             <div className="flex items-center gap-2 p-3 rounded-xl bg-secondary/40 border border-border/40">
               <code className="flex-1 text-sm font-mono font-bold break-all select-all">

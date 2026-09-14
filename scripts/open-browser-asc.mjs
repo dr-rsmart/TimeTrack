@@ -12,19 +12,25 @@ const TARGET_URL = `https://appstoreconnect.apple.com/apps/${APP_ID}/appstore/io
 
 function askQuestion(query) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => rl.question(query, (ans) => { rl.close(); resolve(ans.trim()); }));
+  return new Promise((resolve) =>
+    rl.question(query, (ans) => {
+      rl.close();
+      resolve(ans.trim());
+    }),
+  );
 }
 
 async function run() {
   console.log('🚀 Launching visible Chromium browser...');
   const browser = await chromium.launch({
     headless: false,
-    args: ['--start-maximized', '--disable-blink-features=AutomationControlled']
+    args: ['--start-maximized', '--disable-blink-features=AutomationControlled'],
   });
 
   const context = await browser.newContext({
     viewport: null,
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
   });
 
   const page = await context.newPage();
@@ -37,7 +43,9 @@ async function run() {
   console.log('👉 Once on the TimeTrack deliverable page:');
   console.log('   1. Scroll to the "Build" section.');
   console.log('   2. Click "+ Add Build" / "Choose a build" to select the build.');
-  console.log('   3. Click the blue "Add for Review" / "Submit for Review" button at the top right.');
+  console.log(
+    '   3. Click the blue "Add for Review" / "Submit for Review" button at the top right.',
+  );
   console.log('======================================================');
   console.log('The browser will remain open until you close it or press ENTER here.');
 

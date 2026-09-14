@@ -76,7 +76,7 @@ export const options = {
         { duration: '10s', target: 2000 },
         { duration: '15s', target: 5000 }, // Concurrency Surge to 5,000 VUs!
         { duration: '15s', target: 5000 }, // Peak Load
-        { duration: '10s', target: 0 },    // Cooldown
+        { duration: '10s', target: 0 }, // Cooldown
       ],
       gracefulRampDown: '10s',
     },
@@ -147,11 +147,9 @@ export function loginScenario() {
   const target = accounts[Math.floor(Math.random() * accounts.length)];
 
   const start = Date.now();
-  const res = http.post(
-    `${BASE_URL}/api/auth/login`,
-    JSON.stringify(target),
-    { headers: getHeaders() }
-  );
+  const res = http.post(`${BASE_URL}/api/auth/login`, JSON.stringify(target), {
+    headers: getHeaders(),
+  });
   loginDuration.add(Date.now() - start);
 
   const ok = check(res, {
@@ -176,11 +174,14 @@ export function dashboardScenario(data) {
   group('Dashboard Aggregations', () => {
     const start = Date.now();
     const sumRes = http.get(`${BASE_URL}/api/dashboard/summary`, { headers: authHeaders });
-    const trendRes = http.get(`${BASE_URL}/api/dashboard/hours-trend?days=14`, { headers: authHeaders });
+    const trendRes = http.get(`${BASE_URL}/api/dashboard/hours-trend?days=14`, {
+      headers: authHeaders,
+    });
     dashboardDuration.add(Date.now() - start);
 
-    const ok = check(sumRes, { 'summary status 200': (r) => r.status === 200 }) &&
-               check(trendRes, { 'trend status 200': (r) => r.status === 200 });
+    const ok =
+      check(sumRes, { 'summary status 200': (r) => r.status === 200 }) &&
+      check(trendRes, { 'trend status 200': (r) => r.status === 200 });
 
     if (!ok) errorRate.add(1);
   });

@@ -40,7 +40,11 @@ async function migrationState() {
     `);
     return { applied: rows.length > 0, finishedAt: rows[0]?.finishedAt ?? null };
   } catch (error) {
-    return { applied: false, finishedAt: null, error: error instanceof Error ? error.message : String(error) };
+    return {
+      applied: false,
+      finishedAt: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -138,7 +142,10 @@ export async function main(argv = process.argv.slice(2)) {
     const blocked = !migration.applied || totals.unresolved > 0;
     return options.strict && blocked ? 1 : 0;
   } catch (error) {
-    if (options.json) console.log(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+    if (options.json)
+      console.log(
+        JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+      );
     else console.error('[identity-preflight] failed:', error);
     return 1;
   } finally {

@@ -51,12 +51,16 @@ test.describe('Auto geofence clock-in/out', () => {
     await page.goto('/');
     // The cookie session from the API login signs the web app in via /auth/me.
     await page.waitForURL('**/', { timeout: 30_000 });
-    await expect(page.getByText(/Good (Morning|Afternoon|Evening)/i)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Good (Morning|Afternoon|Evening)/i)).toBeVisible({
+      timeout: 30_000,
+    });
 
     // ── Assert AUTO clock-in happens without any manual interaction ──
     const activeAfterIn = await pollUntil(
       async () => {
-        const res = await context.request.get(`${API_BASE}/api/time-entries/active`, { headers: PERF_BYPASS });
+        const res = await context.request.get(`${API_BASE}/api/time-entries/active`, {
+          headers: PERF_BYPASS,
+        });
         if (!res.ok()) return null;
         return (await res.json()).active;
       },
@@ -89,7 +93,9 @@ test.describe('Auto geofence clock-in/out', () => {
     // ── Assert AUTO clock-out: active session is closed ──
     const activeAfterOut = await pollUntil(
       async () => {
-        const res = await context.request.get(`${API_BASE}/api/time-entries/active`, { headers: PERF_BYPASS });
+        const res = await context.request.get(`${API_BASE}/api/time-entries/active`, {
+          headers: PERF_BYPASS,
+        });
         if (!res.ok()) return 'probe-failed';
         return (await res.json()).active;
       },
@@ -126,9 +132,8 @@ async function pollUntil<T>(
   const deadline = Date.now() + timeoutMs;
   let last = await probe();
   while (!predicate(last) && Date.now() < deadline) {
-    // eslint-disable-next-line no-await-in-loop
     await new Promise((r) => setTimeout(r, intervalMs));
-    // eslint-disable-next-line no-await-in-loop
+
     last = await probe();
   }
   return last;

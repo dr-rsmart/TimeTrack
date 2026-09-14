@@ -15,14 +15,17 @@ import {
 
 describe('createShiftSchema — weeklySchedule (per-day hours)', () => {
   it('accepts a full per-day schedule matching the issue example', () => {
-    const weeklySchedule: Record<string, { enabled: boolean; startTime: string | null; endTime: string | null; shiftType?: string }> = {
+    const weeklySchedule: Record<
+      string,
+      { enabled: boolean; startTime: string | null; endTime: string | null; shiftType?: string }
+    > = {
       '1': { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Mon
       '2': { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Tue
       '3': { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Wed
       '4': { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Thu
       '5': { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Fri
       '6': { enabled: true, startTime: '08:00', endTime: '12:30', shiftType: 'half_day' }, // Sat
-      '0': { enabled: false, startTime: null, endTime: null },                              // Sun closed
+      '0': { enabled: false, startTime: null, endTime: null }, // Sun closed
     };
 
     const parsed = createShiftSchema.parse({
@@ -56,7 +59,9 @@ describe('createShiftSchema — weeklySchedule (per-day hours)', () => {
     expect(() =>
       createShiftSchema.parse({
         date: '2026-08-31',
-        weeklySchedule: { '1': { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'night_shift' } },
+        weeklySchedule: {
+          '1': { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'night_shift' },
+        },
       }),
     ).toThrow();
   });
@@ -120,11 +125,13 @@ describe('resolveWeeklyScheduleDay', () => {
   });
 
   it('keeps the plain bulk defaults when no weekly schedule is supplied', () => {
-    expect(resolveWeeklyScheduleDay('2026-09-06', undefined, {
-      startTime: '08:00',
-      endTime: '17:00',
-      shiftType: 'full_day',
-    })).toEqual({
+    expect(
+      resolveWeeklyScheduleDay('2026-09-06', undefined, {
+        startTime: '08:00',
+        endTime: '17:00',
+        shiftType: 'full_day',
+      }),
+    ).toEqual({
       enabled: true,
       startTime: '08:00',
       endTime: '17:00',
@@ -137,7 +144,9 @@ describe('resolveWeeklyScheduleDay', () => {
     expect(range.ok).toBe(true);
     if (!range.ok) return;
 
-    const scheduledDays = range.days.filter((day) => resolveWeeklyScheduleDay(day, schedule, {}).enabled);
+    const scheduledDays = range.days.filter(
+      (day) => resolveWeeklyScheduleDay(day, schedule, {}).enabled,
+    );
     expect(scheduledDays).toHaveLength(26);
     expect(scheduledDays).not.toContain('2026-08-02');
     expect(scheduledDays).toContain('2026-08-01');

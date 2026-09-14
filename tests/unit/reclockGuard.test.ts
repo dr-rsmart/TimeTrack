@@ -7,10 +7,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import {
-  getReclockGuardSeconds,
-  isWithinReclockWindow,
-} from '../../server/src/reclockGuard.js';
+import { getReclockGuardSeconds, isWithinReclockWindow } from '../../server/src/reclockGuard.js';
 
 const ORIGINAL_ENV = process.env.RECLOCK_GUARD_SECONDS;
 

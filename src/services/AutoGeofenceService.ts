@@ -53,7 +53,8 @@ export interface GeofenceDefinition {
   is_active: boolean;
 }
 
-export type AutoGeofenceEventType = 'ENTERED_GEOFENCE' | 'EXITED_GEOFENCE' | 'POSITION_UPDATE' | 'ERROR';
+export type AutoGeofenceEventType =
+  'ENTERED_GEOFENCE' | 'EXITED_GEOFENCE' | 'POSITION_UPDATE' | 'ERROR';
 
 /**
  * Geofence proximity zone:
@@ -159,7 +160,10 @@ class AutoGeofenceService {
   private previousState: 'INSIDE' | 'OUTSIDE' | null = null;
 
   // ── Stabilization internals ──
-  private lastAccepted: { position: { latitude: number; longitude: number }; timestamp: number } | null = null;
+  private lastAccepted: {
+    position: { latitude: number; longitude: number };
+    timestamp: number;
+  } | null = null;
   private pendingEnter = 0;
   private pendingExit = 0;
   private lastEventAt = 0;
@@ -423,7 +427,12 @@ class AutoGeofenceService {
     let clearlyFarEverywhere = false;
     if (coarseFix) {
       clearlyFarEverywhere = geofences.every((gf) => {
-        const d = haversineDistance(position.latitude, position.longitude, gf.latitude, gf.longitude);
+        const d = haversineDistance(
+          position.latitude,
+          position.longitude,
+          gf.latitude,
+          gf.longitude,
+        );
         return d - (accuracy as number) > gf.radius_meters + EXIT_BUFFER_METERS;
       });
       if (!clearlyFarEverywhere) {
@@ -515,7 +524,12 @@ class AutoGeofenceService {
           }
         }
       }
-    } else if (isInside && this.previousState === 'INSIDE' && !this.lastKnownClockedIn && !this.awaitingExit) {
+    } else if (
+      isInside &&
+      this.previousState === 'INSIDE' &&
+      !this.lastKnownClockedIn &&
+      !this.awaitingExit
+    ) {
       // Recovery path: inside, not clocked in, not awaiting exit. Happens when
       // the employee clocked out while OUTSIDE (or a transition was missed)
       // and walked back in — no OUTSIDE→INSIDE crossing would otherwise fire.

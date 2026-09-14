@@ -74,7 +74,9 @@ export const TENANT_SCOPED_MODELS = new Set([
  *     auto-stamp going forward),
  *   - we are outside any tenant context.
  */
-export function assertTenantMatch(record: { companyProfileId?: string | null } | null | undefined): void {
+export function assertTenantMatch(
+  record: { companyProfileId?: string | null } | null | undefined,
+): void {
   if (!record) return;
   const current = getCurrentTenantId();
   if (current === undefined || current === UNRESTRICTED) return;

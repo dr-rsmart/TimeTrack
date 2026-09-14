@@ -39,11 +39,11 @@ function resolveDomain(domain) {
         resolve(addresses[0].toLowerCase());
         return;
       }
-      
+
       // Fallback: Check Any/Resolve if CNAME lookup failed (some DNS servers return ALIAS as virtual A records)
       resolver.resolve(domain, 'ANY', (err2, records) => {
         if (!err2 && records) {
-          const cnameRecord = records.find(r => r.type === 'CNAME');
+          const cnameRecord = records.find((r) => r.type === 'CNAME');
           if (cnameRecord) {
             resolve(cnameRecord.value.toLowerCase());
             return;
@@ -62,7 +62,9 @@ async function triggerRailwaySsl(domain) {
     console.log(`✅ Triggered successfully.`);
   } catch (err) {
     console.log(`⚠️  Failed to trigger Railway CLI directly: ${err.message}`);
-    console.log(`👉 Alternative: Go to Railway Dashboard -> custom domains -> click 'Retry' next to ${domain}.`);
+    console.log(
+      `👉 Alternative: Go to Railway Dashboard -> custom domains -> click 'Retry' next to ${domain}.`,
+    );
   }
 }
 
@@ -71,25 +73,29 @@ let wwwMatched = false;
 
 async function checkDns() {
   const timestamp = new Date().toLocaleTimeString();
-  
+
   // 1. Check Apex Domain
   const currentApex = await resolveDomain(APEX_DOMAIN);
   const currentWww = await resolveDomain(WWW_DOMAIN);
 
   console.log(`[${timestamp}]`);
-  
+
   if (currentApex) {
     const isMatch = currentApex.includes('t92g18g8');
     if (isMatch) {
       if (!apexMatched) {
-        console.log(`  🟢 ${APEX_DOMAIN} HAS PROPAGATED! Pointing to correct target: ${currentApex}`);
+        console.log(
+          `  🟢 ${APEX_DOMAIN} HAS PROPAGATED! Pointing to correct target: ${currentApex}`,
+        );
         apexMatched = true;
         await triggerRailwaySsl(APEX_DOMAIN);
       } else {
         console.log(`  🟢 ${APEX_DOMAIN} is correct: ${currentApex}`);
       }
     } else {
-      console.log(`  🔴 ${APEX_DOMAIN} is still pointing to old/mismatched destination: ${currentApex}`);
+      console.log(
+        `  🔴 ${APEX_DOMAIN} is still pointing to old/mismatched destination: ${currentApex}`,
+      );
     }
   } else {
     console.log(`  ⚪ ${APEX_DOMAIN} is currently resolving to A-records directly or unresolved.`);
@@ -107,15 +113,21 @@ async function checkDns() {
         console.log(`  🟢 ${WWW_DOMAIN} is correct: ${currentWww}`);
       }
     } else {
-      console.log(`  🔴 ${WWW_DOMAIN} is still pointing to old/mismatched destination: ${currentWww}`);
+      console.log(
+        `  🔴 ${WWW_DOMAIN} is still pointing to old/mismatched destination: ${currentWww}`,
+      );
     }
   } else {
     console.log(`  ⚪ ${WWW_DOMAIN} is unresolved.`);
   }
 
   if (apexMatched && wwwMatched) {
-    console.log('\n✨ SUCCESS! Both DNS records are 100% correct and certificates have been requested!');
-    console.log('🔒 The SSL warning is cleared. Testers can now close and reopen the app to connect securely.');
+    console.log(
+      '\n✨ SUCCESS! Both DNS records are 100% correct and certificates have been requested!',
+    );
+    console.log(
+      '🔒 The SSL warning is cleared. Testers can now close and reopen the app to connect securely.',
+    );
     process.exit(0);
   }
 

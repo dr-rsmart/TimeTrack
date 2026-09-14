@@ -6,18 +6,18 @@
 
 ## What's improved over legacy TimeTrack
 
-| Area | Legacy TimeTrack | TimeTrack (rebuild) |
-|---|---|---|
-| **Schema typing** | Stringly-typed roles/statuses | Native Prisma enums (`Role`, `ShiftStatus`, `ShiftType`, `EmployeeStatus`) |
-| **Naming** | Mixed snake_case/camelCase | Consistent camelCase across all models |
-| **Payroll math** | `decimal.js` with `any` casts | Clean `decimal.js` with typed `Decimal` throughout |
-| **Validation** | Zod v3/v4 mixed across client/server | Zod v4 on server with typed middleware factory |
-| **SSE** | In-memory arrays, no pruning | Managed client registry, heartbeats, stale pruning, per-user connection caps |
-| **Auth** | JWT with localStorage fallback | httpOnly cookie-first JWT (Bearer accepted; no query-string tokens) |
-| **Indexes** | Added reactively after stress failures | Composite indexes designed upfront (`[employeeEmail, date, status]`, `[companyProfileId, date]`) |
-| **Audit** | Fire-and-forget | Immutable audit trail with before/after diffs + IP redaction for managers |
-| **Frontend** | Large coupled pages | Focused pages, typed API client, SSE-driven live refresh |
-| **UI/UX** | Functional but flat design | Glassmorphism, animated nav pills, dark mode, persona-tailored dashboards, mobile bottom nav |
+| Area              | Legacy TimeTrack                       | TimeTrack (rebuild)                                                                              |
+| ----------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| **Schema typing** | Stringly-typed roles/statuses          | Native Prisma enums (`Role`, `ShiftStatus`, `ShiftType`, `EmployeeStatus`)                       |
+| **Naming**        | Mixed snake_case/camelCase             | Consistent camelCase across all models                                                           |
+| **Payroll math**  | `decimal.js` with `any` casts          | Clean `decimal.js` with typed `Decimal` throughout                                               |
+| **Validation**    | Zod v3/v4 mixed across client/server   | Zod v4 on server with typed middleware factory                                                   |
+| **SSE**           | In-memory arrays, no pruning           | Managed client registry, heartbeats, stale pruning, per-user connection caps                     |
+| **Auth**          | JWT with localStorage fallback         | httpOnly cookie-first JWT (Bearer accepted; no query-string tokens)                              |
+| **Indexes**       | Added reactively after stress failures | Composite indexes designed upfront (`[employeeEmail, date, status]`, `[companyProfileId, date]`) |
+| **Audit**         | Fire-and-forget                        | Immutable audit trail with before/after diffs + IP redaction for managers                        |
+| **Frontend**      | Large coupled pages                    | Focused pages, typed API client, SSE-driven live refresh                                         |
+| **UI/UX**         | Functional but flat design             | Glassmorphism, animated nav pills, dark mode, persona-tailored dashboards, mobile bottom nav     |
 
 ## UI/UX Design System (v2.0)
 
@@ -29,9 +29,9 @@ The rebuild introduces a modern, polished interface inspired by TimeTrack's 4.5-
 - **Role badges** — color-coded identity chips (Master=blue, Admin=red, Manager=amber, Employee=green)
 - **SSE status pill** — live connection indicator (Live/Syncing/Offline) in header
 - **Persona dashboards**:
-  - *Master*: Platform Control Center with tenant stats, company directory, system health
-  - *Employee*: Personal greeting banner with position/ID/branch chips + SelfClockWidget (live timer, break tracking)
-  - *Admin/Manager*: Team KPIs, attendance progress bar, shift status, hours trend chart, branch pie chart
+  - _Master_: Platform Control Center with tenant stats, company directory, system health
+  - _Employee_: Personal greeting banner with position/ID/branch chips + SelfClockWidget (live timer, break tracking)
+  - _Admin/Manager_: Team KPIs, attendance progress bar, shift status, hours trend chart, branch pie chart
 - **Mobile-first** — bottom pill navigation on small screens, safe-area insets, touch-friendly targets
 - **Micro-interactions** — staggered list animations, hover card elevation, button press feedback
 
@@ -77,17 +77,17 @@ npm run dev
 
 Open **http://localhost:5173** and use a quick-login button, or:
 
-| Email | Role | Password |
-|---|---|---|
+| Email                     | Role                           | Password      |
+| ------------------------- | ------------------------------ | ------------- |
 | `master@smartpatel.co.za` | Platform Master (cross-tenant) | `Password123` |
-| `admin@timetrack.com` | Company Admin | `Password123` |
-| `thabo@timetrack.com` | Manager — Sandton HQ | `Password123` |
-| `ayesha@timetrack.com` | Manager — Cape Town | `Password123` |
-| `sipho@timetrack.com` | Employee — Sandton HQ | `Password123` |
-| `lerato@timetrack.com` | Employee — Sandton HQ | `Password123` |
-| `pieter@timetrack.com` | Employee — Sandton HQ | `Password123` |
-| `naledi@timetrack.com` | Employee — Cape Town | `Password123` |
-| `riaan@timetrack.com` | Employee — Cape Town | `Password123` |
+| `admin@timetrack.com`     | Company Admin                  | `Password123` |
+| `thabo@timetrack.com`     | Manager — Sandton HQ           | `Password123` |
+| `ayesha@timetrack.com`    | Manager — Cape Town            | `Password123` |
+| `sipho@timetrack.com`     | Employee — Sandton HQ          | `Password123` |
+| `lerato@timetrack.com`    | Employee — Sandton HQ          | `Password123` |
+| `pieter@timetrack.com`    | Employee — Sandton HQ          | `Password123` |
+| `naledi@timetrack.com`    | Employee — Cape Town           | `Password123` |
+| `riaan@timetrack.com`     | Employee — Cape Town           | `Password123` |
 
 ### Configuration
 
@@ -104,13 +104,13 @@ CORS_ORIGIN="http://localhost:5173"
 
 ### Scripts
 
-| Command | Description |
-|---|---|
-| `npm run dev` | Run API + web concurrently |
-| `npm run setup` | Install deps, push schema, seed |
-| `npm run seed` | Re-seed demo data |
-| `npm run build` | Build frontend + server |
-| `npm run typecheck` | Typecheck both projects |
+| Command             | Description                     |
+| ------------------- | ------------------------------- |
+| `npm run dev`       | Run API + web concurrently      |
+| `npm run setup`     | Install deps, push schema, seed |
+| `npm run seed`      | Re-seed demo data               |
+| `npm run build`     | Build frontend + server         |
+| `npm run typecheck` | Typecheck both projects         |
 
 ## Architecture
 
@@ -163,3 +163,4 @@ PostgreSQL via Prisma (composite indexes, multi-tenant scoping)
         ├── cron.ts         # No-show detection
         ├── audit.ts        # Audit logging + IP redaction
         └── seed.ts         # Demo dataset
+```

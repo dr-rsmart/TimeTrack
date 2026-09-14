@@ -46,10 +46,34 @@ interface TestResult {
 
 // ── Preset locations (same as TimeTrack GeofenceManager) ──
 const PRESET_LOCATIONS = [
-  { name: 'Sitari Country Estate', address: 'Old Main Rd, Firgrove Rural, Somerset West, 7130', latitude: -34.0841, longitude: 18.7842, radiusMeters: 5000 },
-  { name: 'Sandton HQ', address: '12 Rivonia Road, Sandton, Johannesburg', latitude: -26.1076, longitude: 28.0567, radiusMeters: 300 },
-  { name: 'Cape Town Branch', address: '45 Long Street, Cape Town', latitude: -33.9249, longitude: 18.4241, radiusMeters: 250 },
-  { name: 'Durban Branch', address: '100 Samora Machel St, Durban', latitude: -29.8587, longitude: 31.0218, radiusMeters: 250 },
+  {
+    name: 'Sitari Country Estate',
+    address: 'Old Main Rd, Firgrove Rural, Somerset West, 7130',
+    latitude: -34.0841,
+    longitude: 18.7842,
+    radiusMeters: 5000,
+  },
+  {
+    name: 'Sandton HQ',
+    address: '12 Rivonia Road, Sandton, Johannesburg',
+    latitude: -26.1076,
+    longitude: 28.0567,
+    radiusMeters: 300,
+  },
+  {
+    name: 'Cape Town Branch',
+    address: '45 Long Street, Cape Town',
+    latitude: -33.9249,
+    longitude: 18.4241,
+    radiusMeters: 250,
+  },
+  {
+    name: 'Durban Branch',
+    address: '100 Samora Machel St, Durban',
+    latitude: -29.8587,
+    longitude: 31.0218,
+    radiusMeters: 250,
+  },
 ];
 
 const QUICK_RADII = [100, 250, 500, 1000, 2000, 5000, 10000];
@@ -177,7 +201,7 @@ export function AddLocationModal({ isOpen, onClose }: { isOpen: boolean; onClose
         setSaveError('Unable to get your location. Please enable GPS and try again.');
         setLocating(false);
       },
-      { enableHighAccuracy: true, timeout: 15000 }
+      { enableHighAccuracy: true, timeout: 15000 },
     );
   };
 
@@ -240,7 +264,9 @@ export function AddLocationModal({ isOpen, onClose }: { isOpen: boolean; onClose
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         if (res.status === 403) {
-          setSaveError('Only administrators can create work locations. Your position has been tested — ask an admin to add this location.');
+          setSaveError(
+            'Only administrators can create work locations. Your position has been tested — ask an admin to add this location.',
+          );
         } else {
           setSaveError(err.error || 'Failed to create location.');
         }
@@ -266,240 +292,293 @@ export function AddLocationModal({ isOpen, onClose }: { isOpen: boolean; onClose
   return createPortal(
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50">
       <div className="flex min-h-full items-center justify-center p-4">
-      <Card className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-        <CardHeader className="flex flex-row items-start justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Plus className="w-4 h-4 text-brand" />
-              Add New Work Location
-            </CardTitle>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Create a new geofence for clock-in validation
-            </p>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1" aria-label="Close">
-            <X className="w-4 h-4" />
-          </button>
-        </CardHeader>
-        <CardContent className="space-y-4 p-4 pt-0">
-
-          {/* ── Quick Presets — filterable list (stays manageable as presets grow) ── */}
-          <div>
-            <label className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5 block">
-              Quick Presets
-            </label>
-            <div className="relative mb-1.5">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-              <input
-                placeholder="Filter presets by name or address…"
-                value={presetFilter}
-                onChange={(e) => setPresetFilter(e.target.value)}
-                className="w-full pl-8 pr-3 py-2 border rounded-lg text-xs"
-              />
+        <Card className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+          <CardHeader className="flex flex-row items-start justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Plus className="w-4 h-4 text-brand" />
+                Add New Work Location
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Create a new geofence for clock-in validation
+              </p>
             </div>
-            <div className="max-h-36 overflow-y-auto border rounded-lg divide-y">
-              {filteredPresets.length === 0 ? (
-                <p className="px-3 py-2 text-xs text-slate-400">No presets match your filter.</p>
-              ) : (
-                filteredPresets.map((p) => (
-                  <button
-                    key={p.name}
-                    type="button"
-                    onClick={() => applyPreset(p)}
-                    className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center justify-between gap-2 ${
-                      name === p.name
-                        ? 'bg-blue-50 text-blue-700 font-medium'
-                        : 'hover:bg-slate-50 text-slate-600'
-                    }`}
-                  >
-                    <span className="min-w-0">
-                      <span className="font-medium block truncate">📍 {p.name}</span>
-                      <span className="text-slate-400 truncate block text-[11px]">{p.address}</span>
-                    </span>
-                    <span className="text-slate-400 shrink-0">{formatRadius(p.radiusMeters)}</span>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* ── Address Search (Nominatim geocoding with OSM Attribution) ── */}
-          <div className="relative">
-            <label className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5 block">
-              Search Address
-            </label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                placeholder="e.g. Sitari Country Estate, Cape Town"
-                value={searchQuery}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm"
-              />
-              {searching && (
-                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
-              )}
-            </div>
-            {searchResults.length > 0 && (
-              <div className="absolute z-10 mt-1 w-full bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                {searchResults.map((r, i) => {
-                  const isSelected = latitude === r.latitude && longitude === r.longitude;
-                  return (
+            <button
+              onClick={onClose}
+              className="text-slate-400 hover:text-slate-600 p-1"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </CardHeader>
+          <CardContent className="space-y-4 p-4 pt-0">
+            {/* ── Quick Presets — filterable list (stays manageable as presets grow) ── */}
+            <div>
+              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5 block">
+                Quick Presets
+              </label>
+              <div className="relative mb-1.5">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input
+                  placeholder="Filter presets by name or address…"
+                  value={presetFilter}
+                  onChange={(e) => setPresetFilter(e.target.value)}
+                  className="w-full pl-8 pr-3 py-2 border rounded-lg text-xs"
+                />
+              </div>
+              <div className="max-h-36 overflow-y-auto border rounded-lg divide-y">
+                {filteredPresets.length === 0 ? (
+                  <p className="px-3 py-2 text-xs text-slate-400">No presets match your filter.</p>
+                ) : (
+                  filteredPresets.map((p) => (
                     <button
-                      key={i}
+                      key={p.name}
                       type="button"
-                      onClick={() => selectSearchResult(r)}
-                      className={`w-full text-left px-3 py-2 text-xs border-b last:border-b-0 transition-colors flex items-center justify-between ${
-                        isSelected ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-slate-50'
+                      onClick={() => applyPreset(p)}
+                      className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center justify-between gap-2 ${
+                        name === p.name
+                          ? 'bg-blue-50 text-blue-700 font-medium'
+                          : 'hover:bg-slate-50 text-slate-600'
                       }`}
                     >
-                      <div>
-                        <span className="font-medium text-slate-700 block">{r.displayName.split(',')[0]}</span>
-                        <span className="text-slate-400 line-clamp-1 text-[11px]">{r.displayName}</span>
-                      </div>
-                      {isSelected && <span className="text-blue-600 font-bold shrink-0 ml-2">✓</span>}
+                      <span className="min-w-0">
+                        <span className="font-medium block truncate">📍 {p.name}</span>
+                        <span className="text-slate-400 truncate block text-[11px]">
+                          {p.address}
+                        </span>
+                      </span>
+                      <span className="text-slate-400 shrink-0">
+                        {formatRadius(p.radiusMeters)}
+                      </span>
                     </button>
-                  );
-                })}
-              </div>
-            )}
-            <p className="text-[10px] text-slate-400 mt-1">
-              Search powered by <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" className="underline hover:text-slate-600">OpenStreetMap</a> contributors
-            </p>
-          </div>
-
-          {/* ── Form Fields ── */}
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1 block">Location Name *</label>
-              <input
-                placeholder="e.g. Sitari Country Estate"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1 block">Address</label>
-              <input
-                placeholder="e.g. Old Main Rd, Croydon, Cape Town"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg text-sm"
-              />
-            </div>
-
-            {/* Coordinates */}
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1 block">Latitude</label>
-                <input
-                  type="number"
-                  step="any"
-                  value={latitude}
-                  onChange={(e) => setLatitude(parseFloat(e.target.value) || 0)}
-                  className="w-full px-3 py-2 border rounded-lg text-sm tabular-nums"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1 block">Longitude</label>
-                <input
-                  type="number"
-                  step="any"
-                  value={longitude}
-                  onChange={(e) => setLongitude(parseFloat(e.target.value) || 0)}
-                  className="w-full px-3 py-2 border rounded-lg text-sm tabular-nums"
-                />
+                  ))
+                )}
               </div>
             </div>
 
-            {/* Use My Current Location */}
-            <Button onClick={useMyLocation} disabled={locating} variant="outline" className="w-full">
-              {locating ? (
-                <>
-                  <Radio className="w-3.5 h-3.5 animate-spin mr-2" /> Acquiring GPS...
-                </>
-              ) : (
-                <>
-                  <Radio className="w-3.5 h-3.5 mr-2" /> Use My Current Location
-                </>
-              )}
-            </Button>
-
-            {/* Radius Slider */}
-            <div>
-              <label className="text-sm text-slate-600 flex justify-between">
-                <span>Radius</span>
-                <span className="font-semibold text-blue-600">{formatRadius(radiusMeters)}</span>
+            {/* ── Address Search (Nominatim geocoding with OSM Attribution) ── */}
+            <div className="relative">
+              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5 block">
+                Search Address
               </label>
-              <input
-                type="range"
-                min="10"
-                max="50000"
-                step="10"
-                value={radiusMeters}
-                onChange={(e) => setRadiusMeters(parseInt(e.target.value))}
-                className="w-full mt-2"
-              />
-              <div className="flex justify-between text-xs text-slate-400">
-                <span>10m</span><span>25km</span><span>50km</span>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  placeholder="e.g. Sitari Country Estate, Cape Town"
+                  value={searchQuery}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm"
+                />
+                {searching && (
+                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
+                )}
               </div>
-              {/* Quick radius buttons */}
-              <div className="flex flex-wrap gap-2 mt-3">
-                {QUICK_RADII.map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setRadiusMeters(r)}
-                    className={`px-2 py-1 text-xs border rounded ${
-                      radiusMeters === r ? 'bg-blue-100 border-blue-400 text-blue-700' : 'hover:bg-slate-50'
-                    }`}
-                  >
-                    {r >= 1000 ? `${r / 1000}km` : `${r}m`}
-                  </button>
-                ))}
+              {searchResults.length > 0 && (
+                <div className="absolute z-10 mt-1 w-full bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {searchResults.map((r, i) => {
+                    const isSelected = latitude === r.latitude && longitude === r.longitude;
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => selectSearchResult(r)}
+                        className={`w-full text-left px-3 py-2 text-xs border-b last:border-b-0 transition-colors flex items-center justify-between ${
+                          isSelected ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <div>
+                          <span className="font-medium text-slate-700 block">
+                            {r.displayName.split(',')[0]}
+                          </span>
+                          <span className="text-slate-400 line-clamp-1 text-[11px]">
+                            {r.displayName}
+                          </span>
+                        </div>
+                        {isSelected && (
+                          <span className="text-blue-600 font-bold shrink-0 ml-2">✓</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="text-[10px] text-slate-400 mt-1">
+                Search powered by{' '}
+                <a
+                  href="https://www.openstreetmap.org/copyright"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline hover:text-slate-600"
+                >
+                  OpenStreetMap
+                </a>{' '}
+                contributors
+              </p>
+            </div>
+
+            {/* ── Form Fields ── */}
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1 block">
+                  Location Name *
+                </label>
+                <input
+                  placeholder="e.g. Sitari Country Estate"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1 block">
+                  Address
+                </label>
+                <input
+                  placeholder="e.g. Old Main Rd, Croydon, Cape Town"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                />
+              </div>
+
+              {/* Coordinates */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1 block">
+                    Latitude
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={latitude}
+                    onChange={(e) => setLatitude(parseFloat(e.target.value) || 0)}
+                    className="w-full px-3 py-2 border rounded-lg text-sm tabular-nums"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1 block">
+                    Longitude
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={longitude}
+                    onChange={(e) => setLongitude(parseFloat(e.target.value) || 0)}
+                    className="w-full px-3 py-2 border rounded-lg text-sm tabular-nums"
+                  />
+                </div>
+              </div>
+
+              {/* Use My Current Location */}
+              <Button
+                onClick={useMyLocation}
+                disabled={locating}
+                variant="outline"
+                className="w-full"
+              >
+                {locating ? (
+                  <>
+                    <Radio className="w-3.5 h-3.5 animate-spin mr-2" /> Acquiring GPS...
+                  </>
+                ) : (
+                  <>
+                    <Radio className="w-3.5 h-3.5 mr-2" /> Use My Current Location
+                  </>
+                )}
+              </Button>
+
+              {/* Radius Slider */}
+              <div>
+                <label className="text-sm text-slate-600 flex justify-between">
+                  <span>Radius</span>
+                  <span className="font-semibold text-blue-600">{formatRadius(radiusMeters)}</span>
+                </label>
+                <input
+                  type="range"
+                  min="10"
+                  max="50000"
+                  step="10"
+                  value={radiusMeters}
+                  onChange={(e) => setRadiusMeters(parseInt(e.target.value))}
+                  className="w-full mt-2"
+                />
+                <div className="flex justify-between text-xs text-slate-400">
+                  <span>10m</span>
+                  <span>25km</span>
+                  <span>50km</span>
+                </div>
+                {/* Quick radius buttons */}
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {QUICK_RADII.map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setRadiusMeters(r)}
+                      className={`px-2 py-1 text-xs border rounded ${
+                        radiusMeters === r
+                          ? 'bg-blue-100 border-blue-400 text-blue-700'
+                          : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      {r >= 1000 ? `${r / 1000}km` : `${r}m`}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* ── Distance Tester ── */}
-          <div className="border border-blue-200 bg-blue-50/30 rounded-lg p-3 space-y-2">
-            <p className="text-xs font-medium text-blue-700 uppercase tracking-wide flex items-center gap-1.5">
-              <Navigation className="w-3.5 h-3.5" />
-              Distance Tester
-              {myGeofence && (
-                <span className="normal-case font-normal text-blue-600">
-                  — vs "{myGeofence.name}" ({formatRadius(myGeofence.radiusMeters)})
-                </span>
+            {/* ── Distance Tester ── */}
+            <div className="border border-blue-200 bg-blue-50/30 rounded-lg p-3 space-y-2">
+              <p className="text-xs font-medium text-blue-700 uppercase tracking-wide flex items-center gap-1.5">
+                <Navigation className="w-3.5 h-3.5" />
+                Distance Tester
+                {myGeofence && (
+                  <span className="normal-case font-normal text-blue-600">
+                    — vs "{myGeofence.name}" ({formatRadius(myGeofence.radiusMeters)})
+                  </span>
+                )}
+              </p>
+              <Button
+                onClick={testCoordinates}
+                disabled={testing}
+                size="sm"
+                variant="outline"
+                className="w-full"
+              >
+                {testing ? 'Testing...' : 'Test Position'}
+              </Button>
+              {testResult && (
+                <div
+                  className={`p-2 rounded text-xs ${testResult.passed ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}
+                >
+                  <p className="font-medium">{testResult.message}</p>
+                </div>
               )}
-            </p>
-            <Button onClick={testCoordinates} disabled={testing} size="sm" variant="outline" className="w-full">
-              {testing ? 'Testing...' : 'Test Position'}
-            </Button>
-            {testResult && (
-              <div className={`p-2 rounded text-xs ${testResult.passed ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                <p className="font-medium">{testResult.message}</p>
+            </div>
+
+            {/* Save error */}
+            {saveError && (
+              <div className="p-2 rounded bg-red-50 border border-red-200 text-xs text-red-700">
+                {saveError}
               </div>
             )}
-          </div>
 
-          {/* Save error */}
-          {saveError && (
-            <div className="p-2 rounded bg-red-50 border border-red-200 text-xs text-red-700">
-              {saveError}
+            <div className="flex gap-3 justify-end pt-2">
+              <Button onClick={onClose} variant="outline" size="sm">
+                Cancel
+              </Button>
+              <Button
+                onClick={saveLocation}
+                disabled={saving || !name.trim()}
+                size="sm"
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {saving ? 'Creating...' : 'Create Location'}
+              </Button>
             </div>
-          )}
-
-          <div className="flex gap-3 justify-end pt-2">
-            <Button onClick={onClose} variant="outline" size="sm">Cancel</Button>
-            <Button onClick={saveLocation} disabled={saving || !name.trim()} size="sm" className="bg-blue-600 hover:bg-blue-700">
-              {saving ? 'Creating...' : 'Create Location'}
-            </Button>
-          </div>
-
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
       </div>
     </div>,
     document.body,

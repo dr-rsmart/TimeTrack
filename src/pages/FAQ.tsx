@@ -69,7 +69,7 @@ const sections: FAQSection[] = [
       {
         question: 'How do I clock in and clock out manually?',
         answer:
-          'Open Dashboard or Time and select Clock In when you start working. When you finish, select Clock Out, enter any break minutes when prompted, and confirm. The active timer and today\'s activity show whether your session is currently open.',
+          "Open Dashboard or Time and select Clock In when you start working. When you finish, select Clock Out, enter any break minutes when prompted, and confirm. The active timer and today's activity show whether your session is currently open.",
         bullets: [
           'Clock In starts one active work session for your account.',
           'Clock Out closes the active session and records optional break time.',
@@ -105,7 +105,8 @@ const sections: FAQSection[] = [
           'Location is used to validate a clocking action against your assigned work location and, when enabled, to detect arrival and departure for automatic clocking. TimeTrack uses location to make the attendance decision; the app does not need to show your route or continuously record a travel history.',
       },
       {
-        question: 'What is the difference between “Allow all the time” / “Always” and “Allow while using the app”?',
+        question:
+          'What is the difference between “Allow all the time” / “Always” and “Allow while using the app”?',
         answer:
           'These options control whether the mobile operating system may deliver location updates when TimeTrack is not on screen. Allow all the time on Android, or Always on iOS, permits the native TimeTrack app to monitor an assigned work location while the app is minimised, the phone is locked, or the app is closed. That is the permission needed for the most reliable automatic clock-in/out.',
         bullets: [
@@ -145,7 +146,7 @@ const sections: FAQSection[] = [
       {
         question: 'Where can I see my recorded hours?',
         answer:
-          'Open Dashboard for today\'s activity or Time for the recent time-entry list. Entries show clock-in and clock-out times, break minutes, total hours, work location when available, and whether an entry was manually adjusted.',
+          "Open Dashboard for today's activity or Time for the recent time-entry list. Entries show clock-in and clock-out times, break minutes, total hours, work location when available, and whether an entry was manually adjusted.",
       },
       {
         question: 'What does “Manual” mean beside a time entry?',
@@ -204,7 +205,12 @@ function FAQAccordionItem({ item, itemId }: { item: FAQItem; itemId: string }) {
         className="flex w-full items-center justify-between gap-4 py-4 text-left text-sm font-semibold transition-colors hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       >
         <span>{item.question}</span>
-        <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180 text-brand')} />
+        <ChevronDown
+          className={cn(
+            'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+            open && 'rotate-180 text-brand',
+          )}
+        />
       </button>
       {open && (
         <div id={answerId} className="pb-5 pr-8 text-sm leading-6 text-muted-foreground">
@@ -235,9 +241,12 @@ export default function FAQ() {
             <HelpCircle className="h-4 w-4" />
             Help centre
           </div>
-          <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">Frequently Asked Questions</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">
+            Frequently Asked Questions
+          </h1>
           <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base">
-            Learn how to use TimeTrack, record your hours, and choose the right location permission for automatic or manual clocking.
+            Learn how to use TimeTrack, record your hours, and choose the right location permission
+            for automatic or manual clocking.
           </p>
         </div>
       </section>
@@ -249,7 +258,11 @@ export default function FAQ() {
             <div>
               <p className="text-sm font-semibold">The short version</p>
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                Use <strong className="text-foreground">Allow all the time / Always</strong> for background automatic clocking on mobile. Use <strong className="text-foreground">Allow while using the app</strong> for foreground location and manual clocking. Manual Clock In and Clock Out remain the fallback when background access is unavailable or not preferred.
+                Use <strong className="text-foreground">Allow all the time / Always</strong> for
+                background automatic clocking on mobile. Use{' '}
+                <strong className="text-foreground">Allow while using the app</strong> for
+                foreground location and manual clocking. Manual Clock In and Clock Out remain the
+                fallback when background access is unavailable or not preferred.
               </p>
             </div>
           </div>
@@ -284,7 +297,11 @@ export default function FAQ() {
           {sections.map((section) => {
             const SectionIcon = section.icon;
             return (
-              <Card key={section.id} id={section.id} className="scroll-mt-24 border-border/50 shadow-card">
+              <Card
+                key={section.id}
+                id={section.id}
+                className="scroll-mt-24 border-border/50 shadow-card"
+              >
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                     <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10 text-brand">
@@ -312,7 +329,9 @@ export default function FAQ() {
       <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-400">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
         <p>
-          GPS and background activity depend on your device, operating system, browser, battery settings, and network. If an automatic event is missed, use the manual clocking controls and ask an authorised manager or administrator to correct the entry if necessary.
+          GPS and background activity depend on your device, operating system, browser, battery
+          settings, and network. If an automatic event is missed, use the manual clocking controls
+          and ask an authorised manager or administrator to correct the entry if necessary.
         </p>
       </div>
     </div>

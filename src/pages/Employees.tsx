@@ -10,14 +10,41 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Search, Pencil, Trash2, Users, ShieldCheck, MapPin, UserCog, KeyRound, RotateCcw, Upload } from 'lucide-react';
+import {
+  Plus,
+  Search,
+  Pencil,
+  Trash2,
+  Users,
+  ShieldCheck,
+  MapPin,
+  UserCog,
+  KeyRound,
+  RotateCcw,
+  Upload,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { employeeApi, type Employee, type ManagerOption } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useSSE } from '../hooks/useSSE';
 import {
-  Badge, Button, Card, CardContent, EmptyState, Input, Label, Modal, Select,
-  Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Avatar,
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  EmptyState,
+  Input,
+  Label,
+  Modal,
+  Select,
+  Spinner,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Avatar,
 } from '../components/ui';
 import ImportEmployeesModal from '../components/employees/ImportEmployeesModal';
 import { formatDate } from '../lib/utils';
@@ -60,7 +87,7 @@ export default function Employees() {
   const [editing, setEditing] = useState<Employee | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
-  
+
   // Geofence options for assignment
   const [geofences, setGeofences] = useState<GeofenceOption[]>([]);
   const [formGeofenceIds, setFormGeofenceIds] = useState<string[]>([]);
@@ -117,7 +144,8 @@ export default function Employees() {
           event.type === 'entity_event' &&
           typeof event.entity === 'string' &&
           ['employee', 'geofence'].includes(event.entity.toLowerCase())
-        ) load();
+        )
+          load();
       },
       [load],
     ),
@@ -257,7 +285,12 @@ export default function Employees() {
   };
 
   const handleResetPassword = async (emp: Employee) => {
-    if (!confirm(`Reset password for ${emp.firstName} ${emp.surname}? Their password will be set to the temporary password "Password123". On next login they can set a new password or keep it.`)) return;
+    if (
+      !confirm(
+        `Reset password for ${emp.firstName} ${emp.surname}? Their password will be set to the temporary password "Password123". On next login they can set a new password or keep it.`,
+      )
+    )
+      return;
     try {
       const res = await employeeApi.resetPassword(emp.id);
       toast.success(res.message);
@@ -270,7 +303,12 @@ export default function Employees() {
   const [resettingInModal, setResettingInModal] = useState(false);
   const handleResetPasswordInModal = async () => {
     if (!editing) return;
-    if (!confirm(`Reset password for ${editing.firstName} ${editing.surname}? Their password will be set to the temporary password "Password123". On next login they can set a new password or keep it.`)) return;
+    if (
+      !confirm(
+        `Reset password for ${editing.firstName} ${editing.surname}? Their password will be set to the temporary password "Password123". On next login they can set a new password or keep it.`,
+      )
+    )
+      return;
     setResettingInModal(true);
     try {
       const res = await employeeApi.resetPassword(editing.id);
@@ -283,7 +321,12 @@ export default function Employees() {
   };
 
   const handleDelete = async (emp: Employee) => {
-    if (!confirm(`Terminate ${emp.firstName} ${emp.surname}? Their record and history will be kept, but they will be marked as terminated.`)) return;
+    if (
+      !confirm(
+        `Terminate ${emp.firstName} ${emp.surname}? Their record and history will be kept, but they will be marked as terminated.`,
+      )
+    )
+      return;
     try {
       await employeeApi.remove(emp.id);
       toast.success('Employee terminated (record kept)');
@@ -294,7 +337,12 @@ export default function Employees() {
   };
 
   const handleReactivate = async (emp: Employee) => {
-    if (!confirm(`Reactivate ${emp.firstName} ${emp.surname}? Their account will be restored to active status and they will be able to log in again.`)) return;
+    if (
+      !confirm(
+        `Reactivate ${emp.firstName} ${emp.surname}? Their account will be restored to active status and they will be able to log in again.`,
+      )
+    )
+      return;
     try {
       const res = await employeeApi.reactivate(emp.id);
       toast.success(res.message);
@@ -306,10 +354,14 @@ export default function Employees() {
 
   const roleBadgeVariant = (role: string) => {
     switch (role) {
-      case 'master': return 'default';
-      case 'admin': return 'destructive';
-      case 'manager': return 'warning';
-      default: return 'secondary';
+      case 'master':
+        return 'default';
+      case 'admin':
+        return 'destructive';
+      case 'manager':
+        return 'warning';
+      default:
+        return 'secondary';
     }
   };
 
@@ -364,19 +416,33 @@ export default function Employees() {
           </div>
           <div>
             <Label htmlFor="emp-branch">Branch</Label>
-            <Select id="emp-branch" className="mt-1 w-44" value={branch} onChange={(e) => setBranch(e.target.value)}>
+            <Select
+              id="emp-branch"
+              className="mt-1 w-44"
+              value={branch}
+              onChange={(e) => setBranch(e.target.value)}
+            >
               <option value="">All branches</option>
               {branches.map((b) => (
-                <option key={b} value={b}>{b}</option>
+                <option key={b} value={b}>
+                  {b}
+                </option>
               ))}
             </Select>
           </div>
           <div>
             <Label htmlFor="emp-dept">Department</Label>
-            <Select id="emp-dept" className="mt-1 w-44" value={department} onChange={(e) => setDepartment(e.target.value)}>
+            <Select
+              id="emp-dept"
+              className="mt-1 w-44"
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+            >
               <option value="">All departments</option>
               {departments.map((d) => (
-                <option key={d} value={d}>{d}</option>
+                <option key={d} value={d}>
+                  {d}
+                </option>
               ))}
             </Select>
           </div>
@@ -387,7 +453,9 @@ export default function Employees() {
       <Card className="border-border/50 overflow-hidden">
         <CardContent className="p-0">
           {loading ? (
-            <div className="flex h-48 items-center justify-center"><Spinner className="h-8 w-8" /></div>
+            <div className="flex h-48 items-center justify-center">
+              <Spinner className="h-8 w-8" />
+            </div>
           ) : items.length === 0 ? (
             <EmptyState message="No employees found matching your criteria" />
           ) : (
@@ -418,10 +486,15 @@ export default function Employees() {
                       <div className="flex items-center gap-3">
                         <Avatar name={`${emp.firstName} ${emp.surname}`} size="sm" />
                         <div>
-                          <p className="font-medium text-sm">{emp.firstName} {emp.surname}</p>
+                          <p className="font-medium text-sm">
+                            {emp.firstName} {emp.surname}
+                          </p>
                           <p className="text-xs text-muted-foreground">{emp.email}</p>
                           {emp.hasLoginAccount === false && (
-                            <p className="text-xs font-semibold text-red-600 dark:text-red-400 mt-0.5" title="This employee is visible in Workforce but has no login account — they cannot sign in.">
+                            <p
+                              className="text-xs font-semibold text-red-600 dark:text-red-400 mt-0.5"
+                              title="This employee is visible in Workforce but has no login account — they cannot sign in."
+                            >
                               ⚠ No login account
                             </p>
                           )}
@@ -432,7 +505,9 @@ export default function Employees() {
                     <TableCell className="text-sm">{emp.branch}</TableCell>
                     <TableCell className="text-sm">{emp.department}</TableCell>
                     {isAdmin && (
-                      <TableCell className="text-sm text-muted-foreground">{getManagerName(emp)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {getManagerName(emp)}
+                      </TableCell>
                     )}
                     <TableCell>
                       <Badge variant={roleBadgeVariant(emp.role)} className="capitalize">
@@ -440,11 +515,22 @@ export default function Employees() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={emp.status === 'active' ? 'success' : emp.status === 'suspended' ? 'warning' : 'destructive'} className="capitalize">
+                      <Badge
+                        variant={
+                          emp.status === 'active'
+                            ? 'success'
+                            : emp.status === 'suspended'
+                              ? 'warning'
+                              : 'destructive'
+                        }
+                        className="capitalize"
+                      >
                         {emp.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{formatDate(emp.hireDate)}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatDate(emp.hireDate)}
+                    </TableCell>
                     {canManage && (
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
@@ -460,20 +546,46 @@ export default function Employees() {
                               <UserCog className="h-3.5 w-3.5 text-brand" />
                             </Button>
                           )}
-                          <Button variant="ghost" size="icon" onClick={() => openEdit(emp)} aria-label="Edit" className="h-8 w-8">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openEdit(emp)}
+                            aria-label="Edit"
+                            className="h-8 w-8"
+                          >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
                           {canAddEmployee && (
                             <>
-                              <Button variant="ghost" size="icon" onClick={() => handleResetPassword(emp)} aria-label="Reset password" title="Reset password" className="h-8 w-8">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleResetPassword(emp)}
+                                aria-label="Reset password"
+                                title="Reset password"
+                                className="h-8 w-8"
+                              >
                                 <KeyRound className="h-3.5 w-3.5 text-brand" />
                               </Button>
                               {emp.status === 'terminated' ? (
-                                <Button variant="ghost" size="icon" onClick={() => handleReactivate(emp)} aria-label="Reactivate" title="Reactivate employee" className="h-8 w-8 hover:bg-emerald-500/10">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleReactivate(emp)}
+                                  aria-label="Reactivate"
+                                  title="Reactivate employee"
+                                  className="h-8 w-8 hover:bg-emerald-500/10"
+                                >
                                   <RotateCcw className="h-3.5 w-3.5 text-emerald-600" />
                                 </Button>
                               ) : (
-                                <Button variant="ghost" size="icon" onClick={() => handleDelete(emp)} aria-label="Delete" className="h-8 w-8 hover:bg-destructive/10">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleDelete(emp)}
+                                  aria-label="Delete"
+                                  className="h-8 w-8 hover:bg-destructive/10"
+                                >
                                   <Trash2 className="h-3.5 w-3.5 text-destructive" />
                                 </Button>
                               )}
@@ -491,47 +603,87 @@ export default function Employees() {
       </Card>
 
       {/* Create/Edit modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Edit Employee' : 'Add Employee'}>
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editing ? 'Edit Employee' : 'Add Employee'}
+      >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="f-first">First name</Label>
-              <Input id="f-first" required value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} />
+              <Input
+                id="f-first"
+                required
+                value={form.firstName}
+                onChange={(e) => setForm({ ...form, firstName: e.target.value })}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="f-surname">Surname</Label>
-              <Input id="f-surname" required value={form.surname} onChange={(e) => setForm({ ...form, surname: e.target.value })} />
+              <Input
+                id="f-surname"
+                required
+                value={form.surname}
+                onChange={(e) => setForm({ ...form, surname: e.target.value })}
+              />
             </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="f-email">Email</Label>
-            <Input id="f-email" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            <Input
+              id="f-email"
+              type="email"
+              required
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+            />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="f-position">Position</Label>
-              <Input id="f-position" value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} />
+              <Input
+                id="f-position"
+                value={form.position}
+                onChange={(e) => setForm({ ...form, position: e.target.value })}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="f-number">Employee #</Label>
-              <Input id="f-number" value={form.employeeNumber} onChange={(e) => setForm({ ...form, employeeNumber: e.target.value })} />
+              <Input
+                id="f-number"
+                value={form.employeeNumber}
+                onChange={(e) => setForm({ ...form, employeeNumber: e.target.value })}
+              />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="f-branch">Branch</Label>
-              <Input id="f-branch" value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })} />
+              <Input
+                id="f-branch"
+                value={form.branch}
+                onChange={(e) => setForm({ ...form, branch: e.target.value })}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="f-dept">Department</Label>
-              <Input id="f-dept" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} />
+              <Input
+                id="f-dept"
+                value={form.department}
+                onChange={(e) => setForm({ ...form, department: e.target.value })}
+              />
             </div>
           </div>
           {isAdmin && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="f-role">Role</Label>
-                <Select id="f-role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+                <Select
+                  id="f-role"
+                  value={form.role}
+                  onChange={(e) => setForm({ ...form, role: e.target.value })}
+                >
                   <option value="employee">Employee</option>
                   <option value="manager">Manager</option>
                   <option value="admin">Admin</option>
@@ -539,7 +691,11 @@ export default function Employees() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="f-phone">Phone</Label>
-                <Input id="f-phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                <Input
+                  id="f-phone"
+                  value={form.phone}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                />
               </div>
             </div>
           )}
@@ -549,7 +705,9 @@ export default function Employees() {
             <div className="space-y-2 pt-2 border-t border-border/50">
               <div className="flex items-center gap-2">
                 <UserCog className="w-4 h-4 text-brand" />
-                <Label htmlFor="f-manager" className="text-sm font-semibold text-slate-700">Assigned Manager</Label>
+                <Label htmlFor="f-manager" className="text-sm font-semibold text-slate-700">
+                  Assigned Manager
+                </Label>
               </div>
               <Select
                 id="f-manager"
@@ -564,8 +722,9 @@ export default function Employees() {
                 ))}
               </Select>
               <p className="text-xs text-muted-foreground">
-                Controls which manager this employee reports to. The manager's scope determines who can view and manage
-                this employee's shifts, time entries and profile. Change this to move the employee to a different manager.
+                Controls which manager this employee reports to. The manager's scope determines who
+                can view and manage this employee's shifts, time entries and profile. Change this to
+                move the employee to a different manager.
               </p>
             </div>
           )}
@@ -589,9 +748,9 @@ export default function Employees() {
               </Button>
               <p className="text-xs text-muted-foreground">
                 Resets this employee's login password to the temporary password{' '}
-                <span className="font-semibold">Password123</span>. On their next login they can
-                set a new password or keep this one. Use this when an employee contacts you
-                because they forgot their password.
+                <span className="font-semibold">Password123</span>. On their next login they can set
+                a new password or keep this one. Use this when an employee contacts you because they
+                forgot their password.
               </p>
             </div>
           )}
@@ -602,7 +761,9 @@ export default function Employees() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <MapPin className="w-4 h-4 text-blue-500" />
-                  <Label className="text-sm font-semibold text-slate-700">Work Locations (Geofences)</Label>
+                  <Label className="text-sm font-semibold text-slate-700">
+                    Work Locations (Geofences)
+                  </Label>
                 </div>
                 {formGeofenceIds.length > 0 && (
                   <button
@@ -616,7 +777,9 @@ export default function Employees() {
               </div>
               <div className="border border-border rounded-lg p-2.5 max-h-48 overflow-y-auto space-y-1.5 bg-secondary/20">
                 {geofences.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-2">No geofences configured.</p>
+                  <p className="text-xs text-muted-foreground text-center py-2">
+                    No geofences configured.
+                  </p>
                 ) : (
                   geofences.map((g) => {
                     const isSelected = formGeofenceIds.includes(g.id);
@@ -624,7 +787,9 @@ export default function Employees() {
                       <label
                         key={g.id}
                         className={`flex items-center gap-2.5 p-2 rounded-md text-xs cursor-pointer border transition-colors ${
-                          isSelected ? 'bg-blue-50/80 border-blue-200 text-blue-900 font-medium' : 'hover:bg-secondary/60 border-transparent text-slate-700'
+                          isSelected
+                            ? 'bg-blue-50/80 border-blue-200 text-blue-900 font-medium'
+                            : 'hover:bg-secondary/60 border-transparent text-slate-700'
                         }`}
                       >
                         <input
@@ -641,7 +806,11 @@ export default function Employees() {
                         />
                         <div className="flex-1 truncate">
                           <span className="font-semibold">{g.name}</span>
-                          {g.address && <span className="text-muted-foreground ml-1.5 truncate">({g.address})</span>}
+                          {g.address && (
+                            <span className="text-muted-foreground ml-1.5 truncate">
+                              ({g.address})
+                            </span>
+                          )}
                         </div>
                       </label>
                     );
@@ -649,13 +818,19 @@ export default function Employees() {
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
-                Assign this employee to one or multiple locations (e.g. Head Office and Branch). When no locations are selected ("No Geo Location Assigned"), they can clock in/out from anywhere — no location restriction applies.
+                Assign this employee to one or multiple locations (e.g. Head Office and Branch).
+                When no locations are selected ("No Geo Location Assigned"), they can clock in/out
+                from anywhere — no location restriction applies.
               </p>
             </div>
           )}
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Create employee'}</Button>
+            <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Saving…' : editing ? 'Save changes' : 'Create employee'}
+            </Button>
           </div>
         </form>
       </Modal>
@@ -669,11 +844,17 @@ export default function Employees() {
         {assignManagerTarget && (
           <div className="space-y-4">
             <div className="flex items-center gap-3 p-3 bg-secondary/40 rounded-lg">
-              <Avatar name={`${assignManagerTarget.firstName} ${assignManagerTarget.surname}`} size="sm" />
+              <Avatar
+                name={`${assignManagerTarget.firstName} ${assignManagerTarget.surname}`}
+                size="sm"
+              />
               <div>
-                <p className="font-medium text-sm">{assignManagerTarget.firstName} {assignManagerTarget.surname}</p>
+                <p className="font-medium text-sm">
+                  {assignManagerTarget.firstName} {assignManagerTarget.surname}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  {assignManagerTarget.position || 'No position'} · {assignManagerTarget.branch} · {assignManagerTarget.department}
+                  {assignManagerTarget.position || 'No position'} · {assignManagerTarget.branch} ·{' '}
+                  {assignManagerTarget.department}
                 </p>
               </div>
             </div>
@@ -695,23 +876,35 @@ export default function Employees() {
                   ))}
               </Select>
               <p className="text-xs text-muted-foreground">
-                Select which manager this employee reports to. The assigned manager can view and manage
-                this employee's shifts, time entries, and profile. Changing this moves the employee
-                to the new manager's scope. The change is recorded in the audit log and employment history.
+                Select which manager this employee reports to. The assigned manager can view and
+                manage this employee's shifts, time entries, and profile. Changing this moves the
+                employee to the new manager's scope. The change is recorded in the audit log and
+                employment history.
               </p>
             </div>
 
-            {assignManagerTarget.managerId && assignManagerValue !== assignManagerTarget.managerId && (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                ⚠️ This will move <strong>{assignManagerTarget.firstName}</strong> from{' '}
-                <strong>{getManagerName(assignManagerTarget)}</strong> to{' '}
-                <strong>{managerOptions.find((m) => m.id === assignManagerValue)?.firstName ?? ''}{' '}
-                {managerOptions.find((m) => m.id === assignManagerValue)?.surname ?? 'Unassigned'}</strong>.
-              </div>
-            )}
+            {assignManagerTarget.managerId &&
+              assignManagerValue !== assignManagerTarget.managerId && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                  ⚠️ This will move <strong>{assignManagerTarget.firstName}</strong> from{' '}
+                  <strong>{getManagerName(assignManagerTarget)}</strong> to{' '}
+                  <strong>
+                    {managerOptions.find((m) => m.id === assignManagerValue)?.firstName ?? ''}{' '}
+                    {managerOptions.find((m) => m.id === assignManagerValue)?.surname ??
+                      'Unassigned'}
+                  </strong>
+                  .
+                </div>
+              )}
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={() => setAssignManagerModalOpen(false)}>Cancel</Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setAssignManagerModalOpen(false)}
+              >
+                Cancel
+              </Button>
               <Button onClick={handleAssignManager} disabled={assigningManager}>
                 {assigningManager ? 'Assigning…' : 'Save Assignment'}
               </Button>

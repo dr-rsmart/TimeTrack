@@ -74,10 +74,30 @@ import MasterDashboardView from '../components/dashboard/MasterDashboardView';
 import AttendanceDetailModal from '../components/dashboard/AttendanceDetailModal';
 
 const PIE_COLORS = [
-  '#005DEC', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4',
-  '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16', '#a855f7',
-  '#0284c7', '#e11d48', '#d97706', '#059669', '#4f46e5', '#7c3aed',
-  '#2563eb', '#db2777', '#ca8a04', '#0d9488', '#9333ea', '#ea580c',
+  '#005DEC',
+  '#10b981',
+  '#f59e0b',
+  '#8b5cf6',
+  '#ef4444',
+  '#06b6d4',
+  '#ec4899',
+  '#14b8a6',
+  '#f97316',
+  '#6366f1',
+  '#84cc16',
+  '#a855f7',
+  '#0284c7',
+  '#e11d48',
+  '#d97706',
+  '#059669',
+  '#4f46e5',
+  '#7c3aed',
+  '#2563eb',
+  '#db2777',
+  '#ca8a04',
+  '#0d9488',
+  '#9333ea',
+  '#ea580c',
 ];
 
 /**
@@ -104,7 +124,9 @@ export default function Dashboard() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [trend, setTrend] = useState<{ date: string; hours: number }[]>([]);
   const [distribution, setDistribution] = useState<{ branch: string; count: number }[]>([]);
-  const [departmentDistribution, setDepartmentDistribution] = useState<{ department: string; count: number }[]>([]);
+  const [departmentDistribution, setDepartmentDistribution] = useState<
+    { department: string; count: number }[]
+  >([]);
   const [departmentPerformance, setDepartmentPerformance] = useState<DepartmentPerformance[]>([]);
   const [activity, setActivity] = useState<Array<Record<string, unknown>>>([]);
   const [attendanceTrend, setAttendanceTrend] = useState<AttendanceTrendPoint[]>([]);
@@ -158,7 +180,10 @@ export default function Dashboard() {
   useSSE(
     useCallback(
       (event) => {
-        if (event.type === 'entity_event' && ['TimeEntry', 'Shift', 'Employee'].includes(event.entity ?? '')) {
+        if (
+          event.type === 'entity_event' &&
+          ['TimeEntry', 'Shift', 'Employee'].includes(event.entity ?? '')
+        ) {
           load();
         }
       },
@@ -261,10 +286,22 @@ export default function Dashboard() {
 
       {/* KPI cards — Clocked In Now drills down into per-employee details */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
-          <StatCard label="Total Employees" value={summary?.totalEmployees ?? 0} icon={<Users className="h-6 w-6" />} />
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0 }}
+        >
+          <StatCard
+            label="Total Employees"
+            value={summary?.totalEmployees ?? 0}
+            icon={<Users className="h-6 w-6" />}
+          />
         </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+        >
           <StatCard
             label="Clocked In Now"
             value={summary?.activeClockIns ?? 0}
@@ -273,11 +310,27 @@ export default function Dashboard() {
             onClick={() => setDetailOpen(true)}
           />
         </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <StatCard label="Hours Today" value={`${(summary?.totalHoursToday ?? 0).toFixed(1)}h`} icon={<Timer className="h-6 w-6" />} />
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+        >
+          <StatCard
+            label="Hours Today"
+            value={`${(summary?.totalHoursToday ?? 0).toFixed(1)}h`}
+            icon={<Timer className="h-6 w-6" />}
+          />
         </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-          <StatCard label="Attendance Rate" value={`${attendanceRate}%`} icon={<CalendarCheck className="h-6 w-6" />} />
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+        >
+          <StatCard
+            label="Attendance Rate"
+            value={`${attendanceRate}%`}
+            icon={<CalendarCheck className="h-6 w-6" />}
+          />
         </motion.div>
       </div>
 
@@ -303,7 +356,9 @@ export default function Dashboard() {
               </span>
             </div>
             <Progress value={attendanceRate} />
-            <p className="text-xs text-muted-foreground">{attendanceRate}% of workforce has clocked in today.</p>
+            <p className="text-xs text-muted-foreground">
+              {attendanceRate}% of workforce has clocked in today.
+            </p>
           </CardContent>
         </Card>
 
@@ -335,7 +390,12 @@ export default function Dashboard() {
             <ResponsiveContainer width="100%" height={240}>
               <BarChart data={trend}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} fontSize={11} stroke="hsl(var(--muted-foreground))" />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={(d: string) => d.slice(5)}
+                  fontSize={11}
+                  stroke="hsl(var(--muted-foreground))"
+                />
                 <YAxis fontSize={11} stroke="hsl(var(--muted-foreground))" />
                 <Tooltip
                   contentStyle={{
@@ -362,7 +422,15 @@ export default function Dashboard() {
             ) : (
               <ResponsiveContainer width="100%" height={300}>
                 <PieChart margin={{ top: 24, right: 24, bottom: 8, left: 24 }}>
-                  <Pie data={distribution} dataKey="count" nameKey="branch" cx="50%" cy="50%" outerRadius={85} label>
+                  <Pie
+                    data={distribution}
+                    dataKey="count"
+                    nameKey="branch"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={85}
+                    label
+                  >
                     {distribution.map((_, i) => (
                       <Cell key={i} fill={pieColor(i)} />
                     ))}
@@ -405,7 +473,9 @@ export default function Dashboard() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Progress value={dept.attendanceRate} className="w-16" />
-                        <span className="text-xs text-muted-foreground">{dept.attendanceRate}%</span>
+                        <span className="text-xs text-muted-foreground">
+                          {dept.attendanceRate}%
+                        </span>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -425,7 +495,15 @@ export default function Dashboard() {
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
               <PieChart margin={{ top: 24, right: 24, bottom: 8, left: 24 }}>
-                <Pie data={departmentDistribution} dataKey="count" nameKey="department" cx="50%" cy="50%" outerRadius={85} label>
+                <Pie
+                  data={departmentDistribution}
+                  dataKey="count"
+                  nameKey="department"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={85}
+                  label
+                >
                   {departmentDistribution.map((_, i) => (
                     <Cell key={i} fill={pieColor(i)} />
                   ))}
@@ -495,9 +573,23 @@ export default function Dashboard() {
             ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <LineChart data={attendanceTrend}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                  <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} fontSize={11} stroke="hsl(var(--muted-foreground))" />
-                  <YAxis domain={[0, 100]} fontSize={11} stroke="hsl(var(--muted-foreground))" unit="%" />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                    stroke="hsl(var(--border))"
+                  />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={(d: string) => d.slice(5)}
+                    fontSize={11}
+                    stroke="hsl(var(--muted-foreground))"
+                  />
+                  <YAxis
+                    domain={[0, 100]}
+                    fontSize={11}
+                    stroke="hsl(var(--muted-foreground))"
+                    unit="%"
+                  />
                   <Tooltip
                     contentStyle={{
                       background: 'hsl(var(--card))',
@@ -506,7 +598,14 @@ export default function Dashboard() {
                       fontSize: '12px',
                     }}
                   />
-                  <Line type="monotone" dataKey="attendanceRate" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} name="Attendance %" />
+                  <Line
+                    type="monotone"
+                    dataKey="attendanceRate"
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    name="Attendance %"
+                  />
                 </LineChart>
               </ResponsiveContainer>
             )}
@@ -542,8 +641,17 @@ export default function Dashboard() {
             ) : (
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={overtimeForecast}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                  <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(5)} fontSize={10} stroke="hsl(var(--muted-foreground))" />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                    stroke="hsl(var(--border))"
+                  />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={(d: string) => d.slice(5)}
+                    fontSize={10}
+                    stroke="hsl(var(--muted-foreground))"
+                  />
                   <YAxis fontSize={10} stroke="hsl(var(--muted-foreground))" />
                   <Tooltip
                     contentStyle={{
@@ -553,7 +661,12 @@ export default function Dashboard() {
                       fontSize: '12px',
                     }}
                   />
-                  <Bar dataKey="overtimeHours" fill="#f59e0b" radius={[4, 4, 0, 0]} name="Overtime Hours" />
+                  <Bar
+                    dataKey="overtimeHours"
+                    fill="#f59e0b"
+                    radius={[4, 4, 0, 0]}
+                    name="Overtime Hours"
+                  />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -589,13 +702,17 @@ export default function Dashboard() {
               <TableBody>
                 {activity.map((a) => (
                   <TableRow key={a.id as string}>
-                    <TableCell className="font-medium">{(a.employeeName as string) || (a.employeeEmail as string)}</TableCell>
+                    <TableCell className="font-medium">
+                      {(a.employeeName as string) || (a.employeeEmail as string)}
+                    </TableCell>
                     <TableCell>{(a.branch as string) || '—'}</TableCell>
                     <TableCell>{formatDate(a.clockIn as string)}</TableCell>
                     <TableCell>{formatTime(a.clockIn as string)}</TableCell>
                     <TableCell>{a.clockOut ? formatTime(a.clockOut as string) : '—'}</TableCell>
                     <TableCell>
-                      <Badge variant={a.status === 'active' ? 'success' : 'secondary'}>{a.status as string}</Badge>
+                      <Badge variant={a.status === 'active' ? 'success' : 'secondary'}>
+                        {a.status as string}
+                      </Badge>
                     </TableCell>
                   </TableRow>
                 ))}

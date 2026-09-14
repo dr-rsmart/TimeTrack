@@ -11,9 +11,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Search, ShieldAlert, CalendarPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { employeeApi, timeEntryApi, type Employee, ApiError } from '../../services/api';
-import {
-  Button, Input, Label, Modal, Select, Spinner, Textarea,
-} from '../ui';
+import { Button, Input, Label, Modal, Select, Spinner, Textarea } from '../ui';
 import { toDateStr } from '../../lib/utils';
 
 interface ManualTimeEntryModalProps {
@@ -54,7 +52,9 @@ export default function ManualTimeEntryModal({ open, onClose, onDone }: ManualTi
           setEmployees(
             res.items
               .filter((e) => e.status === 'active')
-              .sort((a, b) => `${a.surname} ${a.firstName}`.localeCompare(`${b.surname} ${b.firstName}`)),
+              .sort((a, b) =>
+                `${a.surname} ${a.firstName}`.localeCompare(`${b.surname} ${b.firstName}`),
+              ),
           );
         }
       } catch (err) {
@@ -134,7 +134,9 @@ export default function ManualTimeEntryModal({ open, onClose, onDone }: ManualTi
         breakMinutes: mins,
         notes: notes.trim() || undefined,
       });
-      toast.success(`Time entry added for ${selectedEmployee.firstName} ${selectedEmployee.surname} (${date})`);
+      toast.success(
+        `Time entry added for ${selectedEmployee.firstName} ${selectedEmployee.surname} (${date})`,
+      );
       onDone?.();
       onClose();
     } catch (err) {

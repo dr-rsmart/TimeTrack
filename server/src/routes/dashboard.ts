@@ -45,7 +45,9 @@ router.get('/summary', requireAuth, async (req, res) => {
     const { todayStr, dateValues } = todayDateValues();
 
     const tenantWhere =
-      authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+      authUser.role === 'master'
+        ? {}
+        : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 
     // Build employee scope
     let employeeWhere: Record<string, unknown> = { ...tenantWhere, status: 'active' };
@@ -72,25 +74,26 @@ router.get('/summary', requireAuth, async (req, res) => {
       emailFilter = employeeIdentityFilter(scopedEmployees);
     }
 
-    const [totalEmployees, activeClockIns, todayShifts, todayEntries, presentToday] = await Promise.all([
-      prisma.employee.count({ where: employeeWhere }),
-      prisma.timeEntry.count({
-        where: { ...tenantWhere, ...emailFilter, status: 'active' },
-      }),
-      prisma.shift.findMany({
-        where: { ...tenantWhere, ...emailFilter, date: { in: dateValues } },
-        select: { status: true },
-      }),
-      prisma.timeEntry.findMany({
-        where: { ...tenantWhere, ...emailFilter, status: 'completed', date: { in: dateValues } },
-        select: { totalHours: true },
-      }),
-      // Unique employees with any time entry today (active or completed)
-      prisma.timeEntry.findMany({
-        where: { ...tenantWhere, ...emailFilter, date: { in: dateValues } },
-        select: { employeeId: true, employeeEmail: true },
-      }),
-    ]);
+    const [totalEmployees, activeClockIns, todayShifts, todayEntries, presentToday] =
+      await Promise.all([
+        prisma.employee.count({ where: employeeWhere }),
+        prisma.timeEntry.count({
+          where: { ...tenantWhere, ...emailFilter, status: 'active' },
+        }),
+        prisma.shift.findMany({
+          where: { ...tenantWhere, ...emailFilter, date: { in: dateValues } },
+          select: { status: true },
+        }),
+        prisma.timeEntry.findMany({
+          where: { ...tenantWhere, ...emailFilter, status: 'completed', date: { in: dateValues } },
+          select: { totalHours: true },
+        }),
+        // Unique employees with any time entry today (active or completed)
+        prisma.timeEntry.findMany({
+          where: { ...tenantWhere, ...emailFilter, date: { in: dateValues } },
+          select: { employeeId: true, employeeEmail: true },
+        }),
+      ]);
 
     const shiftCounts = { scheduled: 0, active: 0, completed: 0, cancelled: 0, no_show: 0 };
     for (const s of todayShifts) {
@@ -148,7 +151,9 @@ router.get('/attendance-detail', requireAuth, async (req, res) => {
     const { todayStr, dateValues } = todayDateValues();
 
     const tenantWhere =
-      authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+      authUser.role === 'master'
+        ? {}
+        : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 
     // Scoped active employee roster (same convention as /summary)
     let employeeWhere: Record<string, unknown> = { ...tenantWhere, status: 'active' };
@@ -176,7 +181,14 @@ router.get('/attendance-detail', requireAuth, async (req, res) => {
     // Today's entries (active + completed) for the scoped roster
     const entries = await prisma.timeEntry.findMany({
       where: { ...tenantWhere, ...entryIdentityFilter, date: { in: dateValues } },
-      select: { employeeId: true, employeeEmail: true, clockIn: true, clockOut: true, status: true, totalHours: true },
+      select: {
+        employeeId: true,
+        employeeEmail: true,
+        clockIn: true,
+        clockOut: true,
+        status: true,
+        totalHours: true,
+      },
       orderBy: { clockIn: 'asc' },
     });
 
@@ -272,10 +284,11 @@ router.get('/hours-trend', requireAuth, async (req, res) => {
     const days = Math.min(parseInt(req.query.days as string, 10) || 14, 90);
 
     const tenantWhere =
-      authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+      authUser.role === 'master'
+        ? {}
+        : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 
-    const emailFilter =
-      authUser.role === 'employee' ? { employeeEmail: authUser.email } : {};
+    const emailFilter = authUser.role === 'employee' ? { employeeEmail: authUser.email } : {};
 
     // TIMEZONE SAFETY (NB5): the window and buckets use business dates so the
     // trend agrees with the payroll report and the no-show cron convention.
@@ -318,7 +331,9 @@ router.get('/branch-distribution', requireAuth, async (req, res) => {
     }
 
     const tenantWhere =
-      authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+      authUser.role === 'master'
+        ? {}
+        : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 
     const employees = await prisma.employee.groupBy({
       by: ['branch'],
@@ -344,7 +359,9 @@ router.get('/department-distribution', requireAuth, async (req, res) => {
     }
 
     const tenantWhere =
-      authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+      authUser.role === 'master'
+        ? {}
+        : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 
     // Apply manager scope filter for department distribution
     let employeeWhere: Record<string, unknown> = { ...tenantWhere, status: 'active' };
@@ -380,7 +397,9 @@ router.get('/department-performance', requireAuth, async (req, res) => {
     const { dateValues } = todayDateValues();
 
     const tenantWhere =
-      authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+      authUser.role === 'master'
+        ? {}
+        : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 
     // Apply manager scope filter
     let employeeWhere: Record<string, unknown> = { ...tenantWhere, status: 'active' };
@@ -399,7 +418,13 @@ router.get('/department-performance', requireAuth, async (req, res) => {
     // Get today's time entries with department info
     const todayEntries = await prisma.timeEntry.findMany({
       where: { ...tenantWhere, date: { in: dateValues } },
-      select: { department: true, status: true, totalMinutes: true, totalHours: true, employeeEmail: true },
+      select: {
+        department: true,
+        status: true,
+        totalMinutes: true,
+        totalHours: true,
+        employeeEmail: true,
+      },
     });
 
     // Get today's shifts with department info
@@ -409,15 +434,18 @@ router.get('/department-performance', requireAuth, async (req, res) => {
     });
 
     // Build department performance metrics
-    const departmentMap: Record<string, {
-      department: string;
-      totalEmployees: number;
-      clockedIn: number;
-      hoursToday: number;
-      shiftsScheduled: number;
-      shiftsCompleted: number;
-      attendanceRate: number;
-    }> = {};
+    const departmentMap: Record<
+      string,
+      {
+        department: string;
+        totalEmployees: number;
+        clockedIn: number;
+        hoursToday: number;
+        shiftsScheduled: number;
+        shiftsCompleted: number;
+        attendanceRate: number;
+      }
+    > = {};
 
     // Initialize with employee counts
     for (const emp of employees) {
@@ -448,7 +476,7 @@ router.get('/department-performance', requireAuth, async (req, res) => {
         };
       }
       departmentMap[dept].hoursToday += storedDurationHours(entry.totalMinutes, entry.totalHours);
-      
+
       // Track unique employees who clocked in
       if (!clockedInByDept[dept]) clockedInByDept[dept] = new Set();
       clockedInByDept[dept].add(entry.employeeEmail);
@@ -475,9 +503,8 @@ router.get('/department-performance', requireAuth, async (req, res) => {
     // Calculate attendance rates
     for (const dept of Object.values(departmentMap)) {
       dept.hoursToday = Math.round(dept.hoursToday * 100) / 100;
-      dept.attendanceRate = dept.totalEmployees > 0
-        ? Math.round((dept.clockedIn / dept.totalEmployees) * 100)
-        : 0;
+      dept.attendanceRate =
+        dept.totalEmployees > 0 ? Math.round((dept.clockedIn / dept.totalEmployees) * 100) : 0;
     }
 
     res.json({ departments: Object.values(departmentMap) });
@@ -494,7 +521,9 @@ router.get('/recent-activity', requireAuth, async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit as string, 10) || 20, 100);
 
     const tenantWhere =
-      authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+      authUser.role === 'master'
+        ? {}
+        : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 
     const entries = await prisma.timeEntry.findMany({
       where: { ...tenantWhere },
@@ -530,7 +559,9 @@ router.get('/attendance-trend', requireAuth, async (req, res) => {
     const days = Math.min(parseInt(req.query.days as string, 10) || 14, 90);
 
     const tenantWhere =
-      authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+      authUser.role === 'master'
+        ? {}
+        : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 
     // Apply manager scope filter via employee emails
     let emailFilter: Record<string, unknown> = {};
@@ -541,7 +572,8 @@ router.get('/attendance-trend', requireAuth, async (req, res) => {
         select: { email: true },
       });
       const emails = scopedEmployees.map((e) => e.email);
-      emailFilter = emails.length > 0 ? { employeeEmail: { in: emails } } : { employeeEmail: '__none__' };
+      emailFilter =
+        emails.length > 0 ? { employeeEmail: { in: emails } } : { employeeEmail: '__none__' };
     }
 
     // Active employee count (assumed constant over the period for rate calculation)
@@ -595,7 +627,9 @@ router.get('/overtime-alerts', requireAuth, async (req, res) => {
     const days = Math.min(parseInt(req.query.days as string, 10) || 7, 30);
 
     const tenantWhere =
-      authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+      authUser.role === 'master'
+        ? {}
+        : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 
     // Get company overtime settings
     const settings = await prisma.companySettings.findFirst({
@@ -614,7 +648,8 @@ router.get('/overtime-alerts', requireAuth, async (req, res) => {
         select: { email: true },
       });
       const emails = scopedEmployees.map((e) => e.email);
-      emailFilter = emails.length > 0 ? { employeeEmail: { in: emails } } : { employeeEmail: '__none__' };
+      emailFilter =
+        emails.length > 0 ? { employeeEmail: { in: emails } } : { employeeEmail: '__none__' };
     }
 
     // TIMEZONE SAFETY (NB5): alert window anchored to the business day.
@@ -751,7 +786,9 @@ router.get('/overtime-forecast', requireAuth, async (req, res) => {
     }
 
     const tenantWhere =
-      authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+      authUser.role === 'master'
+        ? {}
+        : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 
     const settings = await prisma.companySettings.findFirst({
       where: tenantWhere,
@@ -767,7 +804,8 @@ router.get('/overtime-forecast', requireAuth, async (req, res) => {
         select: { email: true },
       });
       const emails = scopedEmployees.map((e) => e.email);
-      emailFilter = emails.length > 0 ? { employeeEmail: { in: emails } } : { employeeEmail: '__none__' };
+      emailFilter =
+        emails.length > 0 ? { employeeEmail: { in: emails } } : { employeeEmail: '__none__' };
     }
 
     // Last 7 days of data for forecasting (business timezone, NB5)
@@ -780,9 +818,16 @@ router.get('/overtime-forecast', requireAuth, async (req, res) => {
     });
 
     // Daily totals and overtime (business days, oldest first)
-    const byDate: Record<string, { totalHours: number; overtimeHours: number; employees: Set<string> }> = {};
+    const byDate: Record<
+      string,
+      { totalHours: number; overtimeHours: number; employees: Set<string> }
+    > = {};
     for (let i = 0; i < 7; i++) {
-      byDate[addBusinessDays(todayStr, i - 6)] = { totalHours: 0, overtimeHours: 0, employees: new Set() };
+      byDate[addBusinessDays(todayStr, i - 6)] = {
+        totalHours: 0,
+        overtimeHours: 0,
+        employees: new Set(),
+      };
     }
 
     // Track per-employee per-day hours for overtime calculation
@@ -809,12 +854,14 @@ router.get('/overtime-forecast', requireAuth, async (req, res) => {
 
     // Simple linear forecast: average of last 7 days projected forward
     const daysWithData = Object.values(byDate).filter((d) => d.employees.size > 0);
-    const avgOvertime = daysWithData.length > 0
-      ? daysWithData.reduce((s, d) => s + d.overtimeHours, 0) / daysWithData.length
-      : 0;
-    const avgTotalHours = daysWithData.length > 0
-      ? daysWithData.reduce((s, d) => s + d.totalHours, 0) / daysWithData.length
-      : 0;
+    const avgOvertime =
+      daysWithData.length > 0
+        ? daysWithData.reduce((s, d) => s + d.overtimeHours, 0) / daysWithData.length
+        : 0;
+    const avgTotalHours =
+      daysWithData.length > 0
+        ? daysWithData.reduce((s, d) => s + d.totalHours, 0) / daysWithData.length
+        : 0;
 
     const forecast = Object.entries(byDate).map(([date, data]) => ({
       date,

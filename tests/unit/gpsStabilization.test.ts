@@ -100,8 +100,8 @@ describe('GPS Stabilization — getCurrentPosition (clockInHelper)', () => {
 
     const promise = getCurrentPosition({ timeoutMs: 2000 });
     // Glitch jumps — must be ignored.
-    harness.emitFix({ latitude: -33.9000, longitude: 18.9500, accuracy: 238 });
-    harness.emitFix({ latitude: -33.9100, longitude: 18.8000, accuracy: 150 });
+    harness.emitFix({ latitude: -33.9, longitude: 18.95, accuracy: 238 });
+    harness.emitFix({ latitude: -33.91, longitude: 18.8, accuracy: 150 });
     // First fix that passes the 100m gate.
     harness.emitFix({ latitude: -33.9249, longitude: 18.4241, accuracy: 20 });
 
@@ -124,7 +124,7 @@ describe('GPS Stabilization — getCurrentPosition (clockInHelper)', () => {
 
     // Second acquisition: only a glitch fix arrives, then geolocation errors out.
     const second = getCurrentPosition({ timeoutMs: 2000 });
-    harness.emitFix({ latitude: -33.9000, longitude: 18.9500, accuracy: 480 }); // glitch — ignored
+    harness.emitFix({ latitude: -33.9, longitude: 18.95, accuracy: 480 }); // glitch — ignored
     harness.emitError(2, 'Position unavailable');
 
     const result = await second;
@@ -145,7 +145,7 @@ describe('GPS Stabilization — getCurrentPosition (clockInHelper)', () => {
 
     // Second acquisition: only unstable fixes arrive, then the timeout fires.
     const second = getCurrentPosition({ timeoutMs: 100 });
-    harness.emitFix({ latitude: -33.9000, longitude: 18.9500, accuracy: 300 }); // glitch — ignored
+    harness.emitFix({ latitude: -33.9, longitude: 18.95, accuracy: 300 }); // glitch — ignored
 
     const result = await second;
     expect(result?.isCached).toBe(true);
@@ -159,7 +159,7 @@ describe('GPS Stabilization — getCurrentPosition (clockInHelper)', () => {
     const { getCurrentPosition, getLastReliablePosition } = await importFreshClockInHelper();
 
     const byError = getCurrentPosition({ timeoutMs: 2000 });
-    harness.emitFix({ latitude: -33.9000, longitude: 18.9500, accuracy: 480 }); // ignored
+    harness.emitFix({ latitude: -33.9, longitude: 18.95, accuracy: 480 }); // ignored
     harness.emitError(1, 'User denied Geolocation');
     expect(await byError).toBeNull();
 
@@ -177,7 +177,12 @@ describe('GPS Stabilization — getCurrentPosition (clockInHelper)', () => {
     // Seed the cache with a reliable fix whose timestamp is already 6 minutes old.
     const staleTimestamp = Date.now() - 6 * 60_000;
     const first = getCurrentPosition({ timeoutMs: 2000 });
-    harness.emitFix({ latitude: -33.9249, longitude: 18.4241, accuracy: 15, timestamp: staleTimestamp });
+    harness.emitFix({
+      latitude: -33.9249,
+      longitude: 18.4241,
+      accuracy: 15,
+      timestamp: staleTimestamp,
+    });
     await first;
 
     // Next acquisition fails — the stale cache must NOT be served.

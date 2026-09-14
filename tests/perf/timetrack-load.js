@@ -18,8 +18,8 @@ export const options = {
       startVUs: 0,
       stages: [
         { duration: '30s', target: 100 }, // Ramp-up
-        { duration: '2m', target: 500 },   // Baseline peak
-        { duration: '30s', target: 0 },   // Ramp-down
+        { duration: '2m', target: 500 }, // Baseline peak
+        { duration: '30s', target: 0 }, // Ramp-down
       ],
       gracefulRampDown: '15s',
     },
@@ -30,7 +30,7 @@ export const options = {
       stages: [
         { duration: '20s', target: 1000 },
         { duration: '1m', target: 3000 }, // Concurrency surge
-        { duration: '30s', target: 0 },   // Recovery
+        { duration: '30s', target: 0 }, // Recovery
       ],
       gracefulRampDown: '20s',
     },

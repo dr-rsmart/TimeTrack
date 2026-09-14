@@ -27,7 +27,10 @@ const buckets = new Map<string, WindowEntry>();
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of buckets.entries()) {
-    if (entry.timestamps.length === 0 || now - entry.timestamps[entry.timestamps.length - 1] > 10 * 60_000) {
+    if (
+      entry.timestamps.length === 0 ||
+      now - entry.timestamps[entry.timestamps.length - 1] > 10 * 60_000
+    ) {
       buckets.delete(key);
     }
   }
@@ -37,7 +40,7 @@ function checkMemory(
   key: string,
   maxRequests: number,
   windowMs: number,
-  now: number
+  now: number,
 ): { allowed: boolean; remaining: number; retryAfterSec: number } {
   let entry = buckets.get(key);
   if (!entry) {
@@ -59,7 +62,7 @@ async function checkRedis(
   key: string,
   maxRequests: number,
   windowMs: number,
-  now: number
+  now: number,
 ): Promise<{ allowed: boolean; remaining: number; retryAfterSec: number }> {
   const redisKey = `tt:rl:${key}`;
   const windowStart = now - windowMs;

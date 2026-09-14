@@ -7,6 +7,7 @@ incident waiting to happen — Audit Cycle 16 (2026-08-27) found exactly one suc
 case (entry 001 below), which motivates this register.
 
 **Rules:**
+
 1. One numbered entry per change, newest at the bottom.
 2. Include: date, author, target database, what changed, why, and the roll-forward/
    rollback path.
@@ -63,6 +64,11 @@ case (entry 001 below), which motivates this register.
      `commits` allowlist block in `.gitleaks.toml`.
   3. Move App Store Connect keys out of `eas/` into a secret manager and delete
      the local copies (finding B11/NB-ops).
+- **STATUS 2026-09-14 (Phase 1):** tracked-file redaction completed
+  (`docs/AUDIT_REPORT.md` password references redacted); full executable steps
+  now live in `docs/SECURITY_REMEDIATION_RUNBOOK.md`. Steps 1–3 remain
+  owner-only (Railway/secret-manager access + GitHub force-push), deferred
+  under the current no-push/no-deploy freeze.
 
 ## 003 — Production migration baseline: pwdEpoch column + `_prisma_migrations` adoption
 

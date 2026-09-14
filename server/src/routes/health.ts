@@ -57,7 +57,9 @@ healthRouter.get('/', async (_req: Request, res: Response): Promise<void> => {
     res.status(503).json({
       status: 'degraded',
       error: 'Database unavailable',
-      details: config.isProduction ? 'Database ping failed' : (err?.message || 'Database ping failed'),
+      details: config.isProduction
+        ? 'Database ping failed'
+        : err?.message || 'Database ping failed',
       timestamp: new Date().toISOString(),
     });
   }
@@ -75,7 +77,9 @@ healthRouter.get('/ready', async (_req: Request, res: Response): Promise<void> =
     res.status(503).json({
       ready: false,
       status: 'unhealthy',
-      error: config.isProduction ? 'Database connection not ready' : (err?.message || 'Database connection not ready'),
+      error: config.isProduction
+        ? 'Database connection not ready'
+        : err?.message || 'Database connection not ready',
       timestamp: new Date().toISOString(),
     });
   }

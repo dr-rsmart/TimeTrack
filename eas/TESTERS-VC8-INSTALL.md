@@ -16,7 +16,7 @@ https://expo.dev/artifacts/eas/9zymBRVXclahwl3Djmj_5Lwdiw-A_8uzCNMPvWsMwWE.apk
 ## Tester instructions
 
 1. On the Android device, open the link above (or receive the `.apk` file).
-2. Tap **Install** (first time only: allow *Install unknown apps* for the
+2. Tap **Install** (first time only: allow _Install unknown apps_ for the
    browser/file manager when Android asks).
 3. Open **TimeTrack**. The splash shows briefly, then the **login page**
    appears (within ~2 s on a normal connection, never more than ~6 s).
@@ -30,4 +30,4 @@ https://expo.dev/artifacts/eas/9zymBRVXclahwl3Djmj_5Lwdiw-A_8uzCNMPvWsMwWE.apk
 - Once Google approves Release 8 on the Closed testing → Alpha track, testers
   can also update via the Play Store as normal.
 - If anything still looks wrong, capture a screenshot plus
-  *Settings → About phone → Android version* and report back.
+  _Settings → About phone → Android version_ and report back.

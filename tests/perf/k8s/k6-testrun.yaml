@@ -47,10 +47,10 @@ spec:
     image: grafana/k6:latest
     resources:
       requests:
-        cpu: "1"
+        cpu: '1'
         memory: 2Gi
       limits:
-        cpu: "2"
+        cpu: '2'
         memory: 4Gi
     # Anti-affinity: spread the 2 workers across different nodes
     affinity:
@@ -62,13 +62,13 @@ spec:
             topologyKey: kubernetes.io/hostname
     # Tolerate load-gen taint if you dedicate nodes
     tolerations:
-      - key: "loadgen"
-        operator: "Equal"
-        value: "true"
-        effect: "NoSchedule"
+      - key: 'loadgen'
+        operator: 'Equal'
+        value: 'true'
+        effect: 'NoSchedule'
     env:
       - name: K6_NO_USAGE_REPORT
-        value: "true"
+        value: 'true'
 
   # Separate starter pod coordinates the runners (k6 operator handles this
   # automatically via the test lifecycle: init → run → finalize).

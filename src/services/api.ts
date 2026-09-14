@@ -30,7 +30,12 @@ export class ApiError extends Error {
   code?: ApiErrorCode | string;
   details?: { path: string; message: string }[];
 
-  constructor(message: string, status: number, code?: string, details?: { path: string; message: string }[]) {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    details?: { path: string; message: string }[],
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
@@ -111,7 +116,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       // password). Those are form errors rendered inline by their screens —
       // NOT session events. Surfacing them as "Session ended" would kill a
       // perfectly valid session on a simple typo.
-      const isCredentialCheck = path.startsWith('/auth/login') || path.startsWith('/auth/change-password');
+      const isCredentialCheck =
+        path.startsWith('/auth/login') || path.startsWith('/auth/change-password');
       if (!isCredentialCheck) {
         notifySessionError('UNAUTHENTICATED', errorMsg);
       }
@@ -145,7 +151,10 @@ export const api = {
       headers,
     }),
   put: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined }),
+    request<T>(path, {
+      method: 'PUT',
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };
 
@@ -161,10 +170,12 @@ export const authApi = {
   changePassword: (currentPassword: string, newPassword: string) =>
     api.post<{ success: boolean }>('/auth/change-password', { currentPassword, newPassword }),
   forgotPassword: (email: string) =>
-    api.post<{ success: boolean; message: string; adminEmail: string | null; adminName: string | null }>(
-      '/auth/forgot-password',
-      { email },
-    ),
+    api.post<{
+      success: boolean;
+      message: string;
+      adminEmail: string | null;
+      adminName: string | null;
+    }>('/auth/forgot-password', { email }),
   /** Keep the current password instead of setting a new one (clears mustChangePassword). */
   keepPassword: () => api.post<{ success: boolean }>('/auth/keep-password'),
 };
@@ -175,7 +186,13 @@ export interface DashboardSummary {
   activeClockIns: number;
   totalHoursToday: number;
   attendanceRate: number;
-  shifts: { scheduled: number; active: number; completed: number; cancelled: number; no_show: number };
+  shifts: {
+    scheduled: number;
+    active: number;
+    completed: number;
+    cancelled: number;
+    no_show: number;
+  };
   date: string;
 }
 
@@ -264,14 +281,26 @@ export const dashboardApi = {
   summary: () => api.get<DashboardSummary>('/dashboard/summary'),
   /** Per-employee clock-in drill-down backing the dashboard KPI detail modal. */
   attendanceDetail: () => api.get<AttendanceDetailResponse>('/dashboard/attendance-detail'),
-  hoursTrend: (days = 14) => api.get<{ trend: { date: string; hours: number }[] }>(`/dashboard/hours-trend?days=${days}`),
-  branchDistribution: () => api.get<{ distribution: { branch: string; count: number }[] }>('/dashboard/branch-distribution'),
-  departmentDistribution: () => api.get<{ distribution: { department: string; count: number }[] }>('/dashboard/department-distribution'),
-  departmentPerformance: () => api.get<{ departments: DepartmentPerformance[] }>('/dashboard/department-performance'),
+  hoursTrend: (days = 14) =>
+    api.get<{ trend: { date: string; hours: number }[] }>(`/dashboard/hours-trend?days=${days}`),
+  branchDistribution: () =>
+    api.get<{ distribution: { branch: string; count: number }[] }>(
+      '/dashboard/branch-distribution',
+    ),
+  departmentDistribution: () =>
+    api.get<{ distribution: { department: string; count: number }[] }>(
+      '/dashboard/department-distribution',
+    ),
+  departmentPerformance: () =>
+    api.get<{ departments: DepartmentPerformance[] }>('/dashboard/department-performance'),
   recentActivity: (limit = 20) =>
-    api.get<{ activity: Array<Record<string, unknown>> }>(`/dashboard/recent-activity?limit=${limit}`),
+    api.get<{ activity: Array<Record<string, unknown>> }>(
+      `/dashboard/recent-activity?limit=${limit}`,
+    ),
   attendanceTrend: (days = 14) =>
-    api.get<{ trend: AttendanceTrendPoint[]; totalEmployees: number }>(`/dashboard/attendance-trend?days=${days}`),
+    api.get<{ trend: AttendanceTrendPoint[]; totalEmployees: number }>(
+      `/dashboard/attendance-trend?days=${days}`,
+    ),
   overtimeAlerts: (days = 7) =>
     api.get<{
       alerts: OvertimeAlert[];
@@ -279,7 +308,9 @@ export const dashboardApi = {
       periodDays: number;
     }>(`/dashboard/overtime-alerts?days=${days}`),
   overtimeForecast: () =>
-    api.get<{ forecast: OvertimeForecastPoint[]; summary: OvertimeForecastSummary }>('/dashboard/overtime-forecast'),
+    api.get<{ forecast: OvertimeForecastPoint[]; summary: OvertimeForecastSummary }>(
+      '/dashboard/overtime-forecast',
+    ),
 };
 
 // ── Employees ──
@@ -304,7 +335,13 @@ export interface Employee {
   updatedAt: string;
   geofence?: { id: string; name: string } | null;
   employeeGeofences?: Array<{ geofence: { id: string; name: string } }>;
-  manager?: { id: string; firstName: string; surname: string; role?: string; branch?: string } | null;
+  manager?: {
+    id: string;
+    firstName: string;
+    surname: string;
+    role?: string;
+    branch?: string;
+  } | null;
   /** Present on list responses: false = employee is visible in Workforce but has no login account. */
   hasLoginAccount?: boolean;
 }
@@ -335,7 +372,15 @@ export interface BulkImportResult {
 }
 
 export const employeeApi = {
-  list: (params: { search?: string; branch?: string; department?: string; limit?: number; offset?: number } = {}) => {
+  list: (
+    params: {
+      search?: string;
+      branch?: string;
+      department?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ) => {
     const qs = new URLSearchParams();
     if (params.search) qs.set('search', params.search);
     if (params.branch) qs.set('branch', params.branch);
@@ -352,12 +397,17 @@ export const employeeApi = {
     api.post<{ success: boolean; message: string }>(`/employees/${id}/reset-password`),
   /** Reactivate a terminated employee (admin/manager). */
   reactivate: (id: string) =>
-    api.post<{ success: boolean; message: string; employee: Employee }>(`/employees/${id}/reactivate`),
+    api.post<{ success: boolean; message: string; employee: Employee }>(
+      `/employees/${id}/reactivate`,
+    ),
   /** Admin only: list all active manager/admin employees available for assignment. */
   listManagers: () => api.get<{ managers: ManagerOption[] }>('/employees/managers'),
   /** Bulk onboarding: import many employees at once (CSV-parsed on the client). */
   bulkCreate: (rows: Record<string, unknown>[], companyProfileId?: string) =>
-    api.post<BulkImportResult>('/employees/bulk', { rows, ...(companyProfileId ? { companyProfileId } : {}) }),
+    api.post<BulkImportResult>('/employees/bulk', {
+      rows,
+      ...(companyProfileId ? { companyProfileId } : {}),
+    }),
 };
 
 // ── Shifts ──
@@ -382,12 +432,27 @@ export interface BulkShiftResult {
   success: boolean;
   created: number;
   skipped: number;
-  skippedDetails: Array<{ employeeId: string; employeeName: string; date?: string; reason: string }>;
+  skippedDetails: Array<{
+    employeeId: string;
+    employeeName: string;
+    date?: string;
+    reason: string;
+  }>;
   shiftIds: string[];
 }
 
 export const shiftApi = {
-  list: (params: { date?: string; from?: string; to?: string; employeeId?: string; status?: string; branch?: string; limit?: number } = {}) => {
+  list: (
+    params: {
+      date?: string;
+      from?: string;
+      to?: string;
+      employeeId?: string;
+      status?: string;
+      branch?: string;
+      limit?: number;
+    } = {},
+  ) => {
     const qs = new URLSearchParams();
     if (params.date) qs.set('date', params.date);
     if (params.from) qs.set('from', params.from);
@@ -412,14 +477,26 @@ export const shiftApi = {
     location?: string;
     notes?: string;
     skipOverlaps?: boolean;
-    weeklySchedule?: Record<string, { enabled?: boolean; startTime?: string; endTime?: string; shiftType?: string }>;
+    weeklySchedule?: Record<
+      string,
+      { enabled?: boolean; startTime?: string; endTime?: string; shiftType?: string }
+    >;
   }) => api.post<BulkShiftResult>('/shifts/bulk', data),
 };
 
 // ── Time Entries ──
 
 export const timeEntryApi = {
-  list: (params: { date?: string; from?: string; to?: string; employeeEmail?: string; status?: string; limit?: number } = {}) => {
+  list: (
+    params: {
+      date?: string;
+      from?: string;
+      to?: string;
+      employeeEmail?: string;
+      status?: string;
+      limit?: number;
+    } = {},
+  ) => {
     const qs = new URLSearchParams();
     if (params.date) qs.set('date', params.date);
     if (params.from) qs.set('from', params.from);
@@ -433,7 +510,12 @@ export const timeEntryApi = {
     const qs = employeeEmail ? `?employeeEmail=${encodeURIComponent(employeeEmail)}` : '';
     return api.get<{ active: TimeEntry | null }>(`/time-entries/active${qs}`);
   },
-  clockIn: (latitude?: number, longitude?: number, employeeEmail?: string, justification?: string) =>
+  clockIn: (
+    latitude?: number,
+    longitude?: number,
+    employeeEmail?: string,
+    justification?: string,
+  ) =>
     api.post<TimeEntry>(
       '/time-entries/clock-in',
       {
@@ -444,7 +526,12 @@ export const timeEntryApi = {
       },
       { 'Idempotency-Key': createIdempotencyKey('clock-in') },
     ),
-  clockOut: (breakMinutes?: number, latitude?: number, longitude?: number, employeeEmail?: string) =>
+  clockOut: (
+    breakMinutes?: number,
+    latitude?: number,
+    longitude?: number,
+    employeeEmail?: string,
+  ) =>
     api.post<TimeEntry>(
       '/time-entries/clock-out',
       {
@@ -460,7 +547,10 @@ export const timeEntryApi = {
   bulkClockIn: (employeeEmails: string[], justification?: string) =>
     api.post<BulkClockInResponse>('/time-entries/bulk-clock-in', { employeeEmails, justification }),
   bulkClockOut: (employeeEmails: string[], breakMinutes?: number) =>
-    api.post<BulkClockOutResponse>('/time-entries/bulk-clock-out', { employeeEmails, breakMinutes }),
+    api.post<BulkClockOutResponse>('/time-entries/bulk-clock-out', {
+      employeeEmails,
+      breakMinutes,
+    }),
   remove: (id: string) => api.delete<{ success: boolean }>(`/time-entries/${id}`),
   /** Admin/Manager: edit an existing time entry (manual adjustment). */
   update: (id: string, data: UpdateTimeEntryRequest) =>
@@ -496,12 +586,17 @@ export const reportApi = {
     if (params.to) qs.set('to', params.to);
     if (params.branch) qs.set('branch', params.branch);
     if (params.department) qs.set('department', params.department);
-    return api.get<{ from: string; to: string; rows: PayrollRow[]; settings: Record<string, unknown> }>(
-      `/reports/payroll?${qs.toString()}`,
-    );
+    return api.get<{
+      from: string;
+      to: string;
+      rows: PayrollRow[];
+      settings: Record<string, unknown>;
+    }>(`/reports/payroll?${qs.toString()}`);
   },
   attendance: (from: string, to: string) =>
-    api.get<{ entries: Array<Record<string, unknown>> }>(`/reports/attendance?from=${from}&to=${to}`),
+    api.get<{ entries: Array<Record<string, unknown>> }>(
+      `/reports/attendance?from=${from}&to=${to}`,
+    ),
 };
 
 // ── Settings ──
@@ -534,22 +629,37 @@ export interface Geofence {
 
 export const settingsApi = {
   getSettings: () => api.get<{ settings: CompanySettings | null }>('/settings/settings'),
-  updateSettings: (data: Partial<CompanySettings>) => api.put<{ settings: CompanySettings }>('/settings/settings', data),
+  updateSettings: (data: Partial<CompanySettings>) =>
+    api.put<{ settings: CompanySettings }>('/settings/settings', data),
   listGeofences: () => api.get<{ geofences: Geofence[] }>('/settings/geofences'),
   getMyGeofences: () =>
     api.get<{
-      employee: { id: string; branch: string; department: string; geofenceId: string | null; geofenceIds?: string[] } | null;
+      employee: {
+        id: string;
+        branch: string;
+        department: string;
+        geofenceId: string | null;
+        geofenceIds?: string[];
+      } | null;
       geofences: Geofence[];
     }>('/settings/geofences/my'),
-  createGeofence: (data: Partial<Geofence>) => api.post<{ geofence: Geofence }>('/settings/geofences', data),
-  updateGeofence: (id: string, data: Partial<Geofence>) => api.put<{ geofence: Geofence }>(`/settings/geofences/${id}`, data),
+  createGeofence: (data: Partial<Geofence>) =>
+    api.post<{ geofence: Geofence }>('/settings/geofences', data),
+  updateGeofence: (id: string, data: Partial<Geofence>) =>
+    api.put<{ geofence: Geofence }>(`/settings/geofences/${id}`, data),
   deleteGeofence: (id: string) => api.delete<{ success: boolean }>(`/settings/geofences/${id}`),
   // Holiday management
-  getHolidays: () => api.get<{ systemHolidays: string[]; companyHolidays: string[] }>('/settings/holidays'),
+  getHolidays: () =>
+    api.get<{ systemHolidays: string[]; companyHolidays: string[] }>('/settings/holidays'),
   addHoliday: (date: string, scope?: 'system' | 'company') =>
-    api.post<{ success: boolean; date: string; scope: string }>('/settings/holidays', { date, scope }),
+    api.post<{ success: boolean; date: string; scope: string }>('/settings/holidays', {
+      date,
+      scope,
+    }),
   removeHoliday: (date: string, scope?: 'system' | 'company') =>
-    api.delete<{ success: boolean; removed: string }>(`/settings/holidays/${date}${scope ? `?scope=${scope}` : ''}`),
+    api.delete<{ success: boolean; removed: string }>(
+      `/settings/holidays/${date}${scope ? `?scope=${scope}` : ''}`,
+    ),
 };
 
 // ── Audit ──
@@ -574,14 +684,27 @@ export interface AuditEntry {
 }
 
 export const auditApi = {
-  list: (params: { entity?: string; action?: string; limit?: number; offset?: number; cursor?: string } = {}) => {
+  list: (
+    params: {
+      entity?: string;
+      action?: string;
+      limit?: number;
+      offset?: number;
+      cursor?: string;
+    } = {},
+  ) => {
     const qs = new URLSearchParams();
     if (params.entity) qs.set('entity', params.entity);
     if (params.action) qs.set('action', params.action);
     if (params.limit) qs.set('limit', String(params.limit));
     if (params.offset) qs.set('offset', String(params.offset));
     if (params.cursor) qs.set('cursor', params.cursor);
-    return api.get<{ items: AuditEntry[]; total: number; nextCursor?: string | null; hasMore?: boolean }>(`/audit?${qs.toString()}`);
+    return api.get<{
+      items: AuditEntry[];
+      total: number;
+      nextCursor?: string | null;
+      hasMore?: boolean;
+    }>(`/audit?${qs.toString()}`);
   },
 };
 
@@ -625,9 +748,21 @@ export interface MasterOperator {
 export const masterApi = {
   getStats: () => api.get<PlatformStats>('/master/stats'),
   listCompanies: () => api.get<{ items: CompanyDetail[] }>('/master/companies'),
-  onboardCompany: (data: Partial<CompanyDetail> & { adminEmail: string; adminFirstName: string; adminSurname: string }) =>
-    api.post<{ success: boolean; companyId: string }>('/master/companies', data),
-  updateCompany: (id: string, data: Partial<CompanyDetail> & { adminEmail: string; adminFirstName: string; adminSurname: string }) =>
+  onboardCompany: (
+    data: Partial<CompanyDetail> & {
+      adminEmail: string;
+      adminFirstName: string;
+      adminSurname: string;
+    },
+  ) => api.post<{ success: boolean; companyId: string }>('/master/companies', data),
+  updateCompany: (
+    id: string,
+    data: Partial<CompanyDetail> & {
+      adminEmail: string;
+      adminFirstName: string;
+      adminSurname: string;
+    },
+  ) =>
     api.put<{
       success: boolean;
       /** Present when the admin was reassigned to a brand-new account. */
@@ -635,15 +770,28 @@ export const masterApi = {
       adminEmail?: string;
       note?: string;
     }>(`/master/companies/${id}`, data),
-  toggleCompany: (id: string) => api.post<{ success: boolean; isActive: boolean; message: string }>(`/master/companies/${id}/toggle`),
+  toggleCompany: (id: string) =>
+    api.post<{ success: boolean; isActive: boolean; message: string }>(
+      `/master/companies/${id}/toggle`,
+    ),
   deleteCompany: (id: string) => api.delete<{ success: boolean }>(`/master/companies/${id}`),
   listOperators: () => api.get<{ items: MasterOperator[] }>('/master/operators'),
   createOperator: (data: Partial<MasterOperator>) =>
-    api.post<{ success: boolean; operator: MasterOperator; temporaryPassword: string; note: string }>('/master/operators', data),
+    api.post<{
+      success: boolean;
+      operator: MasterOperator;
+      temporaryPassword: string;
+      note: string;
+    }>('/master/operators', data),
   resetOperatorPassword: (id: string) =>
-    api.post<{ success: boolean; temporaryPassword: string; note: string }>(`/master/operators/${id}/reset-password`),
-  impersonate: (id: string) => api.post<{ success: boolean; token: string }>(`/master/impersonate/${id}`),
-  stopImpersonation: () => api.post<{ success: boolean; token: string }>('/master/stop-impersonation'),
+    api.post<{ success: boolean; temporaryPassword: string; note: string }>(
+      `/master/operators/${id}/reset-password`,
+    ),
+  impersonate: (id: string) =>
+    api.post<{ success: boolean; token: string }>(`/master/impersonate/${id}`),
+  stopImpersonation: () =>
+    api.post<{ success: boolean; token: string }>('/master/stop-impersonation'),
   /** Launch a demo persona session (Master simulator). */
-  demoLogin: (email: string) => api.post<{ success: boolean; token: string; message: string }>('/master/demo-login', { email }),
+  demoLogin: (email: string) =>
+    api.post<{ success: boolean; token: string; message: string }>('/master/demo-login', { email }),
 };

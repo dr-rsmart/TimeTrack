@@ -31,8 +31,7 @@ export function hasExplicitAssignment(
   department: string | null | undefined,
 ): boolean {
   return Boolean(
-    branch && branch !== DEFAULT_BRANCH &&
-    department && department !== DEFAULT_DEPARTMENT,
+    branch && branch !== DEFAULT_BRANCH && department && department !== DEFAULT_DEPARTMENT,
   );
 }
 

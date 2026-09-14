@@ -51,10 +51,10 @@ const API_URL = argVal('--api-url') || process.env.API_URL || 'http://localhost:
 
 // ── Abort thresholds ──
 const LIMITS = {
-  RAM_PCT: 90,        // Memory (RAM) > 90%
-  SWAP_PCT: 90,       // Swap/Page file > 90%
-  CPU_PCT: 95,        // CPU utilization > 95%
-  DISK_QUEUE: 2,      // Disk queue length > 2
+  RAM_PCT: 90, // Memory (RAM) > 90%
+  SWAP_PCT: 90, // Swap/Page file > 90%
+  CPU_PCT: 95, // CPU utilization > 95%
+  DISK_QUEUE: 2, // Disk queue length > 2
 };
 
 // ── Phase definitions (SEQUENTIAL) ──
@@ -95,10 +95,11 @@ function sampleMemory() {
   let swapPct = 0;
   try {
     if (process.platform === 'win32') {
-      const out = execSync(
-        'wmic pagefile list /format:csv 2>nul',
-        { encoding: 'utf8', timeout: 3000, windowsHide: true }
-      );
+      const out = execSync('wmic pagefile list /format:csv 2>nul', {
+        encoding: 'utf8',
+        timeout: 3000,
+        windowsHide: true,
+      });
       // Parse AllocBaseSize/CurrentUsage if present; best-effort
       const lines = out.split('\n').filter((l) => l.trim());
       if (lines.length > 1) {
@@ -124,11 +125,16 @@ function sampleCpu() {
     const prev = lastCpu[i] || cpus[i];
     const idle = cpus[i].idle - prev.idle;
     const total =
-      cpus[i].user - prev.user +
-      cpus[i].nice - prev.nice +
-      cpus[i].sys - prev.sys +
-      cpus[i].irq - prev.irq +
-      cpus[i].idle - prev.idle;
+      cpus[i].user -
+      prev.user +
+      cpus[i].nice -
+      prev.nice +
+      cpus[i].sys -
+      prev.sys +
+      cpus[i].irq -
+      prev.irq +
+      cpus[i].idle -
+      prev.idle;
     idleDelta += idle;
     totalDelta += total;
   }
@@ -144,7 +150,7 @@ function sampleDiskQueue() {
     if (process.platform === 'win32') {
       const out = execSync(
         'typeperf "\\PhysicalDisk(_Total)\\Current Disk Queue Length" -sc 1 -nh 2>nul',
-        { encoding: 'utf8', timeout: 5000, windowsHide: true }
+        { encoding: 'utf8', timeout: 5000, windowsHide: true },
       );
       const match = out.match(/"([0-9.]+)"\s*$/m);
       if (match) return parseFloat(match[1]);
@@ -154,7 +160,11 @@ function sampleDiskQueue() {
       let inflight = 0;
       for (const line of stats.split('\n')) {
         const parts = line.trim().split(/\s+/);
-        if (parts.length >= 12 && /^(sd|nvme|vd)/.test(parts[2]) && !/p\d+$|\d+n\d+p\d+$/.test(parts[2])) {
+        if (
+          parts.length >= 12 &&
+          /^(sd|nvme|vd)/.test(parts[2]) &&
+          !/p\d+$|\d+n\d+p\d+$/.test(parts[2])
+        ) {
           inflight += parseInt(parts[8] || '0', 10);
         }
       }
@@ -175,24 +185,29 @@ function createWatchdog(k6Proc, phaseName, onAbort) {
     const diskQ = sampleDiskQueue();
 
     const breaches = [];
-    if (mem.usedPct > LIMITS.RAM_PCT) breaches.push(`RAM ${mem.usedPct.toFixed(1)}% > ${LIMITS.RAM_PCT}%`);
-    if (mem.swapPct > LIMITS.SWAP_PCT) breaches.push(`Swap ${mem.swapPct.toFixed(1)}% > ${LIMITS.SWAP_PCT}%`);
+    if (mem.usedPct > LIMITS.RAM_PCT)
+      breaches.push(`RAM ${mem.usedPct.toFixed(1)}% > ${LIMITS.RAM_PCT}%`);
+    if (mem.swapPct > LIMITS.SWAP_PCT)
+      breaches.push(`Swap ${mem.swapPct.toFixed(1)}% > ${LIMITS.SWAP_PCT}%`);
     if (diskQ > LIMITS.DISK_QUEUE) breaches.push(`Disk queue ${diskQ} > ${LIMITS.DISK_QUEUE}`);
 
     // CPU: require 3 consecutive hot samples (~6s sustained) to avoid spikes
     if (cpu.pct > LIMITS.CPU_PCT) cpuHotStreak++;
     else cpuHotStreak = 0;
-    if (cpuHotStreak >= 3) breaches.push(`CPU ${cpu.pct.toFixed(1)}% > ${LIMITS.CPU_PCT}% (sustained)`);
+    if (cpuHotStreak >= 3)
+      breaches.push(`CPU ${cpu.pct.toFixed(1)}% > ${LIMITS.CPU_PCT}% (sustained)`);
 
     console.log(
       `  [watchdog] RAM ${mem.usedPct.toFixed(0)}% | Swap ${mem.swapPct.toFixed(0)}% | ` +
-      `CPU ${cpu.pct.toFixed(0)}% | DiskQ ${diskQ.toFixed(1)} | load ${cpu.loadAvg[0].toFixed(2)}`
+        `CPU ${cpu.pct.toFixed(0)}% | DiskQ ${diskQ.toFixed(1)} | load ${cpu.loadAvg[0].toFixed(2)}`,
     );
 
     if (breaches.length > 0) {
       console.error(`\n  🛑 ABORT TRIGGERED (${phaseName}): ${breaches.join('; ')}`);
       clearInterval(interval);
-      try { k6Proc.kill('SIGTERM'); } catch {}
+      try {
+        k6Proc.kill('SIGTERM');
+      } catch {}
       onAbort(breaches);
     }
   }, 2000);
@@ -224,9 +239,12 @@ function runPhase(phase) {
       const k6Args = [
         'run',
         scriptPath,
-        '-e', `API_URL=${API_URL}`,
-        '-e', `VU_SCALE=${vuScale / phase.workers}`,
-        '--summary-export', path.join(ROOT, `tests/perf/results/phase-${phase.id}-w${w + 1}-summary.json`),
+        '-e',
+        `API_URL=${API_URL}`,
+        '-e',
+        `VU_SCALE=${vuScale / phase.workers}`,
+        '--summary-export',
+        path.join(ROOT, `tests/perf/results/phase-${phase.id}-w${w + 1}-summary.json`),
       ];
       if (SMOKE) k6Args.push('--no-usage-report');
 
@@ -252,7 +270,11 @@ function runPhase(phase) {
       const watchdog = createWatchdog(procs[0], phase.name, (breaches) => {
         aborted = breaches;
         // Kill all workers
-        procs.forEach((p) => { try { p.kill('SIGTERM'); } catch {} });
+        procs.forEach((p) => {
+          try {
+            p.kill('SIGTERM');
+          } catch {}
+        });
       });
       procs[0].on('exit', () => watchdog.stop());
     }
@@ -271,7 +293,9 @@ async function main() {
   console.log(`  API target:   ${API_URL}`);
   console.log(`  Smoke mode:   ${SMOKE ? 'YES (5% VUs)' : 'no'}`);
   console.log(`  Watchdog:     ${SKIP_MONITOR ? 'DISABLED' : 'ENABLED'}`);
-  console.log(`  Abort limits: RAM>${LIMITS.RAM_PCT}% Swap>${LIMITS.SWAP_PCT}% CPU>${LIMITS.CPU_PCT}% DiskQ>${LIMITS.DISK_QUEUE}`);
+  console.log(
+    `  Abort limits: RAM>${LIMITS.RAM_PCT}% Swap>${LIMITS.SWAP_PCT}% CPU>${LIMITS.CPU_PCT}% DiskQ>${LIMITS.DISK_QUEUE}`,
+  );
 
   const phases = ONLY_PHASE ? PHASES.filter((p) => p.id === ONLY_PHASE) : PHASES;
   if (phases.length === 0) {
@@ -307,7 +331,11 @@ async function main() {
   console.log('  PHASE EXECUTION SUMMARY');
   console.log('══════════════════════════════════════════════════════════');
   for (const r of summary) {
-    const status = r.aborted ? '🛑 ABORTED (system guard)' : r.exitCode === 0 ? '✅ PASSED' : `❌ FAILED (exit ${r.exitCode})`;
+    const status = r.aborted
+      ? '🛑 ABORTED (system guard)'
+      : r.exitCode === 0
+        ? '✅ PASSED'
+        : `❌ FAILED (exit ${r.exitCode})`;
     console.log(`  Phase ${r.phase}: ${status}`);
   }
   const failed = summary.some((r) => r.exitCode !== 0);

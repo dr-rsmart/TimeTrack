@@ -14,7 +14,11 @@ import { timeEntryApi, type TimeEntry } from '../../services/api';
 import { Button, Card, CardContent, Badge, Spinner } from '../ui';
 import { cn } from '../../lib/utils';
 import { useAutoGeofenceState, AUTO_CLOCK_EVENT } from '../../hooks/useAutoGeofence';
-import { checkGpsAvailability, queryLocationPermissions, getCurrentPosition } from '../../utils/clockInHelper';
+import {
+  checkGpsAvailability,
+  queryLocationPermissions,
+  getCurrentPosition,
+} from '../../utils/clockInHelper';
 import { LocationPermissionModal } from '../location/LocationPermissionModal';
 
 interface SelfClockWidgetProps {
@@ -36,14 +40,19 @@ function formatTime(dateStr: string): string {
   return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export default function SelfClockWidget({ userEmail, userRole = 'employee', showClock = true, showHistory = true }: SelfClockWidgetProps) {
+export default function SelfClockWidget({
+  userEmail,
+  userRole = 'employee',
+  showClock = true,
+  showHistory = true,
+}: SelfClockWidgetProps) {
   const [activeEntry, setActiveEntry] = useState<TimeEntry | null>(null);
   const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [breakMinutes, setBreakMinutes] = useState(0);
-  
+
   // Geofence state
   const [locationDenied, setLocationDenied] = useState(false);
   const [showLocationModal, setShowLocationModal] = useState(false);
@@ -95,7 +104,9 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
         setShowLocationModal(true);
       }
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // ── Auto Geofence (read-only) ──
@@ -105,7 +116,9 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
   const autoGeo = useAutoGeofenceState();
 
   useEffect(() => {
-    const handler = () => { loadData(); };
+    const handler = () => {
+      loadData();
+    };
     window.addEventListener(AUTO_CLOCK_EVENT, handler);
     return () => window.removeEventListener(AUTO_CLOCK_EVENT, handler);
   }, [loadData]);
@@ -147,8 +160,13 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
     setActionLoading(true);
     try {
       const pos = await getCurrentPosition();
-      await timeEntryApi.clockOut(breakMinutes > 0 ? breakMinutes : undefined, pos?.latitude, pos?.longitude);
-      const baseDescription = breakMinutes > 0 ? `Break: ${breakMinutes} minutes recorded.` : 'See you next time!';
+      await timeEntryApi.clockOut(
+        breakMinutes > 0 ? breakMinutes : undefined,
+        pos?.latitude,
+        pos?.longitude,
+      );
+      const baseDescription =
+        breakMinutes > 0 ? `Break: ${breakMinutes} minutes recorded.` : 'See you next time!';
       toast.success('Clocked out successfully!', {
         description: pos?.isCached
           ? `${baseDescription} (logged using your last reliable position)`
@@ -197,7 +215,12 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
                     {isClockedIn && (
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                     )}
-                    <span className={cn('relative inline-flex rounded-full h-2.5 w-2.5', isClockedIn ? 'bg-emerald-500' : 'bg-muted-foreground/40')} />
+                    <span
+                      className={cn(
+                        'relative inline-flex rounded-full h-2.5 w-2.5',
+                        isClockedIn ? 'bg-emerald-500' : 'bg-muted-foreground/40',
+                      )}
+                    />
                   </span>
                   <span className="text-xs font-bold tracking-wider uppercase text-muted-foreground">
                     {isClockedIn ? 'Currently Working' : 'Not Clocked In'}
@@ -205,42 +228,62 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
                 </div>
 
                 {/* Auto Geofence Status Badge — 3-tier zone colours (green / orange / red) */}
-                {autoGeo.geofence && (() => {
-                  const zone = autoGeo.monitorState?.zone ?? 'outside';
-                  const zoneIconColor = zone === 'inside' ? 'text-emerald-500' : zone === 'approaching' ? 'text-orange-500' : 'text-red-500';
-                  const zoneTextColor = zone === 'inside' ? 'text-emerald-600 dark:text-emerald-400' : zone === 'approaching' ? 'text-orange-600 dark:text-orange-400' : 'text-red-600 dark:text-red-400';
-                  return (
-                    <div className="flex flex-col items-center gap-1">
-                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-secondary/40 px-2.5 py-0.5 rounded-full border border-border/30">
-                        <Navigation className={cn('w-3 h-3', zoneIconColor)} />
-                        <span>
-                          {autoGeo.autoGeofenceEnabled ? 'Auto-Geofence ON' : 'Auto-Geofence OFF'}: {autoGeo.geofence.name} ({autoGeo.geofence.radius_meters}m radius)
-                        </span>
-                        {autoGeo.monitorState?.lastDistance !== undefined && (
-                          <span className={cn('font-semibold', zoneTextColor)}>
-                            · ~{autoGeo.monitorState.lastDistance}m
-                            {autoGeo.monitorState.lastAccuracy !== undefined && (
-                              <span className="font-normal opacity-70"> ±{autoGeo.monitorState.lastAccuracy}m</span>
-                            )}
+                {autoGeo.geofence &&
+                  (() => {
+                    const zone = autoGeo.monitorState?.zone ?? 'outside';
+                    const zoneIconColor =
+                      zone === 'inside'
+                        ? 'text-emerald-500'
+                        : zone === 'approaching'
+                          ? 'text-orange-500'
+                          : 'text-red-500';
+                    const zoneTextColor =
+                      zone === 'inside'
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : zone === 'approaching'
+                          ? 'text-orange-600 dark:text-orange-400'
+                          : 'text-red-600 dark:text-red-400';
+                    return (
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-secondary/40 px-2.5 py-0.5 rounded-full border border-border/30">
+                          <Navigation className={cn('w-3 h-3', zoneIconColor)} />
+                          <span>
+                            {autoGeo.autoGeofenceEnabled ? 'Auto-Geofence ON' : 'Auto-Geofence OFF'}
+                            : {autoGeo.geofence.name} ({autoGeo.geofence.radius_meters}m radius)
                           </span>
+                          {autoGeo.monitorState?.lastDistance !== undefined && (
+                            <span className={cn('font-semibold', zoneTextColor)}>
+                              · ~{autoGeo.monitorState.lastDistance}m
+                              {autoGeo.monitorState.lastAccuracy !== undefined && (
+                                <span className="font-normal opacity-70">
+                                  {' '}
+                                  ±{autoGeo.monitorState.lastAccuracy}m
+                                </span>
+                              )}
+                            </span>
+                          )}
+                        </div>
+                        {autoGeo.monitorState?.poorSignal &&
+                          !autoGeo.monitorState?.permissionDenied && (
+                            <span className="text-[10px] text-amber-600 dark:text-amber-400">
+                              ⚠ Poor GPS signal — waiting for a reliable fix (unstable readings
+                              ignored)
+                            </span>
+                          )}
+                        {autoGeo.monitorState?.permissionDenied && (
+                          <button
+                            onClick={() => {
+                              setLocationDenied(true);
+                              setShowLocationModal(true);
+                            }}
+                            className="text-[10px] text-red-600 dark:text-red-400 underline underline-offset-2"
+                          >
+                            ⚠ Location blocked — tap to fix (auto clock-in/out is paused)
+                          </button>
                         )}
                       </div>
-                      {autoGeo.monitorState?.poorSignal && !autoGeo.monitorState?.permissionDenied && (
-                        <span className="text-[10px] text-amber-600 dark:text-amber-400">
-                          ⚠ Poor GPS signal — waiting for a reliable fix (unstable readings ignored)
-                        </span>
-                      )}
-                      {autoGeo.monitorState?.permissionDenied && (
-                        <button
-                          onClick={() => { setLocationDenied(true); setShowLocationModal(true); }}
-                          className="text-[10px] text-red-600 dark:text-red-400 underline underline-offset-2"
-                        >
-                          ⚠ Location blocked — tap to fix (auto clock-in/out is paused)
-                        </button>
-                      )}
-                    </div>
-                  );
-                })()}
+                    );
+                  })()}
               </div>
 
               {/* Geofence monitor error (e.g. GPS signal lost / no assignment) */}
@@ -252,7 +295,12 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
 
               {/* Timer display */}
               <div className="space-y-1">
-                <p className={cn('text-5xl font-bold tabular-nums tracking-tight', isClockedIn ? 'text-foreground' : 'text-muted-foreground/50')}>
+                <p
+                  className={cn(
+                    'text-5xl font-bold tabular-nums tracking-tight',
+                    isClockedIn ? 'text-foreground' : 'text-muted-foreground/50',
+                  )}
+                >
                   {isClockedIn ? formatDuration(elapsed) : '00:00:00'}
                 </p>
                 {isClockedIn && activeEntry && (
@@ -297,7 +345,11 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
                     disabled={actionLoading}
                     className="w-full h-14 text-base font-semibold bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white shadow-lg shadow-red-500/25 rounded-xl"
                   >
-                    {actionLoading ? <Spinner className="h-5 w-5 border-white/30 border-t-white" /> : <Square className="w-5 h-5" />}
+                    {actionLoading ? (
+                      <Spinner className="h-5 w-5 border-white/30 border-t-white" />
+                    ) : (
+                      <Square className="w-5 h-5" />
+                    )}
                     Clock Out
                   </Button>
                 ) : (
@@ -306,7 +358,11 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
                     disabled={actionLoading}
                     className="w-full h-14 text-base font-semibold bg-gradient-to-r from-brand to-brand-light hover:from-brand-dark hover:to-brand text-white shadow-lg shadow-brand/25 rounded-xl"
                   >
-                    {actionLoading ? <Spinner className="h-5 w-5 border-white/30 border-t-white" /> : <Play className="w-5 h-5" />}
+                    {actionLoading ? (
+                      <Spinner className="h-5 w-5 border-white/30 border-t-white" />
+                    ) : (
+                      <Play className="w-5 h-5" />
+                    )}
                     Clock In
                   </Button>
                 )}
@@ -316,11 +372,15 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
               <div className="flex items-center justify-center gap-6 pt-2 border-t border-border/50 w-full">
                 <div className="text-center">
                   <p className="text-lg font-bold">{totalHoursToday.toFixed(1)}h</p>
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Today Total</p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                    Today Total
+                  </p>
                 </div>
                 <div className="text-center">
                   <p className="text-lg font-bold">{todayEntries.length}</p>
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Sessions</p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                    Sessions
+                  </p>
                 </div>
               </div>
             </div>
@@ -337,7 +397,9 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
               <h3 className="font-semibold text-sm">Today's Activity</h3>
             </div>
             {todayEntries.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">No clock activity today yet.</p>
+              <p className="text-sm text-muted-foreground text-center py-6">
+                No clock activity today yet.
+              </p>
             ) : (
               <div className="space-y-2">
                 {todayEntries.map((entry) => (
@@ -346,20 +408,32 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
                     className="flex items-center justify-between p-3 rounded-lg bg-secondary/30 border border-border/30"
                   >
                     <div className="flex items-center gap-3">
-                      <div className={cn('w-2 h-2 rounded-full', entry.status === 'active' ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/30')} />
+                      <div
+                        className={cn(
+                          'w-2 h-2 rounded-full',
+                          entry.status === 'active'
+                            ? 'bg-emerald-500 animate-pulse'
+                            : 'bg-muted-foreground/30',
+                        )}
+                      />
                       <div>
                         <p className="text-sm font-medium">
-                          {formatTime(entry.clockIn)} — {entry.clockOut ? formatTime(entry.clockOut) : 'Active'}
+                          {formatTime(entry.clockIn)} —{' '}
+                          {entry.clockOut ? formatTime(entry.clockOut) : 'Active'}
                         </p>
                         {entry.breakMinutes != null && entry.breakMinutes > 0 && (
-                          <p className="text-xs text-muted-foreground">Break: {entry.breakMinutes} min</p>
+                          <p className="text-xs text-muted-foreground">
+                            Break: {entry.breakMinutes} min
+                          </p>
                         )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       {entry.isManualOverride && <Badge variant="warning">Manual</Badge>}
                       {entry.totalHours != null && (
-                        <span className="text-sm font-semibold text-brand">{entry.totalHours.toFixed(1)}h</span>
+                        <span className="text-sm font-semibold text-brand">
+                          {entry.totalHours.toFixed(1)}h
+                        </span>
                       )}
                     </div>
                   </div>
@@ -380,7 +454,7 @@ export default function SelfClockWidget({ userEmail, userRole = 'employee', show
             ? [
                 'On mobile: open device Settings → Apps → TimeTrack → Permissions → Location → Allow.',
                 'On desktop: click the lock icon in the address bar and set Location to Allow.',
-                'Make sure your device\'s Location/GPS toggle is turned ON.',
+                "Make sure your device's Location/GPS toggle is turned ON.",
                 'Then tap "I\'ve Enabled Location — Retry" to reload and resume auto clock-in/out.',
               ]
             : undefined

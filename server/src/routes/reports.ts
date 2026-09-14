@@ -60,13 +60,17 @@ async function getPayrollSettings(companyProfileId: string | null): Promise<Payr
 router.get('/payroll', requireAuth, async (req, res) => {
   try {
     const authUser = req.authUser!;
-    const from = (req.query.from as string) || toDateStr(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+    const from =
+      (req.query.from as string) ||
+      toDateStr(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     const to = (req.query.to as string) || toDateStr(new Date());
     const branch = req.query.branch as string;
     const department = req.query.department as string;
 
     const tenantWhere =
-      authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+      authUser.role === 'master'
+        ? {}
+        : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 
     // Determine which employees to report on
     let employeeWhere: Record<string, unknown> = { ...tenantWhere };
@@ -111,7 +115,13 @@ router.get('/payroll', requireAuth, async (req, res) => {
         date: { gte: fromDate, lte: toDate },
         status: 'completed',
       },
-      select: { employeeId: true, employeeEmail: true, date: true, totalMinutes: true, totalHours: true },
+      select: {
+        employeeId: true,
+        employeeEmail: true,
+        date: true,
+        totalMinutes: true,
+        totalHours: true,
+      },
     });
 
     // Fetch shifts in range for leave-type exclusion
@@ -183,7 +193,9 @@ router.get('/attendance', requireAuth, async (req, res) => {
     }
 
     const tenantWhere =
-      authUser.role === 'master' ? {} : { companyProfileId: authUser.companyProfileId ?? '__none__' };
+      authUser.role === 'master'
+        ? {}
+        : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 
     let identityFilter: Record<string, unknown> = {};
     if (authUser.role === 'employee') {

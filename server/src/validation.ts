@@ -8,7 +8,15 @@ import { z } from 'zod';
 import type { Request, Response, NextFunction } from 'express';
 
 // ── Shared field schemas ──
-const emailSchema = z.string().email().max(255).transform((v) => v.toLowerCase());
+// Email normalization: trim whitespace AND lowercase, so mixed-case / padded
+// emails (e.g. from CSV imports) always canonicalize to the same value the
+// auth routes and boot-time sync expect.
+const emailSchema = z
+  .string()
+  .trim()
+  .email()
+  .max(255)
+  .transform((v) => v.toLowerCase());
 const dateStrSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const timeStrSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const latSchema = z.number().min(-90).max(90);
@@ -89,15 +97,20 @@ export const BULK_IMPORT_MAX_ROWS = 500;
  * `companyProfileId` is master-only: it selects the target company.
  */
 export const bulkCreateEmployeesSchema = z.object({
-  rows: z
-    .array(z.record(z.string(), z.unknown()))
-    .min(1)
-    .max(BULK_IMPORT_MAX_ROWS),
+  rows: z.array(z.record(z.string(), z.unknown())).min(1).max(BULK_IMPORT_MAX_ROWS),
   companyProfileId: z.string().max(50).optional(),
 });
 
 // ── Shifts ──
-export const shiftTypeSchema = z.enum(['full_day', 'half_day', 'Holiday', 'Leave', 'Sick', 'PTO', 'Unpaid']);
+export const shiftTypeSchema = z.enum([
+  'full_day',
+  'half_day',
+  'Holiday',
+  'Leave',
+  'Sick',
+  'PTO',
+  'Unpaid',
+]);
 
 export type ShiftType = z.infer<typeof shiftTypeSchema>;
 
@@ -121,17 +134,19 @@ const weeklyScheduleDaySchema = z
   });
 
 /** Optional per-weekday hours. Keys use JavaScript's weekday numbering: 0 = Sunday, 6 = Saturday. */
-export const weeklyScheduleSchema = z.record(z.string(), weeklyScheduleDaySchema).superRefine((schedule, ctx) => {
-  for (const dayKey of Object.keys(schedule)) {
-    if (!WEEKDAY_KEYS.has(dayKey)) {
-      ctx.addIssue({
-        code: 'custom',
-        path: [dayKey],
-        message: 'Weekday must be a number from 0 (Sunday) through 6 (Saturday).',
-      });
+export const weeklyScheduleSchema = z
+  .record(z.string(), weeklyScheduleDaySchema)
+  .superRefine((schedule, ctx) => {
+    for (const dayKey of Object.keys(schedule)) {
+      if (!WEEKDAY_KEYS.has(dayKey)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [dayKey],
+          message: 'Weekday must be a number from 0 (Sunday) through 6 (Saturday).',
+        });
+      }
     }
-  }
-});
+  });
 
 export type WeeklySchedule = z.infer<typeof weeklyScheduleSchema>;
 
@@ -321,7 +336,10 @@ export const createGeofenceSchema = z.object({
   radiusMeters: z.number().int().min(10).max(100000).default(200),
   workingStartTime: timeStrSchema.default('08:00'),
   workingEndTime: timeStrSchema.default('17:00'),
-  workingDays: z.array(z.enum(['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'])).min(1).default(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']),
+  workingDays: z
+    .array(z.enum(['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']))
+    .min(1)
+    .default(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']),
 });
 
 export const updateGeofenceSchema = createGeofenceSchema.partial();

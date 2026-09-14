@@ -109,34 +109,40 @@ describe('Standardized Error Response Unit Tests', () => {
       radiusMetres: 100,
     });
     expect(res.status).toHaveBeenCalledWith(403);
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      error: 'You are outside your designated work location.',
-      code: 'GEOFENCE_VIOLATION',
-      details: {
-        distance_metres: 250,
-        geofence_name: 'Head Office',
-        radius_metres: 100,
-      },
-    }));
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: 'You are outside your designated work location.',
+        code: 'GEOFENCE_VIOLATION',
+        details: {
+          distance_metres: 250,
+          geofence_name: 'Head Office',
+          radius_metres: 100,
+        },
+      }),
+    );
   });
 
   it('alreadyClockedIn returns 409 with suggestions', () => {
     const res = createMockResponse();
     alreadyClockedIn(res, 'John Doe');
     expect(res.status).toHaveBeenCalledWith(409);
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      error: 'Employee John Doe is already clocked in. Clock out before starting a new session.',
-      code: 'ALREADY_CLOCKED_IN',
-    }));
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: 'Employee John Doe is already clocked in. Clock out before starting a new session.',
+        code: 'ALREADY_CLOCKED_IN',
+      }),
+    );
   });
 
   it('noActiveSession returns 404 with NO_ACTIVE_SESSION code', () => {
     const res = createMockResponse();
     noActiveSession(res);
     expect(res.status).toHaveBeenCalledWith(404);
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      code: 'NO_ACTIVE_SESSION',
-    }));
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'NO_ACTIVE_SESSION',
+      }),
+    );
   });
 
   it('duplicateRecord returns 409 with DUPLICATE_RECORD code and field detail', () => {
@@ -154,8 +160,10 @@ describe('Standardized Error Response Unit Tests', () => {
     const res = createMockResponse();
     optimisticLockError(res);
     expect(res.status).toHaveBeenCalledWith(409);
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      code: 'VERSION_CONFLICT',
-    }));
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'VERSION_CONFLICT',
+      }),
+    );
   });
 });

@@ -8,7 +8,16 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { LogIn, LogOut, MapPin, Clock, Coffee, History, UserRound, CalendarPlus } from 'lucide-react';
+import {
+  LogIn,
+  LogOut,
+  MapPin,
+  Clock,
+  Coffee,
+  History,
+  UserRound,
+  CalendarPlus,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { timeEntryApi, type TimeEntry, ApiError } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -17,9 +26,23 @@ import { MyWorkLocation } from '../components/location/MyWorkLocation';
 import StaffClockModal from '../components/time/StaffClockModal';
 import ManualTimeEntryModal from '../components/time/ManualTimeEntryModal';
 import {
-  Badge, Button, Card, CardContent, CardHeader, CardTitle, EmptyState,
-  Input, Label, Modal,
-  Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  Input,
+  Label,
+  Modal,
+  Spinner,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from '../components/ui';
 import { formatDate, formatTime, formatHours } from '../lib/utils';
 import { getCurrentPosition } from '../utils/clockInHelper';
@@ -38,11 +61,11 @@ export default function TimeTracking() {
 
   // ── Proxy clock modal (admin/manager clock on behalf of staff) ──
   const [showStaffClockModal, setShowStaffClockModal] = useState(false);
-  const canClockOnBehalf = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'master';
+  const canClockOnBehalf =
+    user?.role === 'admin' || user?.role === 'manager' || user?.role === 'master';
 
   // ── Manual time entry modal (backdated hours for a previous date) ──
   const [showManualEntryModal, setShowManualEntryModal] = useState(false);
-
 
   const load = useCallback(async () => {
     try {
@@ -168,7 +191,9 @@ export default function TimeTracking() {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                   <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
                 </span>
-                <Badge variant="success" className="px-3 py-1 text-sm">Currently Working</Badge>
+                <Badge variant="success" className="px-3 py-1 text-sm">
+                  Currently Working
+                </Badge>
               </div>
               <p className="font-mono text-6xl font-bold tabular-nums tracking-tight">{elapsed}</p>
               <p className="text-sm text-muted-foreground flex items-center gap-2">
@@ -230,7 +255,9 @@ export default function TimeTracking() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="flex h-32 items-center justify-center"><Spinner /></div>
+            <div className="flex h-32 items-center justify-center">
+              <Spinner />
+            </div>
           ) : entries.length === 0 ? (
             <EmptyState message="No time entries yet" />
           ) : (
@@ -264,9 +291,13 @@ export default function TimeTracking() {
                     <TableCell>{e.geofenceName || '—'}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
-                        <Badge variant={e.status === 'active' ? 'success' : 'secondary'}>{e.status}</Badge>
+                        <Badge variant={e.status === 'active' ? 'success' : 'secondary'}>
+                          {e.status}
+                        </Badge>
                         {e.isManuallyAdjusted && (
-                          <Badge variant="warning" title={e.adjustmentReason ?? undefined}>manual</Badge>
+                          <Badge variant="warning" title={e.adjustmentReason ?? undefined}>
+                            manual
+                          </Badge>
                         )}
                       </div>
                     </TableCell>
@@ -296,12 +327,16 @@ export default function TimeTracking() {
         />
       )}
 
-
       {/* Clock-out modal — break minutes input (replaces browser prompt) */}
-      <Modal open={showClockOutModal} onClose={() => !busy && setShowClockOutModal(false)} title="Clock Out">
+      <Modal
+        open={showClockOutModal}
+        onClose={() => !busy && setShowClockOutModal(false)}
+        title="Clock Out"
+      >
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Session started at {active ? formatTime(active.clockIn) : '—'} · Elapsed {elapsed || '—'}
+            Session started at {active ? formatTime(active.clockIn) : '—'} · Elapsed{' '}
+            {elapsed || '—'}
           </p>
           <div className="space-y-2">
             <Label htmlFor="break-minutes">Break minutes (optional)</Label>
@@ -333,7 +368,11 @@ export default function TimeTracking() {
             <Button variant="outline" onClick={() => setShowClockOutModal(false)} disabled={busy}>
               Cancel
             </Button>
-            <Button onClick={confirmClockOut} disabled={busy} className="bg-red-600 hover:bg-red-700 text-white">
+            <Button
+              onClick={confirmClockOut}
+              disabled={busy}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
               <LogOut className="h-4 w-4" /> {busy ? 'Clocking out…' : 'Confirm Clock Out'}
             </Button>
           </div>

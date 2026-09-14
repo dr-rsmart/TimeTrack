@@ -14,13 +14,17 @@ export type CircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
 
 export interface CircuitBreakerOptions {
   failureThreshold?: number; // Number of consecutive failures before opening circuit (default: 5)
-  resetTimeoutMs?: number;   // Time to wait before attempting recovery (default: 30000ms)
-  timeoutMs?: number;        // Call timeout in milliseconds (default: 10000ms)
-  name?: string;             // Identifier for logging/metrics
+  resetTimeoutMs?: number; // Time to wait before attempting recovery (default: 30000ms)
+  timeoutMs?: number; // Call timeout in milliseconds (default: 10000ms)
+  name?: string; // Identifier for logging/metrics
 }
 
 export class CircuitBreakerError extends Error {
-  constructor(message: string, public readonly circuitName: string, public readonly state: CircuitState) {
+  constructor(
+    message: string,
+    public readonly circuitName: string,
+    public readonly state: CircuitState,
+  ) {
     super(message);
     this.name = 'CircuitBreakerError';
   }
@@ -69,7 +73,7 @@ export class CircuitBreaker {
       throw new CircuitBreakerError(
         `Circuit breaker "${this.name}" is OPEN. Downstream service unavailable.`,
         this.name,
-        currentState
+        currentState,
       );
     }
 
@@ -77,7 +81,9 @@ export class CircuitBreaker {
       // Enforce call timeout
       const timeoutPromise = new Promise<never>((_, reject) => {
         const timer = setTimeout(() => {
-          reject(new Error(`Operation timed out after ${this.timeoutMs}ms in circuit "${this.name}"`));
+          reject(
+            new Error(`Operation timed out after ${this.timeoutMs}ms in circuit "${this.name}"`),
+          );
         }, this.timeoutMs);
         timer.unref?.();
       });
@@ -96,7 +102,9 @@ export class CircuitBreaker {
 
   private onSuccess(): void {
     if (this.state === 'HALF_OPEN') {
-      console.log(`[circuitBreaker:${this.name}] Recovery probe succeeded. Circuit reset to CLOSED.`);
+      console.log(
+        `[circuitBreaker:${this.name}] Recovery probe succeeded. Circuit reset to CLOSED.`,
+      );
     }
     this.failureCount = 0;
     this.state = 'CLOSED';
@@ -104,13 +112,16 @@ export class CircuitBreaker {
 
   private onFailure(err: any): void {
     this.failureCount++;
-    console.warn(`[circuitBreaker:${this.name}] Failure recorded (${this.failureCount}/${this.failureThreshold}):`, err?.message || err);
+    console.warn(
+      `[circuitBreaker:${this.name}] Failure recorded (${this.failureCount}/${this.failureThreshold}):`,
+      err?.message || err,
+    );
 
     if (this.state === 'HALF_OPEN' || this.failureCount >= this.failureThreshold) {
       this.state = 'OPEN';
       this.nextAttempt = Date.now() + this.resetTimeoutMs;
       console.error(
-        `[circuitBreaker:${this.name}] Failure threshold reached. Circuit OPEN for ${this.resetTimeoutMs}ms.`
+        `[circuitBreaker:${this.name}] Failure threshold reached. Circuit OPEN for ${this.resetTimeoutMs}ms.`,
       );
     }
   }

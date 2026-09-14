@@ -36,7 +36,9 @@ export interface GpsStatus {
  * Determine if the browser/device supports GPS location services.
  */
 export function checkGpsAvailability(): GpsStatus {
-  const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent,
+  );
 
   if (!navigator.geolocation) {
     return {
@@ -45,7 +47,7 @@ export function checkGpsAvailability(): GpsStatus {
       error: 'Your device or browser does not support GPS location services.',
       suggestions: isMobile
         ? [
-            'Go to your device\'s Settings → Privacy & Security → Location Services and ensure your browser has permission to access your location.',
+            "Go to your device's Settings → Privacy & Security → Location Services and ensure your browser has permission to access your location.",
             'Try updating your mobile browser to the latest version or using a different browser (Chrome or Safari).',
           ]
         : [
@@ -74,7 +76,9 @@ export async function queryLocationPermissions(): Promise<{
   permission: 'granted' | 'denied' | 'unknown';
   suggestions?: string[];
 }> {
-  const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent,
+  );
 
   try {
     const result = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
@@ -86,7 +90,7 @@ export async function queryLocationPermissions(): Promise<{
         suggestions: isMobile
           ? [
               'On mobile: go to Settings → Apps → your browser → Permissions → Location → Allow (While using the app).',
-              'Ensure your device\'s global Location/GPS setting is turned ON in your quick settings panel.',
+              "Ensure your device's global Location/GPS setting is turned ON in your quick settings panel.",
               'Once you have updated the settings, refresh this page and try again.',
             ]
           : [
@@ -188,7 +192,10 @@ export async function getCurrentPosition(
 
     /** Poor signal — show the last reliable position if it is fresh enough. */
     const fallback = () => {
-      if (lastReliablePosition && Date.now() - lastReliablePosition.timestamp <= GPS_MAX_CACHED_AGE_MS) {
+      if (
+        lastReliablePosition &&
+        Date.now() - lastReliablePosition.timestamp <= GPS_MAX_CACHED_AGE_MS
+      ) {
         settle({ ...lastReliablePosition, isCached: true });
       } else {
         settle(null);
@@ -196,7 +203,9 @@ export async function getCurrentPosition(
     };
 
     timer = setTimeout(() => {
-      console.warn('[gps] Timeout acquiring a reliable GPS position — using last reliable position.');
+      console.warn(
+        '[gps] Timeout acquiring a reliable GPS position — using last reliable position.',
+      );
       fallback();
     }, timeoutMs);
 
@@ -271,7 +280,8 @@ export async function buildClockInPayload(
     ...(isOverride && actingUser
       ? {
           clocked_by_id: actingUser.id ?? null,
-          clocked_by_name: (actingUser.full_name as string) || (actingUser.email as string) || 'Unknown',
+          clocked_by_name:
+            (actingUser.full_name as string) || (actingUser.email as string) || 'Unknown',
         }
       : {}),
   };
@@ -323,7 +333,8 @@ export async function buildClockOutPayload(
     ...(isOverride && actingUser
       ? {
           clocked_by_id: actingUser.id ?? null,
-          clocked_by_name: (actingUser.full_name as string) || (actingUser.email as string) || 'Unknown',
+          clocked_by_name:
+            (actingUser.full_name as string) || (actingUser.email as string) || 'Unknown',
         }
       : {}),
   };

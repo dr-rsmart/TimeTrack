@@ -110,7 +110,9 @@ async function main() {
       companyProfileId: company.id,
     },
   });
-  console.log(`[seed] Geofence created: ${sitariGeofence.name} (${sitariGeofence.radiusMeters}m radius)`);
+  console.log(
+    `[seed] Geofence created: ${sitariGeofence.name} (${sitariGeofence.radiusMeters}m radius)`,
+  );
 
   // ── Employees ──
   const mkEmp = async (data: {
@@ -252,7 +254,7 @@ async function main() {
 
   // ── Users for managers & employees ──
 
- const userDefs = [
+  const userDefs = [
     { email: 'thabo@timetrack.com', fullName: 'Thabo Mokoena', role: 'manager' as const },
     { email: 'ayesha@timetrack.com', fullName: 'Ayesha Pillay', role: 'manager' as const },
     { email: 'sipho@timetrack.com', fullName: 'Sipho Ndlovu', role: 'employee' as const },
@@ -267,7 +269,7 @@ async function main() {
     });
   }
 
- // ── Company Settings ──
+  // ── Company Settings ──
   const nextMonday = (() => {
     const d = new Date();
     const day = d.getDay();
@@ -276,7 +278,7 @@ async function main() {
     return toDateStr(d);
   })();
 
- await prisma.companySettings.create({
+  await prisma.companySettings.create({
     data: {
       companyProfileId: company.id,
       ordinaryHoursPerDay: 8,
@@ -294,11 +296,17 @@ async function main() {
 
   // ── Shifts (past 14 days + next 7 days) ──
   const allEmployees = [adminEmp, managerJhb, managerCpt, emp1, emp3, emp4, emp5];
-  const shiftStatusPool = ['completed', 'completed', 'completed', 'completed', 'no_show', 'cancelled'];
+  const shiftStatusPool = [
+    'completed',
+    'completed',
+    'completed',
+    'completed',
+    'no_show',
+    'cancelled',
+  ];
   let shiftCount = 0;
 
-
- for (let dayOffset = 14; dayOffset >= -7; dayOffset--) {
+  for (let dayOffset = 14; dayOffset >= -7; dayOffset--) {
     const date = daysAgo(dayOffset);
     const dow = date.getDay();
     if (dow === 6) continue; // skip Saturdays
@@ -335,7 +343,12 @@ async function main() {
           employeeEmail: emp.email,
           employeeName: `${emp.firstName} ${emp.surname}`,
           location: emp.branch,
-          notes: status === 'no_show' ? 'No-show: no clock-in recorded' : status === 'cancelled' ? 'Cancelled: operational requirements' : null,
+          notes:
+            status === 'no_show'
+              ? 'No-show: no clock-in recorded'
+              : status === 'cancelled'
+                ? 'Cancelled: operational requirements'
+                : null,
           companyProfileId: company.id,
           createdBy: adminUser.id,
           updatedBy: adminUser.id,
@@ -379,7 +392,12 @@ async function main() {
           totalHours,
           status: 'completed',
           breakMinutes,
-          geofenceName: emp.branch === 'Cape Town' ? 'Cape Town Branch' : emp.branch === 'Sitari Country Estate' ? 'Sitari Country Estate' : 'Sandton HQ',
+          geofenceName:
+            emp.branch === 'Cape Town'
+              ? 'Cape Town Branch'
+              : emp.branch === 'Sitari Country Estate'
+                ? 'Sitari Country Estate'
+                : 'Sandton HQ',
           isAutoGeofence: true,
           companyProfileId: company.id,
           createdBy: emp.id,

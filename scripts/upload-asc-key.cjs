@@ -8,7 +8,9 @@ const os = require('os');
 const path = require('path');
 
 const EAS = 'C:/Users/Ricardo Smart/AppData/Roaming/npm/node_modules/eas-cli';
-const { createGraphqlClient } = require(path.join(EAS, 'build/commandUtils/context/contextUtils/createGraphqlClient.js'));
+const { createGraphqlClient } = require(
+  path.join(EAS, 'build/commandUtils/context/contextUtils/createGraphqlClient.js'),
+);
 const { AccountQuery } = require(path.join(EAS, 'build/graphql/queries/AccountQuery.js'));
 const { AppQuery } = require(path.join(EAS, 'build/graphql/queries/AppQuery.js'));
 const iosApi = require(path.join(EAS, 'build/credentials/ios/api/GraphqlClient.js'));
@@ -42,13 +44,19 @@ async function main() {
   };
 
   // 3. Ensure Apple team exists on EAS
-  const appleTeam = await iosApi.createOrGetExistingAppleTeamAndUpdateNameIfChangedAsync(graphqlClient, account.id, {
-    appleTeamIdentifier: TEAM_ID,
-    appleTeamName: TEAM_NAME,
-  });
+  const appleTeam = await iosApi.createOrGetExistingAppleTeamAndUpdateNameIfChangedAsync(
+    graphqlClient,
+    account.id,
+    {
+      appleTeamIdentifier: TEAM_ID,
+      appleTeamName: TEAM_NAME,
+    },
+  );
 
   // 4. Upload ASC API key to EAS credentials store
-  const keyFile = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'asc-api-key.json'), 'utf-8'));
+  const keyFile = JSON.parse(
+    fs.readFileSync(path.resolve(process.cwd(), 'asc-api-key.json'), 'utf-8'),
+  );
   const ascApiKey = await iosApi.createAscApiKeyAsync(graphqlClient, account, {
     keyId: keyFile.key_id,
     issuerId: keyFile.issuer_id,
@@ -61,13 +69,23 @@ async function main() {
   console.log('ASC API key stored on EAS:', ascApiKey.id, ascApiKey.keyIdentifier);
 
   // 5. Ensure app identifier + app credentials exist, then assign key for submissions
-  await iosApi.createOrGetExistingAppleAppIdentifierAsync(graphqlClient, appLookupParams, appleTeam);
-  const appCredentials = await iosApi.createOrGetIosAppCredentialsWithCommonFieldsAsync(graphqlClient, appLookupParams, { appleTeam });
+  await iosApi.createOrGetExistingAppleAppIdentifierAsync(
+    graphqlClient,
+    appLookupParams,
+    appleTeam,
+  );
+  const appCredentials = await iosApi.createOrGetIosAppCredentialsWithCommonFieldsAsync(
+    graphqlClient,
+    appLookupParams,
+    { appleTeam },
+  );
   await iosApi.updateIosAppCredentialsAsync(graphqlClient, appCredentials, {
     ascApiKeyIdForSubmissions: ascApiKey.id,
   });
 
-  console.log('ASC API key assigned to app for submissions. Non-interactive eas submit is now enabled.');
+  console.log(
+    'ASC API key assigned to app for submissions. Non-interactive eas submit is now enabled.',
+  );
 }
 
 main().catch((err) => {

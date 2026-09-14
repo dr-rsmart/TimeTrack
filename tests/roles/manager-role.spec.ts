@@ -52,7 +52,9 @@ test.describe.serial('Manager Role (Department / Branch Supervisor) — Process 
     ...PERF_BYPASS,
   });
 
-  test('Process 1: Scoped Employee Directory & Masked Salary (GET /api/employees, GET /api/employees/:id)', async ({ request }) => {
+  test('Process 1: Scoped Employee Directory & Masked Salary (GET /api/employees, GET /api/employees/:id)', async ({
+    request,
+  }) => {
     const res = await request.get(`${API_BASE}/api/employees`, {
       headers: authHeader(),
     });
@@ -71,7 +73,9 @@ test.describe.serial('Manager Role (Department / Branch Supervisor) — Process 
     }
   });
 
-  test('Process 2: RBAC Scope Enforcement — Reject Out-of-Scope Employee Access (GET /api/employees/:id)', async ({ request }) => {
+  test('Process 2: RBAC Scope Enforcement — Reject Out-of-Scope Employee Access (GET /api/employees/:id)', async ({
+    request,
+  }) => {
     if (outOfScopeEmployeeId) {
       const res = await request.get(`${API_BASE}/api/employees/${outOfScopeEmployeeId}`, {
         headers: authHeader(),
@@ -80,7 +84,9 @@ test.describe.serial('Manager Role (Department / Branch Supervisor) — Process 
     }
   });
 
-  test('Process 3: Assign Shift to In-Scope Team Member (POST /api/shifts)', async ({ request }) => {
+  test('Process 3: Assign Shift to In-Scope Team Member (POST /api/shifts)', async ({
+    request,
+  }) => {
     if (!inScopeEmployeeId) return;
     const testDate = '2026-11-28';
 
@@ -103,7 +109,9 @@ test.describe.serial('Manager Role (Department / Branch Supervisor) — Process 
     await request.delete(`${API_BASE}/api/shifts/${shift.id}`, { headers: authHeader() });
   });
 
-  test('Process 4: Reject Shift Assignment to Out-of-Scope Employee (POST /api/shifts)', async ({ request }) => {
+  test('Process 4: Reject Shift Assignment to Out-of-Scope Employee (POST /api/shifts)', async ({
+    request,
+  }) => {
     if (outOfScopeEmployeeId) {
       const res = await request.post(`${API_BASE}/api/shifts`, {
         headers: authHeader(),
@@ -119,7 +127,9 @@ test.describe.serial('Manager Role (Department / Branch Supervisor) — Process 
     }
   });
 
-  test('Process 5: Time Entry Oversight & Manual Override for Team Member (POST /time-entries/manual)', async ({ request }) => {
+  test('Process 5: Time Entry Oversight & Manual Override for Team Member (POST /time-entries/manual)', async ({
+    request,
+  }) => {
     if (!inScopeEmployeeId) return;
 
     const res = await request.post(`${API_BASE}/api/time-entries/manual`, {
@@ -140,7 +150,9 @@ test.describe.serial('Manager Role (Department / Branch Supervisor) — Process 
     await request.delete(`${API_BASE}/api/time-entries/${entry.id}`, { headers: authHeader() });
   });
 
-  test('Process 6: Department Performance & Distribution (GET /api/dashboard/department-performance)', async ({ request }) => {
+  test('Process 6: Department Performance & Distribution (GET /api/dashboard/department-performance)', async ({
+    request,
+  }) => {
     const res = await request.get(`${API_BASE}/api/dashboard/department-performance`, {
       headers: authHeader(),
     });
@@ -149,7 +161,9 @@ test.describe.serial('Manager Role (Department / Branch Supervisor) — Process 
     expect(Array.isArray(data.departments)).toBe(true);
   });
 
-  test('Process 7: Compliance & Mandatory IP Redaction on Audit Queries (GET /api/audit)', async ({ request }) => {
+  test('Process 7: Compliance & Mandatory IP Redaction on Audit Queries (GET /api/audit)', async ({
+    request,
+  }) => {
     const res = await request.get(`${API_BASE}/api/audit?limit=20`, {
       headers: authHeader(),
     });
@@ -165,7 +179,9 @@ test.describe.serial('Manager Role (Department / Branch Supervisor) — Process 
     }
   });
 
-  test('Process 8: Dashboard KPI Drill-Down with RBAC Scope (GET /api/dashboard/attendance-detail)', async ({ request }) => {
+  test('Process 8: Dashboard KPI Drill-Down with RBAC Scope (GET /api/dashboard/attendance-detail)', async ({
+    request,
+  }) => {
     const res = await request.get(`${API_BASE}/api/dashboard/attendance-detail`, {
       headers: authHeader(),
     });

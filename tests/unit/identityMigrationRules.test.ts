@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { classifyIdentityCandidates, normalizeIdentityEmail, validateResolutionMapping } from '../../server/identity_migration_rules.mjs';
+import {
+  classifyIdentityCandidates,
+  normalizeIdentityEmail,
+  validateResolutionMapping,
+} from '../../server/identity_migration_rules.mjs';
 
 describe('controlled identity migration rules', () => {
   it('normalizes approval emails', () => {
@@ -36,7 +40,12 @@ describe('controlled identity migration rules', () => {
 
   it('rejects mappings that cross tenants or target a resolved source row', () => {
     const base = {
-      source: { id: 'entry-1', employeeId: null, employeeEmail: 'old@example.com', companyProfileId: 'tenant-a' },
+      source: {
+        id: 'entry-1',
+        employeeId: null,
+        employeeEmail: 'old@example.com',
+        companyProfileId: 'tenant-a',
+      },
       target: { id: 'emp-1', email: 'new@example.com', companyProfileId: 'tenant-b' },
       mapping: {
         id: 'entry-1',
@@ -61,7 +70,12 @@ describe('controlled identity migration rules', () => {
   it('accepts a complete same-tenant approved mapping', () => {
     expect(
       validateResolutionMapping({
-        source: { id: 'entry-1', employeeId: null, employeeEmail: 'old@example.com', companyProfileId: 'tenant-a' },
+        source: {
+          id: 'entry-1',
+          employeeId: null,
+          employeeEmail: 'old@example.com',
+          companyProfileId: 'tenant-a',
+        },
         target: { id: 'emp-1', email: 'new@example.com', companyProfileId: 'tenant-a' },
         mapping: {
           id: 'entry-1',
