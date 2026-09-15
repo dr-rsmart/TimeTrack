@@ -35,6 +35,7 @@ import {
 } from '../application/attendance.js';
 import { accessDenied, internalError, sendError } from '../errorResponse.js';
 import { tenantWhere } from '../tenantPolicy.js';
+import { recordAutoClockOutcome } from '../metrics.js';
 import { parsePagination, setPageHeaders } from '../pagination.js';
 
 const router = Router();
@@ -58,6 +59,8 @@ router.get('/', requireAuth, async (req, res) => {
     const toDate = req.query.to as string;
     const employeeEmail = req.query.employeeEmail as string;
     const status = req.query.status as string;
+    const branch = req.query.branch as string;
+    const department = req.query.department as string;
     const { limit, offset } = parsePagination(req);
 
     const where: Record<string, unknown> = { ...tenantWhere(authUser) };
@@ -91,7 +94,7 @@ router.get('/', requireAuth, async (req, res) => {
       Object.assign(where, employeeIdentityFilter(scopedEmployees));
     }
 
-    // Inclusive, timezone-safe day boundaries (UTC start-of-day â†’ end-of-day)
+    // Inclusive, timezone-safe day boundaries (UTC start-of-day -> end-of-day)
     // so list results always cover exactly the same dates as the payroll
     // report endpoint, keeping the two views in balance after manual edits.
     if (date) {
@@ -120,6 +123,8 @@ router.get('/', requireAuth, async (req, res) => {
       );
     }
     if (status) where.status = status;
+    if (branch) where.branch = branch;
+    if (department) where.department = department;
 
     const [items, total] = await Promise.all([
       prisma.timeEntry.findMany({
@@ -180,6 +185,9 @@ function sendAttendanceUseCaseError(
   context: string,
 ): void {
   if (error instanceof AttendanceUseCaseError) {
+    if (error.code === 'RECLOCK_GUARD') {
+      res.setHeader('Retry-After', '120');
+    }
     sendError(res, error.status, error.message, {
       code: error.code,
       details: error.details,
@@ -217,6 +225,9 @@ router.post('/clock-in', requireAuth, clockRateLimit, validate(clockInSchema), a
     // or a newly-created entry, so clients must not infer that from status alone.
     res.status(result.replayed ? 200 : 201).json({ ...result.entry, replayed: result.replayed });
   } catch (error) {
+    if (error instanceof AttendanceUseCaseError) {
+      recordAutoClockOutcome(`web_${error.code.toLowerCase()}`);
+    }
     sendAttendanceUseCaseError(res, error, 'recording clock-in');
   }
 });
@@ -249,6 +260,9 @@ router.post(
       });
       res.status(200).json({ ...result.entry, replayed: result.replayed });
     } catch (error) {
+      if (error instanceof AttendanceUseCaseError) {
+        recordAutoClockOutcome(`web_${error.code.toLowerCase()}`);
+      }
       sendAttendanceUseCaseError(res, error, 'recording clock-out');
     }
   },

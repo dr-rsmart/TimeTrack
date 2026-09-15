@@ -121,9 +121,11 @@ export function computeOvertime(
     const dayHours = D(byDate[date]);
     if (dayHours.lte(0)) continue;
 
-    const dt = new Date(date + 'T00:00:00');
-    const monthKey = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
-    const isSunday = dt.getDay() === 0;
+    // Date keys are business dates, not instants. UTC noon keeps weekday and
+    // month classification stable regardless of the server's local timezone.
+    const dt = new Date(`${date}T12:00:00Z`);
+    const monthKey = date.slice(0, 7);
+    const isSunday = dt.getUTCDay() === 0;
     const isHoliday = holidaySet.has(date);
     const leaveType = shiftTypeByDate ? normaliseLeaveType(shiftTypeByDate[date]) : null;
 

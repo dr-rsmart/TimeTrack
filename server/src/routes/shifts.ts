@@ -33,6 +33,16 @@ import {
 import { countOverlaps, parseDate, type ShiftTimeWindow } from '../overlap.js';
 import { employeeIdentityFilter } from '../domain/employeeIdentity.js';
 import { tenantWhere } from '../tenantPolicy.js';
+
+const DEFAULT_RANGE_WEEKLY_SCHEDULE = {
+  '0': { enabled: false },
+  '1': { enabled: true },
+  '2': { enabled: true },
+  '3': { enabled: true },
+  '4': { enabled: true },
+  '5': { enabled: true },
+  '6': { enabled: false },
+} as const;
 import { parsePagination, setPageHeaders } from '../pagination.js';
 
 const router = Router();
@@ -373,7 +383,7 @@ router.post('/bulk', requireAdminOrManager, validate(bulkCreateShiftsSchema), as
       location,
       notes,
       skipOverlaps,
-      weeklySchedule,
+      weeklySchedule: submittedWeeklySchedule,
     } = req.body as BulkCreateShifts;
 
     // Expand the date range (single day when endDate is omitted)
@@ -382,6 +392,11 @@ router.post('/bulk', requireAdminOrManager, validate(bulkCreateShiftsSchema), as
       return badRequest(res, range.error, { field: range.field });
     }
     const dates = range.days;
+    // Multi-day creation defaults to Monday-Friday. Older clients omitted
+    // weeklySchedule, which otherwise caused the flat template to be applied
+    // to Saturdays and Sundays as well.
+    const weeklySchedule =
+      endDate && !submittedWeeklySchedule ? DEFAULT_RANGE_WEEKLY_SCHEDULE : submittedWeeklySchedule;
 
     // Fetch and validate employees
     const employees = await prisma.employee.findMany({

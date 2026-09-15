@@ -53,6 +53,13 @@ export interface GeofenceDefinition {
   is_active: boolean;
 }
 
+import {
+  GEOFENCE_CONFIRMATIONS,
+  GEOFENCE_EVENT_COOLDOWN_MS,
+  GEOFENCE_EXIT_BUFFER_METERS,
+  GEOFENCE_MAX_ACCURACY_METERS,
+} from '../constants/geofence';
+
 export type AutoGeofenceEventType =
   'ENTERED_GEOFENCE' | 'EXITED_GEOFENCE' | 'POSITION_UPDATE' | 'ERROR';
 
@@ -65,23 +72,23 @@ export type AutoGeofenceEventType =
 export type GeofenceZone = 'inside' | 'approaching' | 'outside';
 
 /** Grace distance (metres) outside the geofence radius before auto clock-out triggers. */
-export const EXIT_BUFFER_METERS = 200;
+export const EXIT_BUFFER_METERS = GEOFENCE_EXIT_BUFFER_METERS;
 
 /**
  * Maximum GPS accuracy (metres) for a fix to be trusted. Fixes worse than
  * this are dropped. Aligned with the server's GPS_ACCURACY_BUFFER_METERS so
  * indoor Wi-Fi/cell-assisted fixes (commonly 100–150m) are still usable.
  */
-export const MAX_ACCURACY_METERS = 150;
+export const MAX_ACCURACY_METERS = GEOFENCE_MAX_ACCURACY_METERS;
 
 /** Maximum plausible speed (m/s) between two accepted fixes (~126 km/h). */
 export const MAX_SPEED_MPS = 35;
 
 /** Consecutive qualifying samples required to confirm a boundary crossing. */
-export const CONSECUTIVE_CONFIRMATIONS = 3;
+export const CONSECUTIVE_CONFIRMATIONS = GEOFENCE_CONFIRMATIONS;
 
 /** Minimum time (ms) between auto clock-in/out events. */
-export const EVENT_COOLDOWN_MS = 60_000;
+export const EVENT_COOLDOWN_MS = GEOFENCE_EVENT_COOLDOWN_MS;
 
 /** Backoff schedule (ms) for restarting the position watch after a transient GPS error. */
 export const WATCH_RESTART_DELAYS_MS = [5_000, 10_000, 30_000, 60_000];

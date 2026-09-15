@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { employeeApi, timeEntryApi, type Employee, ApiError } from '../../services/api';
 import { Button, Input, Label, Modal, Select, Spinner, Textarea } from '../ui';
 import { toDateStr } from '../../lib/utils';
+import { timeToMinutes } from '../../lib/businessTime';
 
 interface ManualTimeEntryModalProps {
   open: boolean;
@@ -97,13 +98,13 @@ export default function ManualTimeEntryModal({ open, onClose, onDone }: ManualTi
   // Live total-hours preview (mirrors server calculation)
   const preview = useMemo(() => {
     if (!date || !clockIn || !clockOut) return null;
-    const inDate = new Date(`${date}T${clockIn}:00`);
-    const outDate = new Date(`${date}T${clockOut}:00`);
-    if (isNaN(inDate.getTime()) || isNaN(outDate.getTime())) return null;
-    if (outDate <= inDate) return { valid: false, total: 0 };
+    const inMinutes = timeToMinutes(clockIn);
+    const outMinutes = timeToMinutes(clockOut);
+    if (inMinutes === null || outMinutes === null) return null;
+    if (outMinutes <= inMinutes) return { valid: false, total: 0 };
     const parsed = parseInt(breakMinutes, 10);
     const breakHrs = (Number.isFinite(parsed) && parsed >= 0 ? parsed : 0) / 60;
-    const rawHours = (outDate.getTime() - inDate.getTime()) / 3_600_000;
+    const rawHours = (outMinutes - inMinutes) / 60;
     const total = Math.max(0, Math.round((rawHours - breakHrs) * 100) / 100);
     return { valid: true, total };
   }, [date, clockIn, clockOut, breakMinutes]);

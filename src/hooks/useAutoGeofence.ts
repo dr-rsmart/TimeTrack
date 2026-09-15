@@ -266,6 +266,7 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
   onClockOutRef.current = onClockOut;
   const autoGeofenceEnabledRef = useRef(autoGeofenceEnabled);
   autoGeofenceEnabledRef.current = autoGeofenceEnabled;
+  const reclockBlockedUntilRef = useRef(0);
 
   // ── Sync active clocked-in state with background service + native shell ──
   useEffect(() => {
@@ -371,6 +372,22 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
 
   // Realtime refresh: admin reassignment broadcasts (geofence entity).
   useSSE((event) => {
+    const payload = event.payload as
+      | { employeeEmail?: string; autoClockOut?: boolean; autoClockOutAtShiftEnd?: boolean }
+      | undefined;
+    if (
+      payload?.autoClockOut &&
+      payload.employeeEmail?.toLowerCase() === userEmail?.toLowerCase()
+    ) {
+      void sendNotification(
+        'Automatic Clock Out',
+        payload.autoClockOutAtShiftEnd
+          ? 'Your shift ended and you were clocked out automatically.'
+          : 'You were clocked out automatically at the configured workday end.',
+      );
+      showToast('info', 'Automatic clock-out', 'Your active session was closed automatically.');
+      void onClockOutRef.current();
+    }
     if (
       typeof event.entity === 'string' &&
       ['geofence', 'employee'].includes(event.entity.toLowerCase())
@@ -430,7 +447,12 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
     const unsubscribe = autoGeofenceService.onEvent(async (event: AutoGeofenceEvent) => {
       if (!webMonitoringEnabled || !autoGeofenceEnabledRef.current) return;
 
-      if (event.type === 'ENTERED_GEOFENCE' && event.geofence && !isClockedInRef.current) {
+      if (
+        event.type === 'ENTERED_GEOFENCE' &&
+        event.geofence &&
+        !isClockedInRef.current &&
+        Date.now() >= reclockBlockedUntilRef.current
+      ) {
         try {
           const pos = event.position || (await getCurrentPosition());
           const result = await timeEntryApi.clockIn(
@@ -452,6 +474,12 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : 'Unknown error';
           if (!msg.toLowerCase().includes('already clocked')) {
+            if (
+              msg.toLowerCase().includes('less than') ||
+              msg.toLowerCase().includes('duplicate')
+            ) {
+              reclockBlockedUntilRef.current = Date.now() + 120_000;
+            }
             showToast('error', 'Auto clock-in failed', msg);
           }
         }

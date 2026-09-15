@@ -357,6 +357,17 @@ export const updateSettingsSchema = z.object({
   publicHolidayOvertimeEnabled: z.boolean().optional(),
   publicHolidayOvertimeMultiplier: z.number().min(1).max(5).optional(),
   publicHolidays: z.array(dateStrSchema).optional(),
+  defaultWorkingStartTime: timeStrSchema.optional(),
+  defaultWorkingEndTime: timeStrSchema.optional(),
+  defaultWorkingDays: z
+    .array(z.enum(['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']))
+    .min(1)
+    .optional(),
+});
+
+export const registerPushTokenSchema = z.object({
+  token: z.string().min(10).max(500),
+  platform: z.enum(['ios', 'android', 'web']),
 });
 
 // ── Company Profile ──

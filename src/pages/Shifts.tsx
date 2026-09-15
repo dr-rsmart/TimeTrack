@@ -89,7 +89,7 @@ const defaultWeeklySchedule: Record<number, DayScheduleConfig> = {
   3: { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Wed
   4: { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Thu
   5: { enabled: true, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Fri
-  6: { enabled: true, startTime: '08:00', endTime: '12:30', shiftType: 'half_day' }, // Sat
+  6: { enabled: false, startTime: '08:00', endTime: '12:30', shiftType: 'half_day' }, // Sat (Closed)
   0: { enabled: false, startTime: '08:00', endTime: '16:30', shiftType: 'full_day' }, // Sun (Closed)
 };
 

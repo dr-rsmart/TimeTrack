@@ -68,6 +68,7 @@ import {
 } from '../components/ui';
 import { useSSE } from '../hooks/useSSE';
 import { useAuth } from '../context/AuthContext';
+import { businessHour } from '../lib/businessTime';
 import { formatTime, formatDate } from '../lib/utils';
 import SelfClockWidget from '../components/dashboard/SelfClockWidget';
 import MasterDashboardView from '../components/dashboard/MasterDashboardView';
@@ -113,7 +114,7 @@ function pieColor(index: number): string {
 }
 
 function getGreeting(): string {
-  const hour = new Date().getHours();
+  const hour = businessHour() ?? 12;
   if (hour < 12) return 'Good Morning';
   if (hour < 17) return 'Good Afternoon';
   return 'Good Evening';

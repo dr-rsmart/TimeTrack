@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Cron Job Runner
  * ---------------
  * Background jobs for shift & time-entry lifecycle management:
@@ -28,11 +28,25 @@ import { parseDate } from './overlap.js';
 import { singleEmployeeIdentityFilter } from './domain/employeeIdentity.js';
 import { calculateWorkedDuration } from './domain/duration.js';
 import { resolveLocationWorkingEnd } from './locationWorkingHours.js';
+import { runUnrestricted } from './tenantDatabase.js';
+import { recordAutoClockOutcome } from './metrics.js';
+import { notifyEmployeePush } from './push.js';
 
 const INSTANCE_ID = randomUUID();
 const NO_SHOW_GRACE_MINUTES = 120; // 2 hours
 /** Active time entries older than this are auto-closed (forgotten clock-out). */
 const STALE_ACTIVE_ENTRY_MAX_HOURS = 16;
+
+async function reconcileOverdueActiveEntries(): Promise<void> {
+  const overdueBefore = new Date(Date.now() - 12 * 3_600_000);
+  const overdue = await prisma.timeEntry.count({
+    where: { status: 'active', clockIn: { lt: overdueBefore } },
+  });
+  if (overdue > 0) {
+    recordAutoClockOutcome('reconciliation_overdue_active');
+    logger.warn(`[cron] Reconciliation found ${overdue} active entry(s) older than 12 hours.`);
+  }
+}
 
 /**
  * Attempt to acquire a distributed lock for a cron job.
@@ -147,6 +161,13 @@ async function closeStaleActiveTimeEntries(): Promise<void> {
           updatedBy: 'system:cron',
         },
       });
+      recordAutoClockOutcome('cron_stale_closed');
+      void notifyEmployeePush(
+        entry.employeeEmail,
+        'Automatic Clock Out',
+        'Your session was closed automatically after exceeding the maximum active duration.',
+        { type: 'auto_clock_out', entryId: entry.id },
+      );
 
       broadcastScoped(
         'TimeEntry',
@@ -156,6 +177,7 @@ async function closeStaleActiveTimeEntries(): Promise<void> {
           employeeEmail: entry.employeeEmail,
           totalMinutes: actualDuration.totalMinutes,
           totalHours: actualDuration.totalHours,
+          autoClockOut: true,
         },
         {
           companyProfileId: entry.companyProfileId,
@@ -189,6 +211,12 @@ async function closeStaleActiveTimeEntries(): Promise<void> {
 async function autoClockOutAtShiftEnd(): Promise<void> {
   const jobName = 'shift-end-auto-clock-out';
   if (!(await acquireLock(jobName, 120_000))) return;
+
+  // Cutover switch: when set to false, employees with NO assigned location keep
+  // the legacy behaviour (only the 16h stale close applies). Use it during a
+  // production cutover window so sessions that are already active are never
+  // retro-closed by the new company-default end-of-day rule on first run.
+  const companyDefaultCloseEnabled = process.env.COMPANY_DEFAULT_HOURS_CLOSE !== 'false';
 
   try {
     const now = new Date();
@@ -276,6 +304,13 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
         },
       });
       if (closed.count === 0) continue;
+      recordAutoClockOutcome('cron_shift_end_closed');
+      void notifyEmployeePush(
+        activeEntry.employeeEmail,
+        'Automatic Clock Out',
+        `Your shift ended at ${shift.endTime} and you were clocked out automatically.`,
+        { type: 'auto_clock_out', entryId: activeEntry.id },
+      );
 
       await prisma.shift.update({
         where: { id: shift.id },
@@ -297,6 +332,7 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
           totalHours: actualDuration.totalHours,
           status: 'completed',
           autoClockOutAtShiftEnd: true,
+          autoClockOut: true,
         },
         {
           companyProfileId: activeEntry.companyProfileId,
@@ -315,41 +351,49 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
     // this fallback is skipped whenever an open scheduled/active shift with an
     // end time exists for the employee on the current business day.
     const locationEntries = await prisma.timeEntry.findMany({
-      where: { status: 'active', geofenceId: { not: null } },
-      include: { geofence: true },
+      where: { status: 'active' },
+      include: { geofence: true, companyProfile: { include: { settings: true } } },
     });
     const candidateDates = [parseDate(biz.dateStr), parseDate(yesterdayBiz.dateStr)];
+    const openShifts = await prisma.shift.findMany({
+      where: {
+        status: { in: ['scheduled', 'active'] },
+        date: { in: candidateDates },
+        endTime: { not: null },
+      },
+      select: { employeeId: true, employeeEmail: true },
+    });
+    const openShiftKeys = new Set(
+      openShifts.flatMap((shift) =>
+        [
+          shift.employeeId ? `id:${shift.employeeId}` : null,
+          shift.employeeEmail ? `email:${shift.employeeEmail.toLowerCase()}` : null,
+        ].filter((value): value is string => value !== null),
+      ),
+    );
 
     for (const entry of locationEntries) {
       const location = entry.geofence;
-      if (!location || !entry.geofenceId) continue;
+      if (!location && !companyDefaultCloseEnabled) continue;
+      const companySettings = entry.companyProfile?.settings?.[0];
+      const workingStartTime =
+        location?.workingStartTime ?? companySettings?.defaultWorkingStartTime;
+      const workingEndTime = location?.workingEndTime ?? companySettings?.defaultWorkingEndTime;
+      const workingDays = location?.workingDays ?? companySettings?.defaultWorkingDays ?? [];
+      if (!workingStartTime || !workingEndTime || workingDays.length === 0) continue;
+
       if (
-        !location.workingStartTime ||
-        !location.workingEndTime ||
-        location.workingDays.length === 0
+        (entry.employeeId && openShiftKeys.has(`id:${entry.employeeId}`)) ||
+        openShiftKeys.has(`email:${entry.employeeEmail.toLowerCase()}`)
       )
         continue;
-
-      const openShift = await prisma.shift.findFirst({
-        where: {
-          status: { in: ['scheduled', 'active'] },
-          date: { in: candidateDates },
-          endTime: { not: null },
-          OR: entry.employeeId
-            ? [{ employeeId: entry.employeeId }, { employeeEmail: entry.employeeEmail }]
-            : [{ employeeEmail: entry.employeeEmail }],
-          ...(entry.companyProfileId ? { companyProfileId: entry.companyProfileId } : {}),
-        },
-        select: { id: true },
-      });
-      if (openShift) continue;
 
       const clockOut = resolveLocationWorkingEnd({
         clockIn: entry.clockIn,
         timezone: tz,
-        workingStartTime: location.workingStartTime,
-        workingEndTime: location.workingEndTime,
-        workingDays: location.workingDays,
+        workingStartTime,
+        workingEndTime,
+        workingDays,
       });
       if (!clockOut || clockOut.getTime() > now.getTime()) continue;
 
@@ -370,6 +414,13 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
         },
       });
       if (closed.count === 0) continue;
+      recordAutoClockOutcome('cron_location_hours_closed');
+      void notifyEmployeePush(
+        entry.employeeEmail,
+        'Automatic Clock Out',
+        'You were clocked out automatically at the configured workday end.',
+        { type: 'auto_clock_out', entryId: entry.id },
+      );
 
       broadcastScoped(
         'timeEntry',
@@ -382,6 +433,7 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
           totalHours: actualDuration.totalHours,
           status: 'completed',
           autoClockOutAtLocationWorkingEnd: true,
+          autoClockOut: true,
           geofenceId: entry.geofenceId,
         },
         {
@@ -392,7 +444,7 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
       );
 
       logger.info(
-        `[cron] Auto clock-out at location working end: entry ${entry.id} (${entry.employeeEmail}) closed at ${clockOut.toISOString()} for ${location.name}.`,
+        `[cron] Auto clock-out at working end: entry ${entry.id} (${entry.employeeEmail}) closed at ${clockOut.toISOString()} for ${location?.name ?? 'company default hours'}.`,
       );
     }
   } catch (err) {
@@ -495,25 +547,31 @@ let cronInterval: ReturnType<typeof setInterval> | null = null;
 
 /**
  * Start the cron runner. Runs every 60 seconds.
+ * Each job runs inside an unrestricted tenant transaction (RLS bridge) —
+ * background work is a master/system concern and must see all tenants.
  */
 export function startCron(): void {
   if (cronInterval) return;
 
   logger.info('[cron] Starting background job runner (60s interval)');
 
-  cronInterval = setInterval(async () => {
-    await autoClockOutAtShiftEnd();
-    await detectNoShows();
-    await purgeRetentionPolicies();
-    await closeStaleActiveTimeEntries();
-    pruneStaleConnections();
+  const runJobs = async (): Promise<void> => {
+    await runUnrestricted(async () => {
+      await autoClockOutAtShiftEnd();
+      await detectNoShows();
+      await purgeRetentionPolicies();
+      await closeStaleActiveTimeEntries();
+      await reconcileOverdueActiveEntries();
+      pruneStaleConnections();
+    });
+  };
+
+  cronInterval = setInterval(() => {
+    runJobs().catch((err: unknown) => logger.error(err));
   }, 60_000);
 
   // Run once immediately
-  autoClockOutAtShiftEnd().catch((err: unknown) => logger.error(err));
-  detectNoShows().catch((err: unknown) => logger.error(err));
-  purgeRetentionPolicies().catch((err: unknown) => logger.error(err));
-  closeStaleActiveTimeEntries().catch((err: unknown) => logger.error(err));
+  runJobs().catch((err: unknown) => logger.error(err));
 }
 
 /**

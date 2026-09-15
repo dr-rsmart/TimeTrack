@@ -315,6 +315,67 @@ export default function Settings() {
             <p className="text-sm text-muted-foreground italic">
               Public holidays are now managed in the dedicated "Public Holidays" tab above.
             </p>
+            <div className="rounded-xl border border-border/50 bg-secondary/20 p-4 space-y-3">
+              <div>
+                <p className="font-medium text-sm">Default working hours</p>
+                <p className="text-xs text-muted-foreground">
+                  Used for automatic clock-out when an employee has no assigned location.
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="st-default-start">Default start</Label>
+                  <Input
+                    id="st-default-start"
+                    type="time"
+                    value={settings.defaultWorkingStartTime}
+                    onChange={(e) => updateField('defaultWorkingStartTime', e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="st-default-end">Default end</Label>
+                  <Input
+                    id="st-default-end"
+                    type="time"
+                    value={settings.defaultWorkingEndTime}
+                    onChange={(e) => updateField('defaultWorkingEndTime', e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Default working days</p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    'Monday',
+                    'Tuesday',
+                    'Wednesday',
+                    'Thursday',
+                    'Friday',
+                    'Saturday',
+                    'Sunday',
+                  ].map((day) => {
+                    const checked = settings.defaultWorkingDays.includes(day);
+                    return (
+                      <label key={day} className="flex items-center gap-1.5 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            updateField(
+                              'defaultWorkingDays',
+                              checked
+                                ? settings.defaultWorkingDays.filter((value) => value !== day)
+                                : [...settings.defaultWorkingDays, day],
+                            )
+                          }
+                        />
+                        {day.slice(0, 3)}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -458,7 +519,8 @@ export default function Settings() {
             <CardDescription>
               Clock-in location validation zones for GPS-based attendance. Employees with an
               assigned location can only clock in at their assigned geofence; unassigned employees
-              may clock in at any active geofence.
+              may clock in anywhere. Employees without an assignment are not automatically monitored
+              by geofence.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

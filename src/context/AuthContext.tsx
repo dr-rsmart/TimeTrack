@@ -78,7 +78,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (isNativeShellPresent() && isAutoClockEligible(me)) {
         authApi
           .nativeToken()
-          .then((r) => postToNativeShell({ type: 'AUTH_TOKEN', token: r.token }))
+          .then((r) =>
+            postToNativeShell({
+              type: 'AUTH_TOKEN',
+              token: r.token,
+              refreshToken: r.refreshToken,
+            }),
+          )
           .catch(() => {
             /* Non-fatal: foreground web auto-clock still works. */
           });
@@ -110,6 +116,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refresh().finally(() => setLoading(false));
   }, [refresh]);
 
+  // The native shell can restore a bearer token after Android/iOS evicts the
+  // WebView cookie jar. Retry the session probe when that bridge event arrives.
+  useEffect(() => {
+    const handleNativeToken = () => {
+      void refresh();
+    };
+    window.addEventListener('timetrack-native-token', handleNativeToken);
+    return () => window.removeEventListener('timetrack-native-token', handleNativeToken);
+  }, [refresh]);
+
   const login = useCallback(async (email: string, password: string) => {
     const res = await authApi.login(email, password);
     hadSessionRef.current = true;
@@ -120,7 +136,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // (A fresh login can never be a demo/impersonation session, so `role`
     // alone is sufficient here; refresh() handles the session-restored case.)
     if (res.token && isAutoClockEligible(res.user)) {
-      postToNativeShell({ type: 'AUTH_TOKEN', token: res.token });
+      authApi
+        .nativeToken()
+        .then((native) =>
+          postToNativeShell({
+            type: 'AUTH_TOKEN',
+            token: native.token,
+            refreshToken: native.refreshToken,
+          }),
+        )
+        .catch(() => {
+          // Foreground web session remains usable if native token minting fails.
+        });
     }
   }, []);
 

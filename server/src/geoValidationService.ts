@@ -20,6 +20,7 @@
 import prisma from './prisma.js';
 import { logger } from './logger.js';
 import { normalizeEmployeeEmail } from './domain/employeeIdentity.js';
+import { GEOFENCE_MAX_ACCURACY_METERS } from './geofenceConstants.js';
 
 const EARTH_RADIUS_METERS = 6_371_000;
 
@@ -29,7 +30,7 @@ const EARTH_RADIUS_METERS = 6_371_000;
  * geofence radius to prevent false declines when an employee is at the
  * boundary and GPS drift pushes the reported position slightly outside.
  */
-const GPS_ACCURACY_BUFFER_METERS = 150;
+const GPS_ACCURACY_BUFFER_METERS = GEOFENCE_MAX_ACCURACY_METERS;
 
 /**
  * STRICT_GEOFENCE environment variable controls geofence enforcement:

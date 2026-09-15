@@ -11,7 +11,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CalendarDays, Clock, Download, FileBarChart, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
-import { reportApi, timeEntryApi, type PayrollRow, type TimeEntry } from '../services/api';
+import {
+  employeeApi,
+  reportApi,
+  timeEntryApi,
+  type Employee,
+  type PayrollRow,
+  type TimeEntry,
+} from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import EditTimeEntryModal from '../components/time/EditTimeEntryModal';
 import {
@@ -50,6 +57,7 @@ export default function Reports() {
   const [department, setDepartment] = useState('');
   const [employeeEmail, setEmployeeEmail] = useState('');
   const [rows, setRows] = useState<PayrollRow[]>([]);
+  const [directory, setDirectory] = useState<Employee[]>([]);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingEntries, setLoadingEntries] = useState(false);
@@ -67,6 +75,7 @@ export default function Reports() {
         to,
         branch: branch || undefined,
         department: department || undefined,
+        employeeEmail: employeeEmail || undefined,
       });
       setRows(res.rows);
       setLoaded(true);
@@ -76,7 +85,7 @@ export default function Reports() {
     } finally {
       setLoading(false);
     }
-  }, [from, to, branch, department]);
+  }, [from, to, branch, department, employeeEmail]);
 
   const loadTimeEntries = useCallback(async () => {
     setLoadingEntries(true);
@@ -85,17 +94,11 @@ export default function Reports() {
         from,
         to,
         employeeEmail: employeeEmail || undefined,
+        branch: branch || undefined,
+        department: department || undefined,
         limit: 1000,
       });
-      // Filter by branch/department client-side since the API doesn't support these filters
-      let filtered = res.items;
-      if (branch) {
-        filtered = filtered.filter((e) => e.branch === branch);
-      }
-      if (department) {
-        filtered = filtered.filter((e) => e.department === department);
-      }
-      setTimeEntries(filtered);
+      setTimeEntries(res.items);
       setEntriesLoaded(true);
     } catch (err) {
       toast.error('Failed to load time entries');
@@ -105,6 +108,19 @@ export default function Reports() {
     }
   }, [from, to, branch, department, employeeEmail]);
 
+  const loadDirectory = useCallback(async () => {
+    try {
+      const result = await employeeApi.list({
+        limit: 500,
+        branch: branch || undefined,
+        department: department || undefined,
+      });
+      setDirectory(result.items);
+    } catch (err) {
+      console.error('Failed to load report employee directory', err);
+    }
+  }, [branch, department]);
+
   useEffect(() => {
     load();
   }, [load]);
@@ -113,16 +129,22 @@ export default function Reports() {
     loadTimeEntries();
   }, [loadTimeEntries]);
 
+  useEffect(() => {
+    loadDirectory();
+  }, [loadDirectory]);
+
   const branches = [...new Set(rows.map((r) => r.branch))];
   const departments = [...new Set(rows.map((r) => r.department))];
-  const employees = [...rows].sort((a, b) => a.name.localeCompare(b.name));
+  const employees = [...directory].sort((a, b) =>
+    `${a.firstName} ${a.surname}`.localeCompare(`${b.firstName} ${b.surname}`),
+  );
 
   // Keep the employee selection valid when branch or department filters change.
   useEffect(() => {
-    if (employeeEmail && !rows.some((row) => row.email === employeeEmail)) {
+    if (employeeEmail && !directory.some((employee) => employee.email === employeeEmail)) {
       setEmployeeEmail('');
     }
-  }, [employeeEmail, rows]);
+  }, [employeeEmail, directory]);
 
   // Employee number / position lookup built from the payroll summary rows so
   // the Time Entries tab and its CSV export align with the payroll report.
@@ -373,7 +395,7 @@ export default function Reports() {
               ))}
             </Select>
           </div>
-          {(activeTab === 'entries' || activeTab === 'daily') && (
+          {(activeTab === 'summary' || activeTab === 'entries' || activeTab === 'daily') && (
             <div className="space-y-1">
               <Label htmlFor="r-employee">Employee</Label>
               <Select
@@ -385,7 +407,7 @@ export default function Reports() {
                 <option value="">All employees</option>
                 {employees.map((employee) => (
                   <option key={employee.email} value={employee.email}>
-                    {employee.name} ({employee.email})
+                    {employee.firstName} {employee.surname} ({employee.email})
                   </option>
                 ))}
               </Select>
@@ -445,6 +467,7 @@ export default function Reports() {
                       <TableHead className="text-right">Daily OT</TableHead>
                       <TableHead className="text-right">Sunday OT</TableHead>
                       <TableHead className="text-right">Holiday OT</TableHead>
+                      <TableHead className="text-right">Monthly OT</TableHead>
                       <TableHead className="text-right">Total OT</TableHead>
                       <TableHead className="text-right">Weighted OT</TableHead>
                       <TableHead className="text-right">Total Hours</TableHead>
@@ -469,6 +492,9 @@ export default function Reports() {
                         <TableCell className="text-right">
                           {formatHours(r.holidayOvertimeHours)}
                         </TableCell>
+                        <TableCell className="text-right">
+                          {formatHours(r.monthlyOvertimeHours)}
+                        </TableCell>
                         <TableCell className="text-right font-medium">
                           {formatHours(r.totalOvertimeHours)}
                         </TableCell>
@@ -484,7 +510,7 @@ export default function Reports() {
                     <TableRow className="bg-muted/50 font-semibold">
                       <TableCell colSpan={3}>Totals ({rows.length} employees)</TableCell>
                       <TableCell className="text-right">{formatHours(totals.ordinary)}</TableCell>
-                      <TableCell className="text-right" colSpan={3}>
+                      <TableCell className="text-right" colSpan={4}>
                         {''}
                       </TableCell>
                       <TableCell className="text-right">{formatHours(totals.overtime)}</TableCell>

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { recordHttpRequest, getMetricSnapshot, renderMetrics } from '../../server/src/metrics';
+import {
+  recordHttpRequest,
+  recordAutoClockOutcome,
+  getMetricSnapshot,
+  renderMetrics,
+} from '../../server/src/metrics';
 
 describe('Prometheus Metrics Module', () => {
   it('counts requests by status class and errors', () => {
@@ -43,5 +48,15 @@ describe('Prometheus Metrics Module', () => {
     const body = renderMetrics();
     expect(body).toContain('http_responses_total{class="2xx"}');
     expect(body).toContain('http_responses_total{class="5xx"}');
+  });
+
+  it('records auto-clock outcomes for reliability dashboards', () => {
+    const before = getMetricSnapshot();
+    recordAutoClockOutcome('test_closed');
+    const after = getMetricSnapshot();
+    expect(after.autoClockOutcomes.test_closed - (before.autoClockOutcomes.test_closed ?? 0)).toBe(
+      1,
+    );
+    expect(renderMetrics()).toContain('timetrack_auto_clock_outcomes_total{outcome="test_closed"}');
   });
 });

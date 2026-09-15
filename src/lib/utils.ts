@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { businessDateString, businessTimeString, DEFAULT_BUSINESS_TIMEZONE } from './businessTime';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -10,23 +11,31 @@ export function formatHours(hours: number | null | undefined): string {
   return `${hours.toFixed(2)}h`;
 }
 
-export function formatDate(dateStr: string | Date | null | undefined): string {
+export function formatDate(
+  dateStr: string | Date | null | undefined,
+  timeZone = DEFAULT_BUSINESS_TIMEZONE,
+): string {
   if (!dateStr) return '—';
-  const d = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
-  return d.toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric' });
+  const date = businessDateString(dateStr, timeZone);
+  if (date === '—') return date;
+  const d = new Date(`${date}T12:00:00Z`);
+  return d.toLocaleDateString('en-ZA', {
+    timeZone: 'UTC',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
-export function formatTime(dateStr: string | Date | null | undefined): string {
-  if (!dateStr) return '—';
-  const d = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
-  return d.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
+export function formatTime(
+  dateStr: string | Date | null | undefined,
+  timeZone = DEFAULT_BUSINESS_TIMEZONE,
+): string {
+  return businessTimeString(dateStr, timeZone);
 }
 
-export function toDateStr(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+export function toDateStr(d: Date, timeZone = DEFAULT_BUSINESS_TIMEZONE): string {
+  return businessDateString(d, timeZone);
 }
 
 /** Download rows as a CSV file. */

@@ -38,6 +38,8 @@ model User {
 
   companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id])
   ownedCompanies   CompanyProfile[] @relation("CompanyOwner")
+  pushTokens       DevicePushToken[]
+  nativeRefreshTokens NativeRefreshToken[]
 
   @@index([companyProfileId])
 }
@@ -64,6 +66,8 @@ model CompanyProfile {
   geofences          Geofence[]
   settings           CompanySettings[]
   locationPresets    LocationPreset[]
+  pushTokens         DevicePushToken[]
+  payrollSnapshots   PayrollPeriodSnapshot[]
 
   @@index([ownerUserId])
 }
@@ -253,6 +257,9 @@ model CompanySettings {
   publicHolidayOvertimeEnabled      Boolean         @default(true)
   publicHolidayOvertimeMultiplier   Float           @default(2.0)
   publicHolidays                    String[]        @default([])
+  defaultWorkingStartTime            String          @default("08:00")
+  defaultWorkingEndTime              String          @default("17:00")
+  defaultWorkingDays                 String[]        @default(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
   companyProfileId                  String?
   createdAt                         DateTime        @default(now())
   updatedAt                         DateTime        @updatedAt
@@ -260,6 +267,57 @@ model CompanySettings {
   companyProfile                    CompanyProfile? @relation(fields: [companyProfileId], references: [id])
 
   @@index([companyProfileId])
+}
+
+model DevicePushToken {
+  id               String          @id @default(cuid())
+  token            String          @unique
+  platform         String
+  userId           String
+  employeeEmail    String?
+  companyProfileId String?
+  isActive         Boolean         @default(true)
+  lastSeenAt       DateTime        @default(now())
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@index([companyProfileId, isActive])
+}
+
+model PayrollPeriodSnapshot {
+  id               String          @id @default(cuid())
+  companyProfileId String
+  periodFrom       DateTime        @db.Date
+  periodTo         DateTime        @db.Date
+  employeeId       String
+  employeeEmail    String
+  settings         Json
+  result           Json
+  createdBy        String
+  createdAt        DateTime        @default(now())
+
+  companyProfile   CompanyProfile  @relation(fields: [companyProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([companyProfileId, periodFrom, periodTo, employeeId])
+  @@index([companyProfileId, periodFrom, periodTo])
+}
+
+model NativeRefreshToken {
+  id               String          @id @default(cuid())
+  tokenHash        String          @unique
+  userId           String
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime        @default(now())
+
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
 }
 
 model Geofence {

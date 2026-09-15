@@ -122,6 +122,7 @@ export interface CurrentUser {
   mustChangePassword?: boolean;
   usingDefaultPassword?: boolean;
   demoEmail?: string | null;
+  businessTimezone?: string;
 }
 
 export interface TimeEntry {

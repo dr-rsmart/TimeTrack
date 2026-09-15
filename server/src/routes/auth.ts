@@ -17,11 +17,18 @@ import {
   invalidateLiveRoleCache,
 } from '../middleware/auth.js';
 import { loginRateLimit } from '../middleware/rateLimit.js';
-import { validate, loginSchema, changePasswordSchema } from '../validation.js';
+import {
+  validate,
+  loginSchema,
+  changePasswordSchema,
+  registerPushTokenSchema,
+} from '../validation.js';
 import { logAudit, getClientIp } from '../audit.js';
 import { DEFAULT_PASSWORD, isDefaultPasswordHash } from '../passwords.js';
 import { disconnectUserClusterWide } from '../invalidation.js';
 import { AUTH_COOKIE_NAME, AUTH_COOKIE_OPTIONS, getAuthToken } from '../authSession.js';
+import { getBusinessTimezone } from '../timezone.js';
+import { createHash, randomBytes } from 'crypto';
 import {
   badRequest,
   unauthorized,
@@ -223,7 +230,7 @@ router.post('/login', loginRateLimit, validate(loginSchema), async (req, res) =>
       token,
     });
   } catch (err) {
-    logger.error('[auth] Login error:', err);
+    logger.error({ err }, '[auth] Login error:');
     internalError(res, 'logging in');
   }
 });
@@ -274,11 +281,89 @@ router.post('/native-token', requireAuth, async (req, res) => {
     });
     if (!user) return unauthorized(res, 'Session is no longer valid.');
 
-    const token = signToken({ ...authUser, pwdEpoch: user.pwdEpoch }, { expiresIn: '7d' });
-    res.json({ token });
+    const accessToken = signToken({ ...authUser, pwdEpoch: user.pwdEpoch }, { expiresIn: '15m' });
+    const refreshToken = randomBytes(48).toString('base64url');
+    await prisma.nativeRefreshToken.create({
+      data: {
+        tokenHash: createHash('sha256').update(refreshToken).digest('hex'),
+        userId: authUser.id,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60_000),
+      },
+    });
+    res.json({ token: accessToken, refreshToken, expiresIn: 900 });
   } catch (err) {
     logger.error('[auth] Native token error:', err);
     internalError(res, 'minting native token');
+  }
+});
+
+router.post('/native-token/refresh', async (req, res) => {
+  try {
+    const refreshToken = typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : '';
+    if (!refreshToken) return unauthorized(res, 'Refresh token is required.');
+    const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
+    const stored = await prisma.nativeRefreshToken.findUnique({
+      where: { tokenHash },
+      include: { user: true },
+    });
+    if (!stored || stored.revokedAt || stored.expiresAt <= new Date()) {
+      return unauthorized(res, 'Refresh token is invalid or expired.');
+    }
+    await prisma.nativeRefreshToken.update({
+      where: { id: stored.id },
+      data: { revokedAt: new Date() },
+    });
+    const authUser = {
+      id: stored.user.id,
+      email: stored.user.email,
+      fullName: stored.user.fullName,
+      role: stored.user.role,
+      companyProfileId: stored.user.companyProfileId,
+      pwdEpoch: stored.user.pwdEpoch,
+    } as any;
+    const nextAccessToken = signToken(authUser, { expiresIn: '15m' });
+    const nextRefreshToken = randomBytes(48).toString('base64url');
+    await prisma.nativeRefreshToken.create({
+      data: {
+        tokenHash: createHash('sha256').update(nextRefreshToken).digest('hex'),
+        userId: stored.userId,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60_000),
+      },
+    });
+    res.json({ token: nextAccessToken, refreshToken: nextRefreshToken, expiresIn: 900 });
+  } catch (err) {
+    logger.error('[auth] Native token refresh error:', err);
+    internalError(res, 'refreshing native token');
+  }
+});
+
+router.post('/push-token', requireAuth, validate(registerPushTokenSchema), async (req, res) => {
+  try {
+    const authUser = req.authUser!;
+    const { token, platform } = req.body as { token: string; platform: string };
+    await prisma.devicePushToken.upsert({
+      where: { token },
+      create: {
+        token,
+        platform,
+        userId: authUser.id,
+        employeeEmail: authUser.email,
+        companyProfileId: authUser.companyProfileId,
+        isActive: true,
+      },
+      update: {
+        platform,
+        userId: authUser.id,
+        employeeEmail: authUser.email,
+        companyProfileId: authUser.companyProfileId,
+        isActive: true,
+        lastSeenAt: new Date(),
+      },
+    });
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('[auth] Push token registration error:', err);
+    internalError(res, 'registering push token');
   }
 });
 
@@ -553,6 +638,7 @@ router.get('/me', requireAuth, async (req, res) => {
       originalRole: authUser.originalRole ?? null,
       // Demo session marker — lets the UI show "Return to Master Console" for demos
       demoEmail: authUser.demoEmail ?? null,
+      businessTimezone: getBusinessTimezone(),
     });
   } catch (err) {
     logger.error('[auth] Me error:', err);

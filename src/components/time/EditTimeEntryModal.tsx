@@ -15,6 +15,8 @@ import { toast } from 'sonner';
 import { timeEntryApi, type TimeEntry, ApiError } from '../../services/api';
 import { Button, Input, Label, Modal, Textarea } from '../ui';
 import { toDateStr, formatTime } from '../../lib/utils';
+import { useAuth } from '../../context/AuthContext';
+import { timeToMinutes } from '../../lib/businessTime';
 
 interface EditTimeEntryModalProps {
   open: boolean;
@@ -25,11 +27,16 @@ interface EditTimeEntryModalProps {
 }
 
 /** Extract HH:mm from an ISO datetime string (local time). */
-function toTimeStr(iso: string | null): string {
+function toTimeStr(iso: string | null, timeZone: string): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '';
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d);
 }
 
 export default function EditTimeEntryModal({
@@ -38,6 +45,8 @@ export default function EditTimeEntryModal({
   onClose,
   onDone,
 }: EditTimeEntryModalProps) {
+  const { user } = useAuth();
+  const timeZone = user?.businessTimezone ?? 'Africa/Johannesburg';
   const [date, setDate] = useState('');
   const [clockIn, setClockIn] = useState('');
   const [clockOut, setClockOut] = useState('');
@@ -48,26 +57,26 @@ export default function EditTimeEntryModal({
   // Populate form when the modal opens with an entry
   useEffect(() => {
     if (open && entry) {
-      setDate(toDateStr(new Date(entry.date)));
-      setClockIn(toTimeStr(entry.clockIn));
-      setClockOut(entry.clockOut ? toTimeStr(entry.clockOut) : '');
+      setDate(toDateStr(new Date(entry.date), timeZone));
+      setClockIn(toTimeStr(entry.clockIn, timeZone));
+      setClockOut(entry.clockOut ? toTimeStr(entry.clockOut, timeZone) : '');
       setBreakMinutes(String(entry.breakMinutes ?? 0));
       setReason('');
     }
-  }, [open, entry]);
+  }, [open, entry, timeZone]);
 
   // Live total-hours preview (mirrors server calculation)
   const preview = useMemo(() => {
     if (!date || !clockIn) return null;
     // If no clock-out provided, we can't compute a total (entry stays active)
     if (!clockOut) return { valid: true, total: null };
-    const inDate = new Date(`${date}T${clockIn}:00`);
-    const outDate = new Date(`${date}T${clockOut}:00`);
-    if (isNaN(inDate.getTime()) || isNaN(outDate.getTime())) return null;
-    if (outDate <= inDate) return { valid: false, total: 0 };
+    const inMinutes = timeToMinutes(clockIn);
+    const outMinutes = timeToMinutes(clockOut);
+    if (inMinutes === null || outMinutes === null) return null;
+    if (outMinutes <= inMinutes) return { valid: false, total: 0 };
     const parsed = parseInt(breakMinutes, 10);
     const breakHrs = (Number.isFinite(parsed) && parsed >= 0 ? parsed : 0) / 60;
-    const rawHours = (outDate.getTime() - inDate.getTime()) / 3_600_000;
+    const rawHours = (outMinutes - inMinutes) / 60;
     const total = Math.max(0, Math.round((rawHours - breakHrs) * 100) / 100);
     return { valid: true, total };
   }, [date, clockIn, clockOut, breakMinutes]);
@@ -134,8 +143,10 @@ export default function EditTimeEntryModal({
           <div className="rounded-lg border bg-secondary/40 p-3 text-sm space-y-1">
             <p className="font-medium">{entry.employeeName ?? entry.employeeEmail}</p>
             <p className="text-muted-foreground">
-              Current: {toDateStr(new Date(entry.date))} · In {formatTime(entry.clockIn)} · Out{' '}
-              {entry.clockOut ? formatTime(entry.clockOut) : '—'} · Break {entry.breakMinutes ?? 0}m
+              Current: {toDateStr(new Date(entry.date), timeZone)} · In{' '}
+              {formatTime(entry.clockIn, timeZone)} · Out{' '}
+              {entry.clockOut ? formatTime(entry.clockOut, timeZone) : '—'} · Break{' '}
+              {entry.breakMinutes ?? 0}m
             </p>
           </div>
         )}

@@ -70,6 +70,26 @@ async function configureNotifications() {
   });
 }
 
+async function registerPushTokenWithServer() {
+  try {
+    const permission = await Notifications.getPermissionsAsync();
+    if (permission.status !== 'granted') return;
+    const token = await Notifications.getExpoPushTokenAsync();
+    const accessToken = await AsyncStorage.getItem(TOKEN_KEY);
+    if (!accessToken || !token?.data) return;
+    await fetch(`${TIMETRACK_URL}/api/auth/push-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ token: token.data, platform: Platform.OS }),
+    });
+  } catch (error) {
+    console.warn('[TimeTrack] Could not register push token:', error?.message || error);
+  }
+}
+
 // Production TimeTrack web app URL
 const TIMETRACK_URL = 'https://time-track.tech';
 
@@ -97,6 +117,7 @@ const CLOCKED_IN_KEY = 'timetrack_clocked_in';
 /** Mirrored web setting: false disables native automatic punches. */
 const AUTO_CLOCK_ENABLED_KEY = 'timetrack_auto_clock_enabled';
 const TOKEN_KEY = 'timetrack_auth_token';
+const REFRESH_TOKEN_KEY = 'timetrack_native_refresh_token';
 /** Persisted boundary state machine (zone, confirmation counters, cooldown). */
 const GEOFENCE_STATE_KEY = 'timetrack_geofence_state';
 /** One-shot flag: background-permission guidance already shown. */
@@ -160,7 +181,7 @@ async function apiClock(kind, pos, idempotencyKey) {
     ? { latitude: pos.latitude, longitude: pos.longitude }
     : { breakMinutes: 0, latitude: pos.latitude, longitude: pos.longitude };
 
-  const res = await fetch(url, {
+  let res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -169,8 +190,38 @@ async function apiClock(kind, pos, idempotencyKey) {
     },
     body: JSON.stringify(body),
   });
+  if (res.status === 401 && (await refreshNativeAccessToken())) {
+    const nextToken = await AsyncStorage.getItem(TOKEN_KEY);
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${nextToken}`,
+        'Idempotency-Key': requestKey,
+      },
+      body: JSON.stringify(body),
+    });
+  }
   const data = await res.json().catch(() => ({}));
   return { status: res.status, data };
+}
+
+async function refreshNativeAccessToken() {
+  const refreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY);
+  if (!refreshToken) return false;
+  const response = await fetch(`${TIMETRACK_URL}/api/auth/native-token/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+  });
+  if (!response.ok) return false;
+  const data = await response.json();
+  if (!data?.token || !data?.refreshToken) return false;
+  await AsyncStorage.multiSet([
+    [TOKEN_KEY, data.token],
+    [REFRESH_TOKEN_KEY, data.refreshToken],
+  ]);
+  return true;
 }
 
 async function notify(title, body) {
@@ -193,6 +244,21 @@ async function notify(title, body) {
   } catch (error) {
     console.warn('[TimeTrack] Could not schedule geofence notification:', error?.message || error);
     return false;
+  }
+}
+
+async function retryPendingNotification() {
+  try {
+    const raw = await AsyncStorage.getItem(GEOFENCE_STATE_KEY);
+    if (!raw) return;
+    const state = JSON.parse(raw);
+    if (!state?.pendingNotification?.title || !state?.pendingNotification?.body) return;
+    if (await notify(state.pendingNotification.title, state.pendingNotification.body)) {
+      state.pendingNotification = null;
+      await AsyncStorage.setItem(GEOFENCE_STATE_KEY, JSON.stringify(state));
+    }
+  } catch {
+    // Notification delivery is best effort; the next resume/location wake retries.
   }
 }
 
@@ -595,6 +661,7 @@ export default function App() {
         }
         try {
           await Notifications.requestPermissionsAsync();
+          await registerPushTokenWithServer();
         } catch (error) {
           console.warn(
             '[TimeTrack] Could not request notification permission:',
@@ -606,6 +673,19 @@ export default function App() {
       }
       setPermissionsReady(true);
     })();
+  }, []);
+
+  const restoreNativeSession = useCallback(async () => {
+    const token = await AsyncStorage.getItem(TOKEN_KEY);
+    if (!token || !webviewRef.current) return;
+    const script = `
+      try {
+        sessionStorage.setItem('timetrack_native_token', ${JSON.stringify(token)});
+        window.dispatchEvent(new Event('timetrack-native-token'));
+      } catch (_) {}
+      true;
+    `;
+    webviewRef.current.injectJavaScript(script);
   }, []);
 
   // ── Start native background location updates ──
@@ -623,14 +703,18 @@ export default function App() {
 
     start();
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') start();
+      if (state === 'active') {
+        start();
+        void retryPendingNotification();
+        void restoreNativeSession();
+      }
     });
 
     return () => {
       cancelled = true;
       subscription.remove();
     };
-  }, [permissionsReady]);
+  }, [permissionsReady, restoreNativeSession]);
 
   // ── Bridge messages from the web app (geofence assignment, clock state, auth token) ──
   const processWebViewMessage = async (event) => {
@@ -725,11 +809,24 @@ export default function App() {
       }
       if (msg.type === 'AUTH_TOKEN' && typeof msg.token === 'string' && msg.token.length > 0) {
         await AsyncStorage.setItem(TOKEN_KEY, msg.token);
+        if (typeof msg.refreshToken === 'string' && msg.refreshToken.length > 0) {
+          await AsyncStorage.setItem(REFRESH_TOKEN_KEY, msg.refreshToken);
+        }
+        if (webviewRef.current) {
+          webviewRef.current.injectJavaScript(`
+            try {
+              sessionStorage.setItem('timetrack_native_token', ${JSON.stringify(msg.token)});
+              window.dispatchEvent(new Event('timetrack-native-token'));
+            } catch (_) {}
+            true;
+          `);
+        }
       }
       if (msg.type === 'SESSION_ENDED') {
         // Sign-out: wipe everything so the next session starts clean.
         await AsyncStorage.multiRemove([
           TOKEN_KEY,
+          REFRESH_TOKEN_KEY,
           GEOFENCE_KEY,
           GEOFENCE_LIST_KEY,
           CLOCKED_IN_KEY,
@@ -785,7 +882,10 @@ export default function App() {
             setLoadProgress(nativeEvent.progress);
           }}
           onLoad={() => setLoadProgress(1)}
-          onLoadEnd={() => setLoadProgress(0)}
+          onLoadEnd={() => {
+            setLoadProgress(0);
+            void restoreNativeSession();
+          }}
           onMessage={onWebViewMessage}
           javaScriptEnabled
           domStorageEnabled

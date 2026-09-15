@@ -67,6 +67,8 @@ router.get('/payroll', requireAuth, async (req, res) => {
     const to = (req.query.to as string) || toDateStr(new Date());
     const branch = req.query.branch as string;
     const department = req.query.department as string;
+    const employeeEmail = req.query.employeeEmail as string;
+    const employeeId = req.query.employeeId as string;
 
     const tenantWhere =
       authUser.role === 'master'
@@ -83,6 +85,8 @@ router.get('/payroll', requireAuth, async (req, res) => {
     }
     if (branch) employeeWhere.branch = branch;
     if (department) employeeWhere.department = department;
+    if (employeeEmail) employeeWhere.email = { equals: employeeEmail, mode: 'insensitive' };
+    if (employeeId) employeeWhere.id = employeeId;
 
     const employees = await prisma.employee.findMany({
       where: employeeWhere,
@@ -179,6 +183,104 @@ router.get('/payroll', requireAuth, async (req, res) => {
   } catch (err) {
     logger.error('[reports] Payroll error:', err);
     internalError(res, 'generating payroll report');
+  }
+});
+
+// ── POST /payroll/snapshot — persist an immutable payroll calculation ──
+router.post('/payroll/snapshot', requireAuth, async (req, res) => {
+  try {
+    const authUser = req.authUser!;
+    if (!authUser.companyProfileId || !['admin', 'manager', 'master'].includes(authUser.role)) {
+      return res.status(403).json({ error: 'Payroll snapshots require an administrator context.' });
+    }
+    const from = String(req.body?.from ?? '');
+    const to = String(req.body?.to ?? '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      return badRequest(res, 'Snapshot from and to dates must use YYYY-MM-DD.');
+    }
+
+    const settings = await getPayrollSettings(authUser.companyProfileId);
+    const employees = await prisma.employee.findMany({
+      where: { companyProfileId: authUser.companyProfileId },
+      select: { id: true, email: true },
+    });
+    const results = await Promise.all(
+      employees.map(async (employee) => {
+        const entries = await prisma.timeEntry.findMany({
+          where: {
+            companyProfileId: authUser.companyProfileId,
+            ...employeeIdentityFilter([employee]),
+            date: { gte: new Date(`${from}T00:00:00Z`), lte: new Date(`${to}T23:59:59.999Z`) },
+            status: 'completed',
+          },
+          select: { date: true, totalMinutes: true, totalHours: true },
+        });
+        const byDate: Record<string, number> = {};
+        for (const entry of entries) {
+          const date = toDateStr(entry.date);
+          byDate[date] =
+            (byDate[date] ?? 0) + storedDurationHours(entry.totalMinutes, entry.totalHours);
+        }
+        return { employee, result: computeOvertime(byDate, undefined, settings) };
+      }),
+    );
+    await prisma.$transaction(
+      results.map(({ employee, result }) =>
+        prisma.payrollPeriodSnapshot.upsert({
+          where: {
+            companyProfileId_periodFrom_periodTo_employeeId: {
+              companyProfileId: authUser.companyProfileId!,
+              periodFrom: new Date(`${from}T00:00:00Z`),
+              periodTo: new Date(`${to}T00:00:00Z`),
+              employeeId: employee.id,
+            },
+          },
+          create: {
+            companyProfileId: authUser.companyProfileId!,
+            periodFrom: new Date(`${from}T00:00:00Z`),
+            periodTo: new Date(`${to}T00:00:00Z`),
+            employeeId: employee.id,
+            employeeEmail: employee.email,
+            settings: settings as object,
+            result: result as object,
+            createdBy: authUser.id,
+          },
+          update: {
+            settings: settings as object,
+            result: result as object,
+            createdBy: authUser.id,
+          },
+        }),
+      ),
+    );
+    res.status(201).json({ success: true, snapshots: results.length, from, to });
+  } catch (err) {
+    logger.error('[reports] Payroll snapshot error:', err);
+    internalError(res, 'creating payroll snapshot');
+  }
+});
+
+router.get('/payroll/snapshots', requireAuth, async (req, res) => {
+  try {
+    const authUser = req.authUser!;
+    if (!authUser.companyProfileId || !['admin', 'manager', 'master'].includes(authUser.role)) {
+      return res.status(403).json({ error: 'Payroll snapshots require an administrator context.' });
+    }
+    const from =
+      typeof req.query.from === 'string' ? new Date(`${req.query.from}T00:00:00Z`) : undefined;
+    const to = typeof req.query.to === 'string' ? new Date(`${req.query.to}T00:00:00Z`) : undefined;
+    const snapshots = await prisma.payrollPeriodSnapshot.findMany({
+      where: {
+        companyProfileId: authUser.companyProfileId,
+        ...(from && !Number.isNaN(from.getTime()) ? { periodFrom: from } : {}),
+        ...(to && !Number.isNaN(to.getTime()) ? { periodTo: to } : {}),
+      },
+      orderBy: [{ periodFrom: 'desc' }, { employeeEmail: 'asc' }],
+    });
+    res.json({ snapshots });
+  } catch (err) {
+    logger.error('[reports] Payroll snapshot read error:', err);
+    internalError(res, 'fetching payroll snapshots');
   }
 });
 

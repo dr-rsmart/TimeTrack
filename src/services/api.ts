@@ -88,10 +88,20 @@ function notifySessionError(code: SessionErrorCode, message: string): void {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const { headers: optionHeaders, ...requestOptions } = options;
+  // The native shell supplies its bearer token through the bridge only. Never
+  // read the fallback token from browser localStorage: that would turn an
+  // httpOnly-cookie session into an XSS-readable credential.
+  const nativeToken =
+    typeof window !== 'undefined' &&
+    typeof (window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView !==
+      'undefined'
+      ? sessionStorage.getItem('timetrack_native_token')
+      : null;
   const res = await fetch(`/api${path}`, {
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
+      ...(nativeToken ? { Authorization: `Bearer ${nativeToken}` } : {}),
       ...(optionHeaders || {}),
     },
     ...requestOptions,
@@ -163,9 +173,26 @@ export const api = {
 export const authApi = {
   login: (email: string, password: string) =>
     api.post<{ user: CurrentUser; token: string }>('/auth/login', { email, password }),
-  logout: () => api.post<{ success: boolean }>('/auth/logout'),
+  logout: () =>
+    api.post<{ success: boolean }>('/auth/logout').finally(() => {
+      try {
+        sessionStorage.removeItem('timetrack_native_token');
+      } catch {
+        /* ignore */
+      }
+    }),
   /** Re-mint a fresh non-expiring bearer token for the current session (mobile native shell bridge). */
-  nativeToken: () => api.post<{ token: string }>('/auth/native-token'),
+  nativeToken: () =>
+    api.post<{ token: string; refreshToken: string; expiresIn: number }>('/auth/native-token'),
+  refreshNativeToken: (refreshToken: string) =>
+    api.post<{ token: string; refreshToken: string; expiresIn: number }>(
+      '/auth/native-token/refresh',
+      {
+        refreshToken,
+      },
+    ),
+  registerPushToken: (token: string, platform: 'ios' | 'android' | 'web') =>
+    api.post<{ success: boolean }>('/auth/push-token', { token, platform }),
   me: () => api.get<CurrentUser>('/auth/me'),
   changePassword: (currentPassword: string, newPassword: string) =>
     api.post<{ success: boolean }>('/auth/change-password', { currentPassword, newPassword }),
@@ -494,6 +521,8 @@ export const timeEntryApi = {
       to?: string;
       employeeEmail?: string;
       status?: string;
+      branch?: string;
+      department?: string;
       limit?: number;
     } = {},
   ) => {
@@ -503,6 +532,8 @@ export const timeEntryApi = {
     if (params.to) qs.set('to', params.to);
     if (params.employeeEmail) qs.set('employeeEmail', params.employeeEmail);
     if (params.status) qs.set('status', params.status);
+    if (params.branch) qs.set('branch', params.branch);
+    if (params.department) qs.set('department', params.department);
     if (params.limit) qs.set('limit', String(params.limit));
     return api.get<{ items: TimeEntry[]; total: number }>(`/time-entries?${qs.toString()}`);
   },
@@ -580,12 +611,23 @@ export interface PayrollRow {
 }
 
 export const reportApi = {
-  payroll: (params: { from?: string; to?: string; branch?: string; department?: string } = {}) => {
+  payroll: (
+    params: {
+      from?: string;
+      to?: string;
+      branch?: string;
+      department?: string;
+      employeeEmail?: string;
+      employeeId?: string;
+    } = {},
+  ) => {
     const qs = new URLSearchParams();
     if (params.from) qs.set('from', params.from);
     if (params.to) qs.set('to', params.to);
     if (params.branch) qs.set('branch', params.branch);
     if (params.department) qs.set('department', params.department);
+    if (params.employeeEmail) qs.set('employeeEmail', params.employeeEmail);
+    if (params.employeeId) qs.set('employeeId', params.employeeId);
     return api.get<{
       from: string;
       to: string;
@@ -597,6 +639,19 @@ export const reportApi = {
     api.get<{ entries: Array<Record<string, unknown>> }>(
       `/reports/attendance?from=${from}&to=${to}`,
     ),
+  createPayrollSnapshot: (from: string, to: string) =>
+    api.post<{ success: boolean; snapshots: number; from: string; to: string }>(
+      '/reports/payroll/snapshot',
+      { from, to },
+    ),
+  listPayrollSnapshots: (from?: string, to?: string) => {
+    const qs = new URLSearchParams();
+    if (from) qs.set('from', from);
+    if (to) qs.set('to', to);
+    return api.get<{ snapshots: Array<Record<string, unknown>> }>(
+      `/reports/payroll/snapshots?${qs.toString()}`,
+    );
+  },
 };
 
 // ── Settings ──
@@ -612,6 +667,9 @@ export interface CompanySettings {
   publicHolidayOvertimeEnabled: boolean;
   publicHolidayOvertimeMultiplier: number;
   publicHolidays: string[];
+  defaultWorkingStartTime: string;
+  defaultWorkingEndTime: string;
+  defaultWorkingDays: string[];
 }
 
 export interface Geofence {

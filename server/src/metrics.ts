@@ -20,6 +20,12 @@ const http: HttpCounters = {
 
 const startedAt = Date.now();
 let auditWriteFailures = 0;
+const autoClockOutcomes: Record<string, number> = {};
+
+/** Record an auto-clock lifecycle outcome for reliability monitoring. */
+export function recordAutoClockOutcome(outcome: string): void {
+  autoClockOutcomes[outcome] = (autoClockOutcomes[outcome] ?? 0) + 1;
+}
 
 /** Record a completed HTTP response (called once per request via middleware). */
 export function recordHttpRequest(statusCode: number): void {
@@ -44,6 +50,7 @@ export function getMetricSnapshot() {
     httpErrorsTotal: http.errors,
     httpByStatusClass: { ...http.byClass },
     auditWriteFailures,
+    autoClockOutcomes: { ...autoClockOutcomes },
   };
 }
 
@@ -81,6 +88,12 @@ export function renderMetrics(
   lines.push('# HELP timetrack_audit_write_failures_total Failed audit persistence attempts.');
   lines.push('# TYPE timetrack_audit_write_failures_total counter');
   lines.push(`timetrack_audit_write_failures_total ${auditWriteFailures}`);
+
+  lines.push('# HELP timetrack_auto_clock_outcomes_total Auto-clock lifecycle outcomes.');
+  lines.push('# TYPE timetrack_auto_clock_outcomes_total counter');
+  for (const [outcome, count] of Object.entries(autoClockOutcomes)) {
+    lines.push(`timetrack_auto_clock_outcomes_total{outcome="${outcome}"} ${count}`);
+  }
 
   lines.push('# HELP http_responses_total Completed HTTP responses by status class.');
   lines.push('# TYPE http_responses_total counter');
