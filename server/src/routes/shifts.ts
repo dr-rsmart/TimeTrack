@@ -172,6 +172,15 @@ router.post('/', requireAdminOrManager, validate(createShiftSchema), async (req,
     const companyProfileId =
       authUser.role === 'master' ? employee?.companyProfileId : authUser.companyProfileId;
 
+    // Migration 17 enforces Shift.companyProfileId NOT NULL — a shift without
+    // a tenant context would be an orphan row. Fail fast instead.
+    if (!companyProfileId) {
+      return badRequest(
+        res,
+        'A tenant context is required to create a shift (assign an employee or impersonate a tenant).',
+      );
+    }
+
     const shift = await prisma.shift.create({
       data: {
         date: parseDate(data.date),

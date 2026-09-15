@@ -275,7 +275,11 @@ export async function clockIn(command: ClockInCommand): Promise<AttendanceMutati
     const orphanEmployee = await prisma.employee.findFirst({
       where: {
         email: { equals: targetEmail, mode: 'insensitive' },
-        companyProfileId: null,
+        // Legacy orphan repair — only relevant on databases that predate
+        // migration 17 (tenant columns NOT NULL). On migrated databases this
+        // filter simply matches nothing; the cast keeps the pre-migration
+        // runtime behavior intact without weakening the new schema types.
+        companyProfileId: null as unknown as string,
       },
       include: { geofence: true },
     });

@@ -16,6 +16,12 @@ ALTER TABLE "TimeEntry"
 CREATE INDEX IF NOT EXISTS "TimeEntry_geofenceId_idx"
   ON "TimeEntry"("geofenceId");
 
+-- Fresh-database ordering fallback (2026-09-15): migration 16 sorts BEFORE
+-- this file lexicographically and skips this index when the column does not
+-- exist yet — create it here so the hot path is indexed in every ordering.
+CREATE INDEX IF NOT EXISTS "TimeEntry_companyProfileId_geofenceId_status_idx"
+  ON "TimeEntry"("companyProfileId", "geofenceId", "status");
+
 DO $$
 BEGIN
   IF NOT EXISTS (

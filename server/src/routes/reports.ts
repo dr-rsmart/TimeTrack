@@ -201,14 +201,14 @@ router.post('/payroll/snapshot', requireAuth, async (req, res) => {
 
     const settings = await getPayrollSettings(authUser.companyProfileId);
     const employees = await prisma.employee.findMany({
-      where: { companyProfileId: authUser.companyProfileId },
+      where: { companyProfileId: authUser.companyProfileId ?? '__none__' },
       select: { id: true, email: true },
     });
     const results = await Promise.all(
       employees.map(async (employee) => {
         const entries = await prisma.timeEntry.findMany({
           where: {
-            companyProfileId: authUser.companyProfileId,
+            companyProfileId: authUser.companyProfileId ?? '__none__',
             ...employeeIdentityFilter([employee]),
             date: { gte: new Date(`${from}T00:00:00Z`), lte: new Date(`${to}T23:59:59.999Z`) },
             status: 'completed',

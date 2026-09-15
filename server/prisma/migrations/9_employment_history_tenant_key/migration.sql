@@ -120,3 +120,26 @@ CREATE POLICY "timetrack_tenant_isolation" ON "EmploymentHistory"
     "timetrack_current_tenant"() = '*'
     OR "companyProfileId" = "timetrack_current_tenant"()
   );
+
+-- 6. EmployeeGeofence tenant NOT NULL (Open-11, added 2026-09-15).
+-- ORDER-INDEPENDENCE: Prisma applies migrations lexicographically, so on a
+-- fresh database 17_tenant_columns_not_null runs BEFORE 2 creates
+-- EmployeeGeofence. This file sorts LAST, so the constraint is enforced
+-- here; 17 covers databases where the table already exists. Both paths are
+-- guarded and fail loudly on legacy NULL rows.
+DO $$
+DECLARE
+  null_rows integer;
+BEGIN
+  IF to_regclass('public."EmployeeGeofence"') IS NULL THEN
+    RETURN;
+  END IF;
+  SELECT count(*)::integer INTO null_rows
+  FROM "EmployeeGeofence" WHERE "companyProfileId" IS NULL;
+  IF null_rows > 0 THEN
+    RAISE EXCEPTION
+      'EmployeeGeofence NOT NULL aborted: % legacy NULL tenant row(s) remain. Backfill them first.',
+      null_rows;
+  END IF;
+  ALTER TABLE "EmployeeGeofence" ALTER COLUMN "companyProfileId" SET NOT NULL;
+END $$;

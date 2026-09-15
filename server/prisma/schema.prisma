@@ -103,7 +103,7 @@ model Employee {
   managerId        String?
   geofenceId       String?
   version          Int                @default(1)
-  companyProfileId String?
+  companyProfileId String
   createdBy        String?
   updatedBy        String?
   createdAt        DateTime           @default(now())
@@ -117,7 +117,7 @@ model Employee {
   timeEntries      TimeEntry[]
   employmentHistory EmploymentHistory[] @relation("EmploymentEmployee")
   managedAssignments EmploymentHistory[] @relation("EmploymentManager")
-  companyProfile   CompanyProfile?    @relation(fields: [companyProfileId], references: [id])
+  companyProfile   CompanyProfile     @relation(fields: [companyProfileId], references: [id])
 
   @@unique([email, companyProfileId])
   @@index([managerId])
@@ -164,14 +164,14 @@ model Shift {
   department       String?
   employeeEmail    String?
   employeeName     String?
-  companyProfileId String?
+  companyProfileId String
   createdBy        String?
   updatedBy        String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
   employee         Employee?       @relation(fields: [employeeId], references: [id])
-  companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id])
+  companyProfile   CompanyProfile  @relation(fields: [companyProfileId], references: [id])
 
   @@index([date])
   @@index([employeeId])
@@ -218,7 +218,7 @@ model TimeEntry {
   // created by migration 3_attendance_idempotency.
   clockInIdempotencyKey  String?       @unique
   clockOutIdempotencyKey String?       @unique
-  companyProfileId   String?
+  companyProfileId   String
   createdBy          String?
   updatedBy          String?
   createdAt          DateTime        @default(now())
@@ -226,7 +226,7 @@ model TimeEntry {
 
   employee           Employee?       @relation(fields: [employeeId], references: [id])
   geofence           Geofence?       @relation(fields: [geofenceId], references: [id], onDelete: SetNull)
-  companyProfile     CompanyProfile? @relation(fields: [companyProfileId], references: [id])
+  companyProfile     CompanyProfile  @relation(fields: [companyProfileId], references: [id])
 
   @@index([date])
   @@index([employeeEmail])
@@ -331,14 +331,14 @@ model Geofence {
   workingStartTime String          @default("08:00")
   workingEndTime   String          @default("17:00")
   workingDays      String[]        @default(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
-  companyProfileId String?
+  companyProfileId String
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
   employees        Employee[]
   employeeGeofences EmployeeGeofence[]
   timeEntries      TimeEntry[]
-  companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id])
+  companyProfile   CompanyProfile  @relation(fields: [companyProfileId], references: [id])
 
   @@index([companyProfileId])
 }
@@ -347,7 +347,7 @@ model EmployeeGeofence {
   id               String    @id @default(cuid())
   employeeId       String
   geofenceId       String
-  companyProfileId String?
+  companyProfileId String
   createdAt        DateTime  @default(now())
 
   employee         Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)

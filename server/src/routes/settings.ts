@@ -372,10 +372,14 @@ router.get('/geofences/my', requireAuth, async (req, res) => {
 router.get('/geofences', requireAdminOrManager, async (req, res) => {
   try {
     const authUser = req.authUser!;
-    // Master without a tenant context (not impersonating) sees only global geofences
+    // Master without a tenant context (not impersonating) sees only global geofences.
+    // NOTE: "global" (NULL-tenant) geofences are a legacy concept — migration 17
+    // enforces NOT NULL, so on migrated databases this filter matches nothing and
+    // master must impersonate to manage geofences. Cast preserves pre-migration
+    // runtime behavior.
     const tenantWhere =
       authUser.role === 'master' && !authUser.companyProfileId
-        ? { companyProfileId: null }
+        ? { companyProfileId: null as unknown as string }
         : { companyProfileId: authUser.companyProfileId ?? '__none__' };
 
     const geofences = await prisma.geofence.findMany({
@@ -560,9 +564,11 @@ router.post('/geofences/test-distance', requireAuth, async (req, res) => {
 
     // Compare against all company geofences AND the proposed centre
     // Master without tenant context is scoped to global geofences only
+    // (legacy NULL-tenant concept — empty on databases migrated by 17; cast
+    // preserves pre-migration runtime behavior).
     const tenantWhere =
       authUser.role === 'master' && !authUser.companyProfileId
-        ? { companyProfileId: null }
+        ? { companyProfileId: null as unknown as string }
         : { companyProfileId: authUser.companyProfileId ?? '__none__' };
     const companyGeofences = await prisma.geofence.findMany({
       where: { ...tenantWhere, isActive: true },

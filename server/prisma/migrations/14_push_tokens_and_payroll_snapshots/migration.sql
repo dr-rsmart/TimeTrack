@@ -1,4 +1,4 @@
-CREATE TABLE "DevicePushToken" (
+CREATE TABLE IF NOT EXISTS "DevicePushToken" (
   "id" TEXT NOT NULL,
   "token" TEXT NOT NULL,
   "platform" TEXT NOT NULL,

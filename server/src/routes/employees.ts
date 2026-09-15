@@ -529,7 +529,9 @@ router.post('/', requireAdminOrManager, validate(createEmployeeSchema), async (r
     const existing = await prisma.employee.findFirst({
       where: {
         email: { equals: normalizedEmail, mode: 'insensitive' },
-        companyProfileId: companyProfileId ?? null,
+        // Tenant-less duplicate check only possible pre-migration-17; on
+        // migrated databases the null filter matches nothing (see cast).
+        companyProfileId: companyProfileId ?? (null as unknown as string),
       },
     });
     if (existing) return duplicateRecord(res, 'Employee', 'email');

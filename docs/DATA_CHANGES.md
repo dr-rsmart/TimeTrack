@@ -427,3 +427,39 @@ depends on index Geofence_pkey`. Drop → create → restore is now the correct
   legacy behaviour (16h stale close only) for sessions already active.
 - **Rollback:** redeploy the previous commit. All new objects are additive and
   are ignored by the old code, so no data undo is required.
+
+## 010 — Migration 17 (tenant columns NOT NULL) + fresh-database ordering repair
+
+- **Date:** 2026-09-15
+- **Author:** Cline
+- **Target:** recorded migration history (`server/prisma/migrations`). No live
+  database was modified by this entry; deployment remains owner-gated behind
+  `npm run db:migrate:preflight` + `prisma migrate deploy`.
+- **What changed:**
+  1. **New migration `17_tenant_columns_not_null`** (closes Open-11): sets
+     `companyProfileId` NOT NULL on `Employee`, `Shift`, `TimeEntry`,
+     `Geofence`, `EmployeeGeofence`. Guarded — aborts before any DDL when
+     legacy NULL-tenant rows remain. `schema.prisma` aligned (five models now
+     non-nullable); server type fallout fixed in `application/attendance.ts`,
+     `routes/employees.ts`, `routes/reports.ts`, `routes/settings.ts`,
+     `routes/shifts.ts` (shift creation now fails fast without a tenant).
+  2. **Fresh-database ordering repair (P0, pre-existing):** Prisma applies
+     migrations in LEXICOGRAPHIC directory order, so `12_time_entry_minutes_
+not_null` ran before `5_time_entry_integer_minutes` on any fresh database
+     (CI included) and failed with `column "totalMinutes" does not exist`.
+     Made the pending chain order-independent and replay-safe (only pending
+     migrations were edited; applied migrations 0–2 are untouched, so no
+     checksum violations): 12 pre-creates the column (IF NOT EXISTS) and
+     fails loudly on un-backfillable rows; 5 became IF NOT EXISTS; 16 creates
+     the `geofenceId` hot-path index conditionally and 7 creates it as the
+     fresh-order fallback; 13/14/15 gained IF NOT EXISTS replay guards; 9
+     (sorts last) enforces `EmployeeGeofence.companyProfileId` NOT NULL for
+     the fresh-order case, 17 covers databases where the table exists.
+- **Verification:** scratch database on localhost:5433 — full 18-migration
+  `prisma migrate deploy` chain applied cleanly in lexicographic order, demo
+  seed succeeded under NOT NULL enforcement, `information_schema` confirmed
+  all five tenant columns `is_nullable = NO`; scratch dropped afterwards.
+  Frontend+server typecheck clean; 34 unit suites / 291 tests green.
+- **Rollback:** see `17_tenant_columns_not_null/MIGRATION.md` (DROP NOT NULL
+  per column). The ordering guards are no-ops on chronologically-migrated
+  databases and require no undo.
