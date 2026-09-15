@@ -110,7 +110,7 @@
     "vitest": "^4.1.11"
   },
   "overrides": {
-    "tar": "^7.5.22",
+    "tar": "^6.2.1",
     "postcss": "^8.5.28",
     "@xmldom/xmldom": "^0.9.12",
     "image-size": "^2.0.4"

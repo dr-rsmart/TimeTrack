@@ -24,7 +24,7 @@
       },
       "ios": {
         "autoIncrement": true,
-        "image": "macos-sequoia-15.6-xcode-26.2"
+        "image": "macos-sequoia-15.6-xcode-16.4"
       }
     }
   },
