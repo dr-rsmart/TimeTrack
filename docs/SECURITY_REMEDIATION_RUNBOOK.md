@@ -97,6 +97,22 @@ psql -h localhost -p 5433 -U postgres -c "ALTER ROLE postgres PASSWORD '<new>';"
 
 ## Verification checklist (post-owner-actions)
 
+**Mechanical verification (implemented 2026-09-15):** run `npm run owner:gate`
+(`scripts/owner-gate-check.mjs`). It scans every reachable git revision for
+credential-bearing URIs (G1), checks the `.gitleaks.toml` allowlist state (G2),
+detects plaintext third-party secrets in the workspace (G3), verifies
+`REDIS_URL` presence (G4), and records the two manual password-rotation acks
+(G5, via `OWNER_GATE_ACK_ROTATED_RAILWAY_PW=1` /
+`OWNER_GATE_ACK_ROTATED_LOCAL_PW=1`). Exit 0 = all owner gates closed.
+
+**Status 2026-09-15:** G1 PASSES locally — the full reachable history
+(75 revisions from the `9b9d421` remediation baseline) contains no
+credential-bearing URIs; the offending commits (`881b028`, `ada869b`) survive
+only as unreachable local objects. The residual exposure is the **GitHub
+remote history**: steps 1–2 (rotate + `filter-repo` + force-push) remain
+owner-gated and MUST complete before the repository is made public. Until
+then the `.gitleaks.toml` commit allowlist stays (G2 open by design).
+
 ```bash
 git grep -n -E "(postgres(ql)?|rediss?)://[^\s:@/]+:[^\s@]+@" $(git rev-list --all) || echo CLEAN
 git log --all --oneline | head

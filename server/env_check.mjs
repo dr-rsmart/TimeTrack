@@ -120,6 +120,17 @@ if (redisUrl) {
   } else {
     console.log(`✅ Redis: Configured (${redisUrl.replace(/\/\/[^@]*@/, '//***@')})`);
   }
+} else if (isProd) {
+  // Production without Redis is a degraded single-instance topology:
+  // rate limiting resets on restart, SSE replay buffers and session-cache
+  // invalidation are per-process (Open-04 fallback). Allowed for a
+  // single-replica launch, but must be surfaced loudly.
+  console.warn(
+    '⚠️  WARNING: Redis NOT configured in production. Single-instance degraded mode:\n' +
+      '   • in-memory rate limits reset on restart and do not span replicas\n' +
+      '   • SSE replay buffers / session invalidation are per-process only\n' +
+      '   Set REDIS_URL (or REDIS_HOST/REDIS_PORT) before scaling beyond one replica.',
+  );
 } else {
   console.log('ℹ️  Redis: Not configured — application will run in standalone in-memory mode.');
 }
