@@ -14,7 +14,7 @@
 import { randomUUID } from 'crypto';
 import { logger } from './logger.js';
 import prisma from './prisma.js';
-import { broadcastScoped, pruneStaleConnections } from './sse.js';
+import { pruneStaleConnections } from './sse.js';
 import {
   getBusinessTimezone,
   businessNow,
@@ -26,11 +26,15 @@ import {
 } from './timezone.js';
 import { parseDate } from './overlap.js';
 import { singleEmployeeIdentityFilter } from './domain/employeeIdentity.js';
-import { calculateWorkedDuration } from './domain/duration.js';
 import { resolveLocationWorkingEnd } from './locationWorkingHours.js';
 import { runUnrestricted } from './tenantDatabase.js';
 import { recordAutoClockOutcome } from './metrics.js';
-import { notifyEmployeePush } from './push.js';
+import {
+  closeActiveEntryAtShiftEnd,
+  closeActiveEntryAtWorkingEnd,
+  closeStaleActiveEntry,
+  markShiftNoShow,
+} from './application/scheduling.js';
 
 const INSTANCE_ID = randomUUID();
 const NO_SHOW_GRACE_MINUTES = 120; // 2 hours
@@ -143,52 +147,7 @@ async function closeStaleActiveTimeEntries(): Promise<void> {
     });
 
     for (const entry of stale) {
-      const clockOut = new Date(entry.clockIn.getTime() + STALE_ACTIVE_ENTRY_MAX_HOURS * 3_600_000);
-      const actualDuration = calculateWorkedDuration(
-        entry.clockIn,
-        clockOut,
-        entry.breakMinutes ?? 0,
-      );
-
-      await prisma.timeEntry.update({
-        where: { id: entry.id },
-        data: {
-          status: 'completed',
-          clockOut,
-          totalMinutes: actualDuration.totalMinutes,
-          totalHours: actualDuration.totalHours,
-          isManualOverride: true,
-          updatedBy: 'system:cron',
-        },
-      });
-      recordAutoClockOutcome('cron_stale_closed');
-      void notifyEmployeePush(
-        entry.employeeEmail,
-        'Automatic Clock Out',
-        'Your session was closed automatically after exceeding the maximum active duration.',
-        { type: 'auto_clock_out', entryId: entry.id },
-      );
-
-      broadcastScoped(
-        'TimeEntry',
-        'auto_closed',
-        {
-          id: entry.id,
-          employeeEmail: entry.employeeEmail,
-          totalMinutes: actualDuration.totalMinutes,
-          totalHours: actualDuration.totalHours,
-          autoClockOut: true,
-        },
-        {
-          companyProfileId: entry.companyProfileId,
-          branch: entry.branch,
-          department: entry.department,
-        },
-      );
-
-      logger.info(
-        `[cron] Auto-closed stale active time entry ${entry.id} (${entry.employeeEmail}).`,
-      );
+      await closeStaleActiveEntry(entry, STALE_ACTIVE_ENTRY_MAX_HOURS);
     }
   } catch (err) {
     logger.error('[cron] Stale active time-entry close error:', err);
@@ -284,66 +243,9 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
       // bounded by the shift; leave it to the standard clock-out flows.
       if (activeEntry.clockIn.getTime() >= clockOut.getTime()) continue;
 
-      const actualDuration = calculateWorkedDuration(
-        activeEntry.clockIn,
-        clockOut,
-        activeEntry.breakMinutes ?? 0,
-      );
-
-      // Optimistic guard: only close if still active — a concurrent manual
-      // clock-out must never be overwritten.
-      const closed = await prisma.timeEntry.updateMany({
-        where: { id: activeEntry.id, status: 'active' },
-        data: {
-          clockOut,
-          status: 'completed',
-          totalMinutes: actualDuration.totalMinutes,
-          totalHours: actualDuration.totalHours,
-          isManualOverride: true,
-          updatedBy: 'system:cron',
-        },
-      });
-      if (closed.count === 0) continue;
-      recordAutoClockOutcome('cron_shift_end_closed');
-      void notifyEmployeePush(
-        activeEntry.employeeEmail,
-        'Automatic Clock Out',
-        `Your shift ended at ${shift.endTime} and you were clocked out automatically.`,
-        { type: 'auto_clock_out', entryId: activeEntry.id },
-      );
-
-      await prisma.shift.update({
-        where: { id: shift.id },
-        data: {
-          notes: shift.notes
-            ? `${shift.notes}\n[Auto] Auto clock-out applied at scheduled shift end (${shift.endTime}) — closed time entry ${activeEntry.id}`
-            : `[Auto] Auto clock-out applied at scheduled shift end (${shift.endTime}) — closed time entry ${activeEntry.id}`,
-        },
-      });
-
-      broadcastScoped(
-        'timeEntry',
-        'clockOut',
-        {
-          id: activeEntry.id,
-          employeeEmail: activeEntry.employeeEmail,
-          clockOut: clockOut.toISOString(),
-          totalMinutes: actualDuration.totalMinutes,
-          totalHours: actualDuration.totalHours,
-          status: 'completed',
-          autoClockOutAtShiftEnd: true,
-          autoClockOut: true,
-        },
-        {
-          companyProfileId: activeEntry.companyProfileId,
-          branch: activeEntry.branch,
-          department: activeEntry.department,
-        },
-      );
-
-      logger.info(
-        `[cron] Auto clock-out at shift end: entry ${activeEntry.id} (${activeEntry.employeeEmail}) closed at ${shift.endTime} for shift ${shift.id}.`,
-      );
+      // The optimistic guard, metrics, push, shift note, SSE broadcast and
+      // logging live in the application layer (application/scheduling.ts).
+      await closeActiveEntryAtShiftEnd(activeEntry, shift, clockOut);
     }
 
     // Employees without a scheduled shift use the working hours configured on
@@ -397,54 +299,10 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
       });
       if (!clockOut || clockOut.getTime() > now.getTime()) continue;
 
-      const actualDuration = calculateWorkedDuration(
-        entry.clockIn,
+      await closeActiveEntryAtWorkingEnd(
+        entry,
         clockOut,
-        entry.breakMinutes ?? 0,
-      );
-      const closed = await prisma.timeEntry.updateMany({
-        where: { id: entry.id, status: 'active' },
-        data: {
-          clockOut,
-          status: 'completed',
-          totalMinutes: actualDuration.totalMinutes,
-          totalHours: actualDuration.totalHours,
-          isManualOverride: true,
-          updatedBy: 'system:cron',
-        },
-      });
-      if (closed.count === 0) continue;
-      recordAutoClockOutcome('cron_location_hours_closed');
-      void notifyEmployeePush(
-        entry.employeeEmail,
-        'Automatic Clock Out',
-        'You were clocked out automatically at the configured workday end.',
-        { type: 'auto_clock_out', entryId: entry.id },
-      );
-
-      broadcastScoped(
-        'timeEntry',
-        'clockOut',
-        {
-          id: entry.id,
-          employeeEmail: entry.employeeEmail,
-          clockOut: clockOut.toISOString(),
-          totalMinutes: actualDuration.totalMinutes,
-          totalHours: actualDuration.totalHours,
-          status: 'completed',
-          autoClockOutAtLocationWorkingEnd: true,
-          autoClockOut: true,
-          geofenceId: entry.geofenceId,
-        },
-        {
-          companyProfileId: entry.companyProfileId,
-          branch: entry.branch,
-          department: entry.department,
-        },
-      );
-
-      logger.info(
-        `[cron] Auto clock-out at working end: entry ${entry.id} (${entry.employeeEmail}) closed at ${clockOut.toISOString()} for ${location?.name ?? 'company default hours'}.`,
+        location?.name ?? 'company default hours',
       );
     }
   } catch (err) {
@@ -513,28 +371,7 @@ async function detectNoShows(): Promise<void> {
         if (worked) continue;
       }
 
-      await prisma.shift.update({
-        where: { id: shift.id },
-        data: {
-          status: 'no_show',
-          notes: shift.notes
-            ? `${shift.notes}\n[Auto] Marked as no-show at ${now.toISOString()}`
-            : `[Auto] Marked as no-show at ${now.toISOString()}`,
-        },
-      });
-
-      broadcastScoped(
-        'Shift',
-        'no_show',
-        { id: shift.id, employeeId: shift.employeeId, date: shiftDateStr },
-        {
-          companyProfileId: shift.companyProfileId,
-          branch: shift.branch,
-          department: shift.department,
-        },
-      );
-
-      logger.info(`[cron] Shift ${shift.id} marked as no_show`);
+      await markShiftNoShow(shift, now);
     }
   } catch (err) {
     logger.error('[cron] No-show detection error:', err);
