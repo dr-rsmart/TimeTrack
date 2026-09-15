@@ -150,10 +150,13 @@ async function main() {
     return;
   }
 
-  // Apple requires the build's version (CFBundleShortVersionString) to match
-  // the App Store version string when attaching. ASC currently has "1.0" for
-  // TimeTrack while the build is "1.0.0" — align them automatically.
-  const buildVersion = build.attributes.version;
+  // Apple requires the build's CFBundleShortVersionString to match the App
+  // Store version string when attaching. NOTE: build.attributes.version is
+  // the CFBundleVersion (build NUMBER, e.g. "19") — the marketing version
+  // must come from the build's preReleaseVersion (e.g. "1.0.0"). Using the
+  // build number here previously renamed the ASC version to "11"/"19".
+  const prv = await api(`/builds/${build.id}/preReleaseVersion?fields[preReleaseVersions]=version`);
+  const buildVersion = prv.data?.attributes?.version ?? build.attributes.version;
   if (version.attributes.versionString !== buildVersion) {
     console.log(
       `🔧 Aligning ASC version string "${version.attributes.versionString}" → "${buildVersion}"…`,
