@@ -288,6 +288,121 @@ depends on index Geofence_pkey`. Drop → create → restore is now the correct
 
 - **Date:** 2026-09-15
 - **Author:** Cline
+
+## 009 — Railway production snapshot restored to local production clone
+
+- **Date:** 2026-09-15
+- **Author:** operator + Cline
+- **Target:** local PostgreSQL database `timetrack_prod` on `localhost:5433`
+- **Source:** Railway production PostgreSQL database `railway` (project
+  `TimeTrack`, environment `production`, service `Postgres`, PostgreSQL 18.6),
+  reached through Railway's public TCP proxy (`RAILWAY_TCP_PROXY_DOMAIN`).
+  Credentials were read at runtime with `railway variables --service Postgres
+--json` into a temporary file outside the repo and deleted afterwards;
+  nothing was written to this repo.
+- **What changed:**
+  1. Created a custom-format rollback dump of the pre-refresh local database
+     at `backups/timetrack_prod-before-railway-20260915-203810.dump`
+     (SHA-256: `FE3B50B64D139662E4E2C2F63DE938F7D4BCB10978468CB35A4CF5DD40E67FB2`,
+     285,020 bytes). Note: taken with `--no-owner --no-privileges`, so unlike
+     entry 006 this archive does NOT contain `timetrack_app` grants or RLS
+     policy definitions; those are reprovisioned via the documented scripts
+     (`db:runtime-role --apply`, `tenant:rls:enable --apply --confirm`).
+  2. Created a custom-format snapshot of Railway production with
+     `pg_dump -Fc --no-owner --no-privileges` (112 TOC entries, verified
+     readable with `pg_restore -l` before any destructive step).
+  3. Table-inventory comparison before restore: Railway production has 14
+     public tables; local `timetrack_prod` contained all 14 plus 4 local-only
+     tables (`AuditLogArchive`, `DevicePushToken`, `NativeRefreshToken`,
+     `PayrollPeriodSnapshot`) from local migrations 13–16.
+  4. Pre-dropped ALL local FK constraints in the public schema (21 total:
+     17 on shared tables incl. the local-only `TimeEntry_geofenceId_fkey`,
+     plus 4 from the local-only tables to `User`/`CompanyProfile`) so the
+     `pg_restore --clean` phase was not blocked by schema drift — the same
+     class of failure recorded in entry 006. An initial restore attempt
+     without this step aborted atomically (`--single-transaction`,
+     `--exit-on-error`); no data was touched.
+  5. Replaced the 14 shared tables via `pg_restore --clean --if-exists
+--no-owner --no-privileges --exit-on-error --single-transaction`
+     (connections terminated first). The 4 local-only tables and their data
+     (`NativeRefreshToken` 2 rows, others empty) were preserved untouched.
+  6. Re-added the 4 local-only-table FK constraints exactly as before
+     (`DevicePushToken_userId_fkey`, `DevicePushToken_companyProfileId_fkey`,
+     `NativeRefreshToken_userId_fkey`,
+     `PayrollPeriodSnapshot_companyProfileId_fkey`); validation passed with
+     no orphaned rows, nothing deleted.
+  7. Deleted the temporary production snapshot and all credential-bearing
+     temp files; retained the local rollback dump under the git-ignored
+     `backups/` directory.
+- **Why:** refresh the local production clone with the current Railway
+  production data for local investigation/development.
+- **Verification:** all 14 shared public tables and their row counts match
+  Railway production exactly: `AuditLog` 3,857; `CompanyProfile` 4;
+  `CompanySettings` 5; `CronLock` 0; `Employee` 85; `EmployeeGeofence` 7;
+  `EmploymentHistory` 168; `Geofence` 19; `LocationPreset` 0;
+  `RetentionPolicy` 3; `Shift` 866; `TimeEntry` 614; `User` 90;
+  `_prisma_migrations` 3. Post-restore state: `indexes=74`,
+  `fk_constraints=20` (16 from the production schema + 4 re-added).
+- **Post-restore state notes (same caveats as entry 006):** the shared tables
+  now carry the production schema (`_prisma_migrations` = 3). RLS is not
+  armed (`rls_enabled_tables=0`). `timetrack_app` table grants were
+  automatically re-applied (72) via this database's default privileges. The
+  orphaned seed geofence `id=cmt01sx7t0008p13zgifn6etz` is present again
+  because it still exists in production data (1 null-tenant geofence). Before
+  re-arming RLS, follow entry 006's re-provision order:
+  `npm run db:migrate:deploy` → `npm run db:runtime-role -- --apply` →
+  re-apply the entry 004 orphan-geofence deletion →
+  `npm run tenant:rls:enable -- --apply --confirm`.
+- **Rollback path:** restore
+  `backups/timetrack_prod-before-railway-20260915-203810.dump` into
+  `timetrack_prod` with `pg_restore --clean --if-exists --no-owner` (grants
+  and RLS are NOT in the archive — reprovision them afterwards with the
+  scripts above). The archive was verified readable and is git-ignored.
+
+## 010 — Local production clone restored to local pre-production database
+
+- **Date:** 2026-09-15
+- **Author:** operator + Cline
+- **Target:** local PostgreSQL database `timetrack_pre-prod` on `localhost:5433`
+- **Source:** local PostgreSQL database `timetrack_prod` on the same
+  PostgreSQL instance (itself refreshed from Railway production in entry 009,
+  performed immediately beforehand in the same session).
+- **What changed:**
+  1. Created a custom-format rollback dump of the pre-refresh
+     `timetrack_pre-prod` database at
+     `backups/timetrack_pre-prod-before-prod-sync-20260915-203811.dump`
+     (SHA-256: `CAC01DBA423F13409BBB4C366870ED26E8A1ADDB2D72BE462F8D10D0145079C4`,
+     249,594 bytes), taken with `--no-owner --no-privileges` (pre-prod had no
+     RLS policies and no `timetrack_app` grants before this change, so no
+     hardening was lost).
+  2. Created a custom-format snapshot of local `timetrack_prod` with
+     `pg_dump -Fc --no-owner --no-privileges` (286,096 bytes).
+  3. Pre-dropped all FK constraints in `timetrack_pre-prod`, terminated
+     active connections, then replaced it via `pg_restore --clean --if-exists
+--no-owner --no-privileges --exit-on-error --single-transaction`. The
+     restore also created the 4 local-only tables there for full parity with
+     the clone.
+  4. Deleted the temporary `timetrack_prod` source snapshot; retained the
+     pre-production rollback dump under the git-ignored `backups/` directory.
+- **Why:** refresh local pre-production with the current local production
+  clone so both non-production databases mirror live Railway production data
+  for local testing and investigation.
+- **Verification:** all 18 public tables and their row counts match between
+  `timetrack_prod` and `timetrack_pre-prod` (0 mismatches): `AuditLog` 3,857;
+  `AuditLogArchive` 0; `CompanyProfile` 4; `CompanySettings` 5; `CronLock` 0;
+  `DevicePushToken` 0; `Employee` 85; `EmployeeGeofence` 7;
+  `EmploymentHistory` 168; `Geofence` 19; `LocationPreset` 0;
+  `NativeRefreshToken` 2; `PayrollPeriodSnapshot` 0; `RetentionPolicy` 3;
+  `Shift` 866; `TimeEntry` 614; `User` 90; `_prisma_migrations` 3. Both
+  databases report identical `indexes=74` and `fk_constraints=20`.
+- **Rollback path:** restore
+  `backups/timetrack_pre-prod-before-prod-sync-20260915-203811.dump` into
+  `timetrack_pre-prod` with `pg_restore --clean --if-exists --no-owner`; the
+  archive was verified readable and is git-ignored.
+
+  `_prisma_migrations` 3. Post-restore state: `indexes=74`,
+  `fk_constraints=20` (16 from the production schema + 4 re-added).
+
 - **Target:** every environment at next deploy. Not applied locally yet: the
   local runtime role cannot read _prisma_migrations, so application must happen
   through MIGRATE_DATABASE_URL (elevated role) in staging first.
