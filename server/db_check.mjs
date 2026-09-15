@@ -90,13 +90,18 @@ async function main() {
     }
 
     // 4. Multi-Tenant Integrity Check
+    // Migration 17 made Employee.companyProfileId NOT NULL, so the Prisma
+    // client no longer accepts null-based filters on it. Use a raw LEFT JOIN
+    // instead — it detects dangling tenant references regardless of schema
+    // nullability (e.g. a company row deleted without FK cascade).
     console.log('\n[4/5] Checking tenant integrity...');
-    const orphanEmployees = await prisma.employee.count({
-      where: {
-        companyProfileId: { not: null },
-        companyProfile: null,
-      },
-    });
+    const orphanResult = await prisma.$queryRaw`
+      SELECT COUNT(*)::int AS count
+      FROM "Employee" e
+      LEFT JOIN "CompanyProfile" c ON c.id = e."companyProfileId"
+      WHERE c.id IS NULL;
+    `;
+    const orphanEmployees = orphanResult[0]?.count ?? 0;
     if (orphanEmployees === 0) {
       console.log('✅ Zero orphan employee records.');
     } else {

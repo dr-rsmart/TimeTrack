@@ -18,8 +18,22 @@ UPDATE "TimeEntry"
  WHERE "totalMinutes" IS NULL
    AND "totalHours" IS NOT NULL;
 
--- Rows still NULL here have no payable duration information at all
--- (NULL totalHours); they would violate the constraint, so fail loudly.
+-- LIVE-SESSION SAFETY (2026-09-15): open (status = 'active') entries have no
+-- payable duration yet and always carry NULL totalHours. The application
+-- itself creates clock-ins with totalMinutes = 0 (server/src/application/
+-- attendance.ts) and writes the exact duration at clock-out, so backfill
+-- open rows with the same sentinel instead of aborting the deploy — a
+-- clocked-in employee must never hard-fail a production cutover. Verified
+-- against the Railway production clone: the only NULL-duration row was a
+-- live active session.
+UPDATE "TimeEntry"
+   SET "totalMinutes" = 0
+ WHERE "totalMinutes" IS NULL
+   AND status = 'active';
+
+-- Rows still NULL here are non-active entries with no payable duration
+-- information at all (NULL totalHours); they would violate the constraint,
+-- so fail loudly.
 DO $$
 DECLARE
   remaining integer;

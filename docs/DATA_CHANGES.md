@@ -463,3 +463,63 @@ not_null` ran before `5_time_entry_integer_minutes` on any fresh database
 - **Rollback:** see `17_tenant_columns_not_null/MIGRATION.md` (DROP NOT NULL
   per column). The ordering guards are no-ops on chronologically-migrated
   databases and require no undo.
+
+## 011 — Migration chain (3–17) applied to the local production clone + live-session hardening of migration 12
+
+- **Date:** 2026-09-15
+- **Author:** Cline
+- **Target:** local PostgreSQL database `timetrack_prod` on `localhost:5433`
+  (the Railway production clone refreshed in entry 009), plus one edit to the
+  recorded migration history (`12_time_entry_minutes_not_null`).
+- **Rollback dump taken first:**
+  `backups/timetrack_backup_2026-09-15T19-43-53.dump` (0.27 MB,
+  `pg_dump -Fc --no-owner --no-privileges`, git-ignored) — captures the clone
+  exactly as entry 009 left it, including the 3 local-only tables dropped below.
+- **What changed:**
+  1. Re-applied the entry 004 guarded orphan-geofence deletion (exact recorded
+     SQL; 1 row deleted: `id=cmt01sx7t0008p13zgifn6etz`, null-tenant, zero
+     `EmployeeGeofence` assignments). This is a hard prerequisite for
+     migration 17, which aborts on any NULL-tenant row.
+  2. **Migration 12 hardened (live-session safety).** The first
+     `migrate deploy` attempt failed at 12 (P3018): production data contains a
+     live active session (`tintswalob64@gmail.com`, clocked in
+     2026-09-15T07:12Z) and active entries never carry `totalHours` until
+     closed — the old guard would abort ANY deploy while an employee is
+     clocked in. 12 now backfills active rows with `totalMinutes = 0`, the
+     same sentinel `application/attendance.ts` writes at clock-in (exact
+     duration is written at clock-out). The loud abort remains for non-active
+     rows with no duration data. The failed clone attempt was cleared with
+     `prisma migrate resolve --rolled-back 12_time_entry_minutes_not_null`.
+     The file was edited BEFORE 12 had been successfully applied on any
+     persistent database (Railway never attempted it; scratch DBs were
+     discarded), so no Prisma checksum is violated anywhere.
+  3. Dropped the 3 local-only tables preserved by entry 009
+     (`DevicePushToken`, `PayrollPeriodSnapshot`, `NativeRefreshToken` —
+     artifacts of local pre-restore migration runs; they do NOT exist in
+     Railway production) after migration 14 failed with `relation
+"DevicePushToken_token_key" already exists`. Cleared with
+     `prisma migrate resolve --rolled-back 14_push_tokens_and_payroll_snapshots`.
+     This failure was clone-specific and cannot occur in production.
+  4. Ran the full `prisma migrate deploy`: all 15 pending migrations (3–17 in
+     lexicographic order) applied cleanly; `prisma migrate status` now reports
+     "Database schema is up to date!" (18/18).
+- **Why:** §12.1 pre-deployment gate 6 (`npm run predeploy`) and, more
+  importantly, first real proof that the pending chain applies to the ACTUAL
+  Railway production schema + data — the scratch-DB verification (entry 010)
+  never exercised a live active session or the production drift.
+- **PRODUCTION PREREQUISITE (before the Railway deploy):** apply the entry 004
+  guarded deletion to Railway production — the orphan geofence still exists
+  there. Without it, migration 17 aborts and `production-start.mjs` hard-fails
+  the boot. Migration 12 is now live-session safe, so a clocked-in employee no
+  longer blocks the cutover window.
+- **Verification:** `npm run predeploy` exit 0 — env check ✅, db check ✅
+  (orphan probe repaired for the post-migration-17 schema in
+  `server/db_check.mjs`), migration preflight ✅ ("Database schema is up to
+  date!"), 38 suites / 329 tests ✅.
+- **Post-state notes:** clone RLS is still NOT armed (`rls_enabled_tables=0`);
+  re-provision per entry 009's order (`db:runtime-role --apply`, then
+  `tenant:rls:enable --apply --confirm`) — owner-gated. `timetrack_app` grants
+  on the new tables come from the database's default privileges.
+- **Rollback path:** restore `backups/timetrack_backup_2026-09-15T19-43-53.dump`
+  with `pg_restore --clean --if-exists --no-owner --no-privileges`; the
+  migration-12 edit is documented in its `MIGRATION.md` and needs no data undo.

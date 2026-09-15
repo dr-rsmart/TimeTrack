@@ -283,6 +283,11 @@ third-party asset requires an explicit CSP update in `server/src/index.ts`.
 
 ### 12.1 Pre-deployment gates
 
+0. OWNER DATA PREREQUISITE: apply the DATA_CHANGES 004 guarded orphan-geofence
+   deletion (exact SQL recorded there) to Railway production. Migration 17
+   aborts on any NULL-tenant row and production-start.mjs hard-fails the
+   deploy. Verified 2026-09-15: production still contains 1 null-tenant
+   geofence (`id=cmt01sx7t0008p13zgifn6etz`).
 1. npm run typecheck (frontend + server, zero errors).
 2. npx vitest run --coverage (unit gate at the current ratchet).
 3. npm run build (frontend + server).
@@ -290,13 +295,19 @@ third-party asset requires an explicit CSP update in `server/src/index.ts`.
 5. CI Playwright E2E on a fresh PostgreSQL (runs automatically on push).
 6. npm run predeploy (env check, db check, migration preflight, unit suite).
    The migration preflight requires MIGRATE_DATABASE_URL in strict mode.
+   Full pending chain (3–17) verified against the Railway production clone
+   2026-09-15 — see DATA_CHANGES 011.
 
 ### 12.2 Cutover window and live-session safety
 
-- All migrations in this release (13-16) are additive: ADD COLUMN with constant
-  defaults, CREATE TABLE and CREATE INDEX only. There are no drops, no column
-  type changes, no backfill updates and no writes to existing rows.
-- Active time entries (status = active) are not modified by any migration.
+- The pending chain (3–17) is additive and replay-safe: ADD COLUMN IF NOT
+  EXISTS with constant defaults, CREATE TABLE/INDEX, guarded backfills and
+  guarded NOT NULL enforcement. No drops, no column type changes.
+- Live sessions: migration 12 backfills `totalMinutes = 0` on active entries —
+  the same sentinel the application writes at clock-in
+  (`server/src/application/attendance.ts`); the exact duration is written at
+  clock-out. No other migration touches active rows, so a clocked-in employee
+  can no longer abort the deploy (DATA_CHANGES 011).
 - Web sessions are unaffected: cookie policy and pwdEpoch are unchanged, so no
   user is logged out by the deploy.
 - Existing 7-day native bearer tokens remain valid until expiry; new native
@@ -307,8 +318,9 @@ third-party asset requires an explicit CSP update in `server/src/index.ts`.
   instant, stamps updatedBy = system:cron and writes an audit row.
 - To neutralise that change during cutover, set COMPANY_DEFAULT_HOURS_CLOSE=false
   for the first deployment cycle, then remove the override.
-- Preferred window: outside South African business hours, when no active
-  entries exist.
+- Preferred window: outside South African business hours. Since the
+  migration-12 live-session hardening (DATA_CHANGES 011) active entries no
+  longer block the deploy, but a quiet window still minimises cutover noise.
 
 ### 12.3 Deployment sequence
 
@@ -325,7 +337,13 @@ third-party asset requires an explicit CSP update in `server/src/index.ts`.
 
 ### 12.4 Rollback
 
-- Redeploy the previous commit. Migrations 13-16 are additive and are ignored
-  by the older code, so rollback requires no data undo.
+- Redeploy the previous commit. Migrations 3–17 are additive/replay-safe and
+  are ignored by older code, so rollback requires no data undo — with one
+  constraint: migrations 12 and 17 add NOT NULL columns WITHOUT defaults
+  (`TimeEntry.totalMinutes`, the five tenant keys), so the rollback target
+  must be a commit whose Prisma schema already includes them (any commit from
+  the 2026-09 remediation set). Rolling all the way back to the pre-remediation
+  baseline would break inserts that omit those columns and requires the
+  DROP NOT NULL statements in the respective MIGRATION.md files first.
 - If COMPANY_DEFAULT_HOURS_CLOSE was left false, already-active sessions keep
   legacy close behaviour until the override is removed.
