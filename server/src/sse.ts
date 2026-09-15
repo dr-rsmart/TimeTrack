@@ -47,6 +47,8 @@ interface SSEEventMessage {
 }
 
 const SSE_REDIS_CHANNEL = 'timetrack:sse:events';
+const SSE_REDIS_REPLAY_STREAM = 'timetrack:sse:replay';
+const SSE_REDIS_SEQUENCE_KEY = 'timetrack:sse:sequence';
 const clients = new Map<string, SSEClient>();
 
 /** Maximum concurrent SSE connections permitted per user account (prevents tab leaks). */
@@ -177,7 +179,7 @@ export function addClient(
     department: string | null;
   },
   lastEventId?: string | null,
-) {
+): void {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -191,27 +193,33 @@ export function addClient(
   if (lastEventId) {
     const lastSeq = parseInt(lastEventId, 10);
     if (!Number.isNaN(lastSeq)) {
-      const missed = getEventsSince(lastSeq);
-      for (const buffered of missed) {
-        const scope = buffered.message.scope;
-        // Scope check: only replay events this client is authorized to see
-        if (info.role !== 'master') {
-          if (scope?.companyProfileId && info.companyProfileId !== scope.companyProfileId) continue;
-          if (scope?.targetUserId && info.id !== scope.targetUserId) continue;
-          if (scope?.branch && info.branch && info.branch !== scope.branch) continue;
-          if (scope?.department && info.department && info.department !== scope.department)
-            continue;
+      const redisReplayAvailable =
+        redisSub && (redisSub.status === 'ready' || redisSub.status === 'connect');
+      if (redisReplayAvailable) {
+        void replayFromRedis(res, info, lastSeq);
+      } else {
+        const missed = getEventsSince(lastSeq);
+        for (const buffered of missed) {
+          const scope = buffered.message.scope;
+          if (info.role !== 'master') {
+            if (scope?.companyProfileId && info.companyProfileId !== scope.companyProfileId)
+              continue;
+            if (scope?.targetUserId && info.id !== scope.targetUserId) continue;
+            if (scope?.branch && info.branch && info.branch !== scope.branch) continue;
+            if (scope?.department && info.department && info.department !== scope.department)
+              continue;
+          }
+          try {
+            res.write(`id: ${buffered.seq}\ndata: ${JSON.stringify(buffered.message.event)}\n\n`);
+          } catch {
+            break;
+          }
         }
-        try {
-          res.write(`id: ${buffered.seq}\ndata: ${JSON.stringify(buffered.message.event)}\n\n`);
-        } catch {
-          break;
+        if (missed.length > 0) {
+          logger.info(
+            `[sse] Replayed ${missed.length} buffered event(s) to reconnecting client ${info.id}.`,
+          );
         }
-      }
-      if (missed.length > 0) {
-        logger.info(
-          `[sse] Replayed ${missed.length} buffered event(s) to reconnecting client ${info.id}.`,
-        );
       }
     }
   }
@@ -265,6 +273,50 @@ export function addClient(
   res.on('close', () => {
     removeClient(clientId);
   });
+}
+
+async function replayFromRedis(
+  res: Response,
+  info: {
+    id: string;
+    role: string;
+    companyProfileId: string | null;
+    branch: string | null;
+    department: string | null;
+  },
+  lastSeq: number,
+): Promise<void> {
+  if (Number.isNaN(lastSeq)) return;
+  try {
+    const rows = await redisSub!.xrange(
+      SSE_REDIS_REPLAY_STREAM,
+      '-',
+      '+',
+      'COUNT',
+      REPLAY_BUFFER_SIZE,
+    );
+    for (const [, fields] of rows) {
+      const values = Object.fromEntries(
+        Array.from({ length: fields.length / 2 }, (_, index) => [
+          fields[index * 2],
+          fields[index * 2 + 1],
+        ]),
+      );
+      const seq = Number(values.seq);
+      if (!Number.isFinite(seq) || seq <= lastSeq) continue;
+      const message = JSON.parse(values.message) as SSEEventMessage;
+      const scope = message.scope;
+      if (info.role !== 'master') {
+        if (scope?.companyProfileId && info.companyProfileId !== scope.companyProfileId) continue;
+        if (scope?.targetUserId && info.id !== scope.targetUserId) continue;
+        if (scope?.branch && info.branch && info.branch !== scope.branch) continue;
+        if (scope?.department && info.department && info.department !== scope.department) continue;
+      }
+      res.write(`id: ${seq}\ndata: ${JSON.stringify(message.event)}\n\n`);
+    }
+  } catch (error) {
+    logger.warn('[sse] Redis replay unavailable; local replay remains active:', error);
+  }
 }
 
 export function removeClient(id: string) {
@@ -386,16 +438,39 @@ export function broadcastScoped(
   // Assign a monotonic sequence number and buffer the event for replay.
   // Reconnecting clients send Last-Event-ID; missed events within the
   // buffer window (500 events / 5 minutes) are re-delivered on connect.
-  const seq = ++eventSequence;
-  pushToReplayBuffer(message, seq);
+  const localSeq = ++eventSequence;
+  pushToReplayBuffer(message, localSeq);
 
   if (redisPub && (redisPub.status === 'ready' || redisPub.status === 'connect')) {
-    redisPub.publish(SSE_REDIS_CHANNEL, JSON.stringify({ ...message, seq })).catch((err) => {
-      logger.warn('[sse] Redis publish failed, falling back to local dispatch:', err.message);
-      deliverToLocalClients(event, scope, seq);
-    });
+    void publishDistributedEvent(message, event, scope, localSeq);
   } else {
-    deliverToLocalClients(event, scope, seq);
+    deliverToLocalClients(event, scope, localSeq);
+  }
+}
+
+async function publishDistributedEvent(
+  message: SSEEventMessage,
+  event: SSEEventMessage['event'],
+  scope: BroadcastScope | undefined,
+  localSeq: number,
+): Promise<void> {
+  try {
+    const seq = await redisPub!.incr(SSE_REDIS_SEQUENCE_KEY);
+    await redisPub!.xadd(
+      SSE_REDIS_REPLAY_STREAM,
+      'MAXLEN',
+      '~',
+      String(REPLAY_BUFFER_SIZE),
+      '*',
+      'seq',
+      String(seq),
+      'message',
+      JSON.stringify(message),
+    );
+    await redisPub!.publish(SSE_REDIS_CHANNEL, JSON.stringify({ ...message, seq }));
+  } catch (err) {
+    logger.warn('[sse] Redis publish failed, falling back to local dispatch:', err);
+    deliverToLocalClients(event, scope, localSeq);
   }
 }
 

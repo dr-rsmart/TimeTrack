@@ -66,12 +66,20 @@ function syncSchema() {
   let statusOutput = '';
   let historyRecognized = false;
 
+  // Runtime DATABASE_URL may be a least-privilege role (see
+  // setup_runtime_role.mjs). Schema changes need an elevated role — when
+  // MIGRATE_DATABASE_URL is provided, prisma commands run against it.
+  const migrateEnv = process.env.MIGRATE_DATABASE_URL
+    ? { ...process.env, DATABASE_URL: process.env.MIGRATE_DATABASE_URL }
+    : process.env;
+
   try {
     statusOutput = execSync('npx prisma migrate status --schema=prisma/schema.prisma', {
       cwd: SERVER_DIR,
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 60_000,
       encoding: 'utf8',
+      env: migrateEnv,
     });
     historyRecognized = true;
   } catch (err) {
@@ -84,6 +92,12 @@ function syncSchema() {
       /_prisma_migrations/i.test(text) ||
       /P3006|P3018/i.test(text) ||
       /does not exist/i.test(text);
+    if (/permission denied for table _prisma_migrations/i.test(text)) {
+      log(
+        '❌ FATAL: migration role cannot read _prisma_migrations. Set MIGRATE_DATABASE_URL to an elevated migration role.',
+      );
+      process.exit(1);
+    }
     statusOutput = text;
     historyRecognized = !noHistory;
   }
@@ -97,6 +111,7 @@ function syncSchema() {
         cwd: SERVER_DIR,
         stdio: 'inherit',
         timeout: 120_000,
+        env: migrateEnv,
       });
       log('Recorded migrations applied successfully.');
       return;

@@ -48,6 +48,17 @@ export default tseslint.config(
       // Regex-heavy validation code contains harmless/useful escapes; the
       // rule would risk behavior changes if "fixed" mechanically.
       'no-useless-escape': 'off',
+      'no-restricted-syntax': [
+        'warn',
+        {
+          selector: "CallExpression[callee.property.name='getHours']",
+          message: 'Use businessHour() or an explicit timezone formatter instead of getHours().',
+        },
+        {
+          selector: "CallExpression[callee.property.name='toLocaleTimeString']",
+          message: 'Use formatTime() with the business timezone instead of toLocaleTimeString().',
+        },
+      ],
     },
   },
   {

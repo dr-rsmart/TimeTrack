@@ -21,10 +21,10 @@ export default defineConfig({
       // stmts 14.42 / branches 10.86 / funcs 12.27 / lines 14.36 after
       // the first jsdom component tests landed.
       thresholds: {
-        statements: 13,
-        branches: 10,
-        functions: 11,
-        lines: 13,
+        statements: 15,
+        branches: 11,
+        functions: 13,
+        lines: 15,
       },
     },
     projects: [

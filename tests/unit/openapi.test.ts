@@ -10,5 +10,9 @@ describe('OpenAPI document', () => {
     expect(paths['/auth/login']).toBeTruthy();
     expect(paths['/time-entries/clock-in']).toBeTruthy();
     expect(paths['/employees']).toBeTruthy();
+    expect(paths['/reports/payroll']).toBeTruthy();
+    expect(paths['/reports/payroll/snapshot']).toBeTruthy();
+    expect(paths['/reports/payroll/snapshots']).toBeTruthy();
+    expect(paths['/auth/push-token']).toBeTruthy();
   });
 });

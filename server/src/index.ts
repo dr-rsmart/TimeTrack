@@ -25,6 +25,7 @@ import { startCron, stopCron } from './cron.js';
 import { getRedis, isRedisConfigured, checkRedisHealth } from './redis.js';
 import { requestIdMiddleware } from './middleware/requestId.js';
 import { csrfOriginCheck } from './middleware/csrf.js';
+import { tenantBridgeMiddleware, runUnrestricted } from './tenantDatabase.js';
 import { buildOpenApiDocument } from './openapi.js';
 import { recordHttpRequest } from './metrics.js';
 import { DEFAULT_PASSWORD } from './passwords.js';
@@ -107,6 +108,14 @@ app.use(cookieParser());
 // CSRF origin validation for state-changing requests (browser cookie
 // sessions only — Origin-less clients pass through).
 app.use(csrfOriginCheck);
+
+// ── Tenant transaction bridge (DB-level tenant enforcement) ──
+// Every /api request runs inside a transaction whose `app.current_tenant`
+// setting drives the PostgreSQL RLS policies (migration 6). The transaction
+// starts unrestricted for the pre-auth phase; requireAuth switches it to the
+// caller's tenant. See tenantDatabase.ts.
+app.use('/api', tenantBridgeMiddleware);
+app.use('/api/v1', tenantBridgeMiddleware);
 
 // ── Security Headers (helmet-equivalent without extra dependency) ──
 // Defense-in-depth: CSP, HSTS, clickjacking, MIME sniffing, XSS filter.
@@ -214,20 +223,51 @@ app.get('/api/v1/docs', (_req, res) => {
 // The browser's EventSource automatically sends the Last-Event-ID header on
 // reconnect. We forward it to addClient so missed events within the replay
 // buffer window (500 events / 5 minutes) are re-delivered (at-least-once).
-app.get('/api/events', requireAuth, (req, res) => {
-  const authUser = req.authUser!;
-  const lastEventId = (req.headers['last-event-id'] as string | undefined) ?? null;
-  addClient(
-    res,
-    {
-      id: authUser.id,
-      role: authUser.role,
-      companyProfileId: authUser.companyProfileId,
-      branch: authUser.branch ?? null,
-      department: authUser.department ?? null,
-    },
-    lastEventId,
-  );
+//
+// Handshake-scoped bridge: requireAuth + the stream attach run inside an
+// unrestricted tenant transaction that commits right after the handshake,
+// so the long-lived stream itself never holds a database transaction
+// (tenantBridgeMiddleware exempts /events).
+app.get('/api/events', (req, res, next) => {
+  const handshake = async (): Promise<void> => {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const done = (fn: () => void) => () => {
+        if (settled) return;
+        settled = true;
+        fn();
+      };
+      // requireAuth sends its own 4xx responses WITHOUT calling next —
+      // settle on response finish/close so the bridge transaction always
+      // commits (or rolls back) promptly.
+      res.once('finish', done(resolve));
+      res.once('close', done(resolve));
+      try {
+        requireAuth(req, res, (err?: unknown) => done(err ? () => reject(err) : resolve)());
+      } catch (err) {
+        done(() => reject(err))();
+      }
+    });
+
+    // Attach the stream client only when authentication actually succeeded.
+    if (!req.authUser) return;
+
+    const authUser = req.authUser!;
+    const lastEventId = (req.headers['last-event-id'] as string | undefined) ?? null;
+    addClient(
+      res,
+      {
+        id: authUser.id,
+        role: authUser.role,
+        companyProfileId: authUser.companyProfileId,
+        branch: authUser.branch ?? null,
+        department: authUser.department ?? null,
+      },
+      lastEventId,
+    );
+  };
+
+  runUnrestricted(handshake).catch((err) => next(err as Error));
 });
 
 // ── API routes (mounted on BOTH the legacy /api surface and the versioned
@@ -269,7 +309,17 @@ const __dirname = path.dirname(__filename);
 const staticDistPath = path.resolve(__dirname, '../../dist');
 
 if (fs.existsSync(staticDistPath)) {
-  app.use(express.static(staticDistPath));
+  app.use(
+    express.static(staticDistPath, {
+      immutable: true,
+      maxAge: config.isProduction ? '1y' : 0,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('index.html')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+      },
+    }),
+  );
   app.use((req, res, next) => {
     if (
       req.method !== 'GET' ||
@@ -361,14 +411,16 @@ async function syncEmployeeUserAccounts() {
       `[server] User account sync: created ${created} login account(s) with temporary password in ${Date.now() - syncStartedAt}ms.`,
     );
   } catch (err) {
-    logger.error('[server] User account sync failed:', err);
+    logger.error({ err }, '[server] User account sync failed:');
   }
 }
 
 // ── Start server ──
 server.listen(PORT, async () => {
   logger.info(`[server] TimeTrack API running on port ${PORT}`);
-  await syncEmployeeUserAccounts();
+  // Boot-time provisioning is a system concern: run it in an unrestricted
+  // tenant transaction (RLS bridge).
+  await runUnrestricted(() => syncEmployeeUserAccounts());
   startCron();
 
   // Optional convenience seeding for LOCAL DEVELOPMENT only.
@@ -447,7 +499,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 process.on('uncaughtException', (err) => {
-  logger.error('[server] Uncaught Exception:', err);
+  logger.error({ err }, '[server] Uncaught Exception:');
   // Uncaught exceptions leave the process in an undefined state; initiate shutdown
   gracefulShutdown('uncaughtException').catch(() => process.exit(1));
 });

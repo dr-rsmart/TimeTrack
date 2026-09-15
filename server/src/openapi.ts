@@ -7,6 +7,7 @@
  */
 
 import { OpenAPIRegistry, OpenApiGeneratorV31 } from '@asteasolutions/zod-to-openapi';
+import { z } from './zod.js';
 import {
   loginSchema,
   changePasswordSchema,
@@ -26,6 +27,7 @@ import {
   updateGeofenceSchema,
   updateSettingsSchema,
   createCompanySchema,
+  registerPushTokenSchema,
 } from './validation.js';
 
 const registry = new OpenAPIRegistry();
@@ -214,6 +216,19 @@ registry.registerPath({
   method: 'get',
   path: '/time-entries',
   ...tag('Time entries'),
+  request: {
+    query: z.object({
+      date: z.string().optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+      employeeEmail: z.string().optional(),
+      status: z.string().optional(),
+      branch: z.string().optional(),
+      department: z.string().optional(),
+      limit: z.coerce.number().optional(),
+      offset: z.coerce.number().optional(),
+    }),
+  },
   responses: {
     200: {
       description: 'Paginated time-entry list',
@@ -313,6 +328,33 @@ registry.registerPath({
   method: 'get',
   path: '/reports/payroll',
   ...tag('Reports'),
+  request: {
+    query: z.object({
+      from: z.string().optional(),
+      to: z.string().optional(),
+      branch: z.string().optional(),
+      department: z.string().optional(),
+      employeeEmail: z.string().optional(),
+      employeeId: z.string().optional(),
+    }),
+  },
+  responses: { ...json200({ type: 'object' }), ...commonErrors },
+});
+registry.registerPath({
+  method: 'post',
+  path: '/reports/payroll/snapshot',
+  ...tag('Reports'),
+  request: {
+    body: {
+      content: { 'application/json': { schema: z.object({ from: z.string(), to: z.string() }) } },
+    },
+  },
+  responses: { ...json200({ type: 'object' }), ...commonErrors },
+});
+registry.registerPath({
+  method: 'get',
+  path: '/reports/payroll/snapshots',
+  ...tag('Reports'),
   responses: { ...json200({ type: 'object' }), ...commonErrors },
 });
 registry.registerPath({
@@ -334,6 +376,13 @@ registry.registerPath({
   path: '/settings/settings',
   ...tag('Settings'),
   request: { body: { content: { 'application/json': { schema: updateSettingsSchema } } } },
+  responses: { ...json200({ type: 'object' }), ...commonErrors },
+});
+registry.registerPath({
+  method: 'post',
+  path: '/auth/push-token',
+  ...tag('Auth'),
+  request: { body: { content: { 'application/json': { schema: registerPushTokenSchema } } } },
   responses: { ...json200({ type: 'object' }), ...commonErrors },
 });
 for (const path of [

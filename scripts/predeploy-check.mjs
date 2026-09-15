@@ -26,6 +26,14 @@ if (dbResult.status !== 0) {
   process.exit(1);
 }
 
+const migrationResult = spawnSync('node', ['server/migration_preflight.mjs', '--strict'], {
+  stdio: 'inherit',
+});
+if (migrationResult.status !== 0) {
+  console.error('\n❌ Migration preflight failed. Set MIGRATE_DATABASE_URL to an elevated role.');
+  process.exit(1);
+}
+
 // 3. Test Suite Pass
 console.log('\n--- [3/3] Running Automated Test Suite ---');
 const testResult = spawnSync('npx', ['vitest', 'run'], { stdio: 'inherit', shell: true });

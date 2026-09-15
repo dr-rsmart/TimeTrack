@@ -231,7 +231,38 @@ explicit operational task.
 the WebView refresh re-mints; full refresh-token rotation is a tracked
 follow-up (Open-05 in `docs/AUDIT_REGISTER.md`).
 
-### 8.5 Content-Security-Policy
+### 8.6 Runtime role & RLS operations (armed 2026-09-14)
+
+The application connects as a least-privilege role so PostgreSQL RLS can
+actually constrain it (superusers bypass RLS):
+
+| Variable                        | Purpose                                        |
+| ------------------------------- | ---------------------------------------------- |
+| `DATABASE_URL`                  | runtime — must use the `timetrack_app` role    |
+| `MIGRATE_DATABASE_URL`          | elevated (owner) role for `migrate deploy`/DDL |
+| `RLS_RUNTIME_BRIDGE_READY=true` | gate for `tenant:rls:enable`                   |
+
+Provisioning and activation (run with the elevated `DATABASE_URL`):
+
+```bash
+cd server
+# create/update the runtime role + grants (generates a password unless
+# APP_DB_PASSWORD is set):
+npm run db:runtime-role -- --apply
+
+# arm RLS (idempotent):
+npm run tenant:rls:enable -- --apply --confirm
+
+# verify:
+npm run tenant:preflight -- --strict
+```
+
+Rollback (emergency): connect as the elevated role and run
+`ALTER TABLE <table> DISABLE ROW LEVEL SECURITY` for the 11 policy tables
+(listed in migration 6), or restore from backup. The bridge stays active
+and harmless with RLS disabled.
+
+### 8.7 Content-Security-Policy
 
 Production responses now send a full CSP (`script-src 'self'`,
 `style-src 'self' 'unsafe-inline'`, `img-src 'self' data: blob: https:`,
@@ -245,3 +276,56 @@ third-party asset requires an explicit CSP update in `server/src/index.ts`.
 - **Immutability:** `AuditLog` rows are append-only. Automated cron retention jobs purge only transient delivery logs and never purge compliance audit history.
 - **Cold Storage Archiving:** At 12-month intervals, run `pg_dump` on `AuditLog` where `createdAt < NOW() - INTERVAL '1 year'` to S3 Glacier storage before archiving.
 - **Rate Limit Monitoring:** Monitored via HTTP 429 response codes with `RATE_LIMITED` error payloads.
+
+---
+
+## 12. 2026-09-15 QA remediation release - cutover runbook
+
+### 12.1 Pre-deployment gates
+
+1. npm run typecheck (frontend + server, zero errors).
+2. npx vitest run --coverage (unit gate at the current ratchet).
+3. npm run build (frontend + server).
+4. npm run lint and cd server and npm run lint (zero errors).
+5. CI Playwright E2E on a fresh PostgreSQL (runs automatically on push).
+6. npm run predeploy (env check, db check, migration preflight, unit suite).
+   The migration preflight requires MIGRATE_DATABASE_URL in strict mode.
+
+### 12.2 Cutover window and live-session safety
+
+- All migrations in this release (13-16) are additive: ADD COLUMN with constant
+  defaults, CREATE TABLE and CREATE INDEX only. There are no drops, no column
+  type changes, no backfill updates and no writes to existing rows.
+- Active time entries (status = active) are not modified by any migration.
+- Web sessions are unaffected: cookie policy and pwdEpoch are unchanged, so no
+  user is logged out by the deploy.
+- Existing 7-day native bearer tokens remain valid until expiry; new native
+  sessions receive 15-minute access tokens with rotating refresh tokens.
+- The only behaviour change that can touch live sessions is the new
+  company-default end-of-day auto clock-out for employees with neither an open
+  shift nor an assigned location. It closes such entries at the configured end
+  instant, stamps updatedBy = system:cron and writes an audit row.
+- To neutralise that change during cutover, set COMPANY_DEFAULT_HOURS_CLOSE=false
+  for the first deployment cycle, then remove the override.
+- Preferred window: outside South African business hours, when no active
+  entries exist.
+
+### 12.3 Deployment sequence
+
+1. Take the standard pre-deploy backup (production-start.mjs does a
+   best-effort pg_dump automatically).
+2. Deploy; production-start.mjs applies recorded migrations with
+   prisma migrate deploy and HARD FAILS on drift or migration errors.
+3. Verify with scripts/verify-deploy-live.mjs.
+4. Watch for 24h: timetrack_auto_clock_outcomes_total,
+   timetrack_http_errors_total / http_responses_total, cron logs and the
+   Prometheus alert rules in tests/perf/observability.
+5. Spot-check that employees who were clocked in at cutover still show an
+   active session (or an audited end-of-day close when expected).
+
+### 12.4 Rollback
+
+- Redeploy the previous commit. Migrations 13-16 are additive and are ignored
+  by the older code, so rollback requires no data undo.
+- If COMPANY_DEFAULT_HOURS_CLOSE was left false, already-active sessions keep
+  legacy close behaviour until the override is removed.
