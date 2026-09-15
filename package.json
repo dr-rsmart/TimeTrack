@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "main": "index.js",
   "description": "TimeTrack — multi-tenant time tracking, scheduling and payroll platform (rebuilt from TimeTrack)",
   "scripts": {
     "dev": "concurrently -n server,web -c blue,green \"npm run dev:server\" \"npm run dev:web\"",
@@ -62,7 +63,6 @@
     "expo": "~52.0.0",
     "expo-build-properties": "^0.13.3",
     "expo-location": "~18.0.0",
-    "expo-modules-autolinking": "^57.0.10",
     "expo-notifications": "^0.29.14",
     "expo-splash-screen": "~0.29.24",
     "expo-status-bar": "~2.0.0",
@@ -110,10 +110,7 @@
     "vitest": "^4.1.11"
   },
   "overrides": {
-    "tar": "^6.2.1",
-    "postcss": "^8.5.28",
-    "@xmldom/xmldom": "^0.9.12",
-    "image-size": "^2.0.4"
+    "postcss": "^8.5.28"
   },
   "allowScripts": {
     "esbuild@0.25.12": true,

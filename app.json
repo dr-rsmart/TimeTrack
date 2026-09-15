@@ -4,7 +4,6 @@
     "slug": "timetrack",
     "owner": "smart-patel-tech-solutions",
     "version": "1.0.0",
-    "main": "index.js",
     "orientation": "portrait",
     "icon": "./TimeTrack Icon.png",
     "userInterfaceStyle": "automatic",
