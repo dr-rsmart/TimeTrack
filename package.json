@@ -44,7 +44,7 @@
     "review:ios": "node scripts/add-for-review-asc.mjs",
     "update:ios": "node scripts/update-ios-review-build.mjs",
     "browser:asc": "node scripts/open-browser-asc.mjs",
-    "play:closedalpha": "node scripts/update-closed-alpha-vc11.mjs",
+    "play:closedalpha": "node scripts/update-closed-alpha-vc15.mjs",
     "play:verify": "node scripts/verify-closed-alpha-release.mjs",
     "prepare": "husky || exit 0"
   },
