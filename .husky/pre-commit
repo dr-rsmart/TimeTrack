@@ -1,1 +1,2 @@
+node scripts/check-mojibake.mjs
 npx lint-staged

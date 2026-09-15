@@ -1,4 +1,5 @@
-import { PrismaClient } from '@prisma/client';
+import { AsyncLocalStorage } from 'async_hooks';
+import { PrismaClient, type Prisma } from '@prisma/client';
 import { getCurrentTenantId, UNRESTRICTED, TENANT_SCOPED_MODELS } from './tenantContext.js';
 
 /**
@@ -32,7 +33,7 @@ function withPoolConfig(url: string): string {
 
 const databaseUrl = withPoolConfig(process.env.DATABASE_URL || '');
 
-const basePrisma = new PrismaClient({
+export const basePrisma = new PrismaClient({
   log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
   datasources: {
     db: { url: databaseUrl },
@@ -52,7 +53,7 @@ const basePrisma = new PrismaClient({
  * behavior explicit and avoids surprising legitimate cross-tenant queries
  * (master console, cron, seed).
  */
-export const prisma = basePrisma.$extends({
+const extendedPrisma = basePrisma.$extends({
   name: 'tenantAutoStamp',
   query: {
     $allModels: {
@@ -74,6 +75,68 @@ export const prisma = basePrisma.$extends({
     },
   },
 });
+
+// ── Ambient transaction bridge (Phase 4, RLS adoption) ──
+// PostgreSQL RLS policies read the transaction-local `app.current_tenant`
+// setting (see migration 6 + tenantDatabase.ts). HTTP requests are wrapped
+// in an interactive transaction whose ambient client is stored in this
+// AsyncLocalStorage; the exported `prisma` proxy below then transparently
+// delegates every model call to that transaction, so existing handlers get
+// DB-level tenant enforcement without per-handler rewrites.
+const txStorage = new AsyncLocalStorage<Prisma.TransactionClient>();
+
+export function withAmbientTransaction<T>(tx: Prisma.TransactionClient, fn: () => T): T {
+  return txStorage.run(tx, fn);
+}
+
+export function getAmbientTransaction(): Prisma.TransactionClient | undefined {
+  return txStorage.getStore();
+}
+
+/**
+ * Re-routes `prisma.$transaction` inside a bridged request to the ambient
+ * transaction:
+ *  - callback form runs the callback with the ambient client (the same
+ *    connection + tenant settings);
+ *  - array form's promises were created on the ambient client already, so
+ *    they just need awaiting.
+ */
+function bridgeTransaction(tx: Prisma.TransactionClient, fallback: typeof extendedPrisma) {
+  return (arg: unknown) => {
+    if (typeof arg === 'function') {
+      return (arg as (t: Prisma.TransactionClient) => unknown)(tx);
+    }
+    if (Array.isArray(arg)) {
+      return Promise.all(arg as Promise<unknown>[]);
+    }
+    return fallback.$transaction(arg as never);
+  };
+}
+
+const prismaProxy = new Proxy(extendedPrisma, {
+  get(target, prop, receiver) {
+    if (typeof prop !== 'string') return Reflect.get(target, prop, receiver);
+    const tx = txStorage.getStore();
+    if (prop === '$transaction' && tx) {
+      return bridgeTransaction(tx, target);
+    }
+    // Client-level methods ($disconnect, $transaction, ...) are bound to the
+    // real client — the proxy must never become the `this`/receiver, because
+    // Prisma's non-configurable data properties (`_extensions`, ...) would
+    // then trip the proxy invariant.
+    if (prop.startsWith('$')) {
+      const fn = Reflect.get(target, prop, target);
+      return typeof fn === 'function' ? fn.bind(target) : fn;
+    }
+    if (tx) {
+      const txMember = (tx as unknown as Record<string, unknown>)[prop];
+      if (txMember !== undefined) return txMember;
+    }
+    return Reflect.get(target, prop, target);
+  },
+});
+
+export const prisma = prismaProxy as unknown as typeof extendedPrisma;
 
 function currentTenantString(): string | null {
   const t = getCurrentTenantId();

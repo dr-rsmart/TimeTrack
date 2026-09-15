@@ -76,6 +76,9 @@ jobs:
       - name: Format check (prettier)
         run: npm run format:check
 
+      - name: Mojibake check (encoding integrity)
+        run: npm run lint:mojibake
+
       - name: Lint (eslint — web + server)
         run: |
           npm run lint

@@ -12,6 +12,8 @@ import jwt from 'jsonwebtoken';
 import prisma from '../prisma.js';
 import config from '../config.js';
 import { runWithTenant, UNRESTRICTED } from '../tenantContext.js';
+import { setRequestTenantContext } from '../tenantDatabase.js';
+import { tenantContextFor } from '../tenantPolicy.js';
 import { isTokenEpochStale } from '../passwords.js';
 import { onInvalidationCommand, publishInvalidation } from '../invalidation.js';
 import { getAuthToken } from '../authSession.js';
@@ -295,6 +297,14 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     user.role === 'master' || user.originalRole === 'master'
       ? UNRESTRICTED
       : (user.companyProfileId ?? UNRESTRICTED);
+  // DB-level enforcement: switch the ambient bridge transaction (see
+  // tenantDatabase.ts) to the same tenant context so PostgreSQL RLS
+  // policies apply for the remainder of the request.
+  await setRequestTenantContext(
+    tenantContextFor(
+      user.role === 'master' || user.originalRole === 'master' ? null : user.companyProfileId,
+    ),
+  );
   runWithTenant(tenantId, () => next());
 }
 

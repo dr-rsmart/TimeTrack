@@ -7,7 +7,8 @@
 import type { Request } from 'express';
 import { logger } from './logger.js';
 import { Prisma } from '@prisma/client';
-import prisma from './prisma.js';
+import prisma, { getAmbientTransaction } from './prisma.js';
+import { runUnrestricted } from './tenantDatabase.js';
 import { recordAuditWriteFailure } from './metrics.js';
 
 export function getClientIp(req: Request): string {
@@ -70,7 +71,7 @@ export interface AuditEntry {
 }
 
 export async function logAudit(entry: AuditEntry): Promise<void> {
-  try {
+  const doWrite = async (): Promise<void> => {
     let companyProfileId = entry.companyProfileId ?? null;
 
     // Fallback: resolve the tenant from the actor so audit rows are always
@@ -99,8 +100,21 @@ export async function logAudit(entry: AuditEntry): Promise<void> {
         companyProfileId: companyProfileId ?? undefined,
       },
     });
+  };
+
+  try {
+    // RLS-aware write: inside a bridged request the ambient transaction
+    // carries the tenant context; otherwise (fire-and-forget calls that
+    // outlive the request, cron, scripts) run in a dedicated unrestricted
+    // transaction so the append-only audit row can never be silently
+    // dropped by row-level security.
+    if (getAmbientTransaction()) {
+      await doWrite();
+    } else {
+      await runUnrestricted(() => doWrite());
+    }
   } catch (err) {
-    logger.error('[audit] Failed to write audit log:', err);
+    logger.error({ err }, '[audit] Failed to write audit log:');
     if (entry.required) recordAuditWriteFailure();
   }
 }

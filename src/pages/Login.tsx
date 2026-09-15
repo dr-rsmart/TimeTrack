@@ -383,10 +383,6 @@ export default function Login() {
                   </div>
                 </div>
 
-                <p className="pt-1 text-sm font-semibold text-slate-500">
-                  Your session stays active until you sign out.
-                </p>
-
                 {/* Sign In Button */}
                 <Button
                   type="submit"

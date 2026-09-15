@@ -13,6 +13,7 @@
  */
 
 import prisma from '../src/prisma.js';
+import { runUnrestricted } from '../src/tenantDatabase.js';
 
 const apply = process.argv.includes('--apply');
 const json = process.argv.includes('--json');
@@ -99,7 +100,7 @@ async function main(): Promise<void> {
   log('Normalization complete.');
 }
 
-main()
+runUnrestricted(() => main())
   .catch((err) => {
     console.error('[maintenance:normalize] FAILED:', err);
     process.exit(1);

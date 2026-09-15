@@ -11,6 +11,7 @@
 
 import 'dotenv/config';
 import { logger } from './logger.js';
+import { runUnrestricted } from './tenantDatabase.js';
 import bcrypt from 'bcryptjs';
 import prisma from './prisma.js';
 import { hoursToMinutes } from './domain/duration.js';
@@ -499,7 +500,7 @@ async function main() {
   logger.info('  riaan@timetrack.com   → Employee (Cape Town)');
 }
 
-main()
+runUnrestricted(() => main())
   .catch((err) => {
     logger.error('[seed] Fatal error:', err);
     process.exit(1);

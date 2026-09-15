@@ -7,7 +7,6 @@ test.describe('Authentication & Session Management', () => {
     await page.goto('/login');
     await expect(page.locator('input[type="email"]')).toBeVisible();
     await expect(page.locator('input[type="password"]')).toBeVisible();
-    await expect(page.getByText('Your session stays active until you sign out.')).toBeVisible();
     await expect(page.getByText('Remember me for 30 days')).toHaveCount(0);
 
     const submitBtn = page.locator('button[type="submit"]');

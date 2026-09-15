@@ -9,6 +9,7 @@
  */
 
 import prisma from '../src/prisma.js';
+import { runUnrestricted } from '../src/tenantDatabase.js';
 
 function argValue(name: string): string | undefined {
   const idx = process.argv.indexOf(`--${name}`);
@@ -46,7 +47,7 @@ async function main(): Promise<void> {
   console.log(`[audit:archive] Archived ${count} row(s). Record this run in docs/DATA_CHANGES.md.`);
 }
 
-main()
+runUnrestricted(() => main())
   .catch((err) => {
     console.error('[audit:archive] FAILED:', err);
     process.exit(1);
