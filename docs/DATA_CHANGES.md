@@ -523,3 +523,39 @@ not_null` ran before `5_time_entry_integer_minutes` on any fresh database
 - **Rollback path:** restore `backups/timetrack_backup_2026-09-15T19-43-53.dump`
   with `pg_restore --clean --if-exists --no-owner --no-privileges`; the
   migration-12 edit is documented in its `MIGRATION.md` and needs no data undo.
+
+## 012 — Production cutover prerequisite applied to Railway production (§12.1 gate 0)
+
+- **Date:** 2026-09-15
+- **Author:** operator + Cline
+- **Target:** Railway production PostgreSQL (project `TimeTrack`, environment
+  `production`, service `Postgres`), reached through Railway's public TCP
+  proxy. Credentials were read at runtime with
+  `railway variables --service Postgres --json` into a temporary file outside
+  the repo and deleted afterwards; nothing credential-bearing was written to
+  this repo or echoed to any log.
+- **Pre-deploy snapshot:**
+  `backups/railway-prod-before-deploy-20260915-215339.dump`
+  (`pg_dump -Fc --no-owner --no-privileges`, 270,239 bytes; SHA-256:
+  `C50E7A5ECB6DD4230C8A5E42C233760B4A14BFB9730E3F12DD8C60A4392636E0`;
+  verified readable with `pg_restore -l` — 123 TOC entries — before any
+  destructive step; git-ignored).
+- **What changed:** re-applied the entry 004 guarded orphan-geofence deletion
+  to Railway production (the exact recorded SQL, wrapped in a transaction
+  with a post-check): `DELETE 1` — `id=cmt01sx7t0008p13zgifn6etz`, name
+  `Main Office`, `companyProfileId IS NULL`, zero `EmployeeGeofence`
+  assignments. This was §12.1 gate 0: migration 17 aborts on any NULL-tenant
+  row and `production-start.mjs` hard-fails the deploy.
+- **Staff-hours impact:** none. Zero `TimeEntry` rows were touched; the
+  deletion removed one unassigned leftover seed geofence. Post-state scan:
+  0 NULL-tenant rows across `Employee`, `Shift`, `TimeEntry`, `Geofence`,
+  `EmployeeGeofence` — migration 17's guard set is fully satisfied.
+- **Also set:** `COMPANY_DEFAULT_HOURS_CLOSE=false` on the `TimeTrack`
+  service for the first deployment cycle (§12.2), so sessions already active
+  at cutover keep the legacy close behaviour; remove the override after the
+  first cycle.
+- **Rollback path:** restore
+  `backups/railway-prod-before-deploy-20260915-215339.dump` with
+  `pg_restore --clean --if-exists --no-owner --no-privileges` (as with
+  entries 006/009 the archive carries no grants/RLS — reprovision per the
+  documented order), or re-insert the single geofence row from the archive.
