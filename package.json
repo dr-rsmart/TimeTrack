@@ -45,7 +45,7 @@
     "browser:asc": "node scripts/open-browser-asc.mjs",
     "play:closedalpha": "node scripts/update-closed-alpha-vc11.mjs",
     "play:verify": "node scripts/verify-closed-alpha-release.mjs",
-    "prepare": "husky"
+    "prepare": "husky || exit 0"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.6",
