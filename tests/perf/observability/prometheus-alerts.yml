@@ -151,3 +151,49 @@ groups:
         annotations:
           summary: 'TimeTrack /api/health probe failing'
           description: 'The API health probe is failing — system under test is down.'
+
+  # ===========================================================================
+  # Production capacity & compliance watchdogs (live deployment, not stress)
+  # ===========================================================================
+  - name: timetrack-production-capacity
+    interval: 60s
+    rules:
+      # ── AuditLog unbounded growth (C12) → archive ──
+      - alert: AuditLogGrowthUnbounded
+        expr: timetrack_audit_log_rows > 5000000
+        for: 10m
+        labels:
+          severity: warning
+          action: archive
+        annotations:
+          summary: 'AuditLog exceeds 5M rows'
+          description:
+            'AuditLog holds {{ $value }} rows. Run `npm run audit:archive -- --older-than 365
+            --dry-run` then `--apply`, or enable the opt-in cron archival with
+            AUDIT_ARCHIVE_ENABLED=true (see server/src/cron.ts).'
+
+      # ── Compliance audit persistence failing → investigate immediately ──
+      - alert: AuditWriteFailuresPresent
+        expr: increase(timetrack_audit_write_failures_total[15m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          action: investigate
+        annotations:
+          summary: 'Audit persistence failures detected'
+          description:
+            '{{ $value | printf "%.0f" }} audit write failure(s) in the last 15m — compliance
+            trail may be incomplete. Check database health and disk.'
+
+      # ── Auto-clock reconciliation found overdue active entries ──
+      - alert: OverdueActiveTimeEntries
+        expr: increase(timetrack_auto_clock_outcomes_total{outcome="reconciliation_overdue_active"}[30m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          action: investigate
+        annotations:
+          summary: 'Active time entries older than 12h detected'
+          description:
+            'Cron reconciliation flagged overdue active entries — verify the stale-close job
+            and employee sessions.'

@@ -28,7 +28,7 @@ import { parseDate } from './overlap.js';
 import { singleEmployeeIdentityFilter } from './domain/employeeIdentity.js';
 import { resolveLocationWorkingEnd } from './locationWorkingHours.js';
 import { runUnrestricted } from './tenantDatabase.js';
-import { recordAutoClockOutcome } from './metrics.js';
+import { recordAutoClockOutcome, setAuditLogRows } from './metrics.js';
 import {
   closeActiveEntryAtShiftEnd,
   closeActiveEntryAtWorkingEnd,
@@ -49,6 +49,70 @@ async function reconcileOverdueActiveEntries(): Promise<void> {
   if (overdue > 0) {
     recordAutoClockOutcome('reconciliation_overdue_active');
     logger.warn(`[cron] Reconciliation found ${overdue} active entry(s) older than 12 hours.`);
+  }
+}
+
+// ── AuditLog growth observability + opt-in archival ──────────────────────
+// AuditLog is append-only and NEVER purged. Two operational aids live here:
+//  1. a size gauge (timetrack_audit_log_rows) sampled every ~10 minutes so
+//     Prometheus can alert on unbounded growth (C12 risk); and
+//  2. an OPT-IN daily archival job that moves rows older than
+//     AUDIT_ARCHIVE_OLDER_THAN_DAYS into AuditLogArchive (migration 11).
+//     Archival stays an explicit operational decision: it only runs when
+//     AUDIT_ARCHIVE_ENABLED=true is set by the operator. The manual tool
+//     (`npm run audit:archive`) remains the preferred dry-run-first path.
+const AUDIT_ARCHIVE_ENABLED = process.env.AUDIT_ARCHIVE_ENABLED === 'true';
+const AUDIT_ARCHIVE_OLDER_THAN_DAYS = Number.parseInt(
+  process.env.AUDIT_ARCHIVE_OLDER_THAN_DAYS ?? '365',
+  10,
+);
+let lastAuditGrowthSampleMs = 0;
+let lastAuditArchiveRunMs = 0;
+
+async function sampleAuditLogGrowth(): Promise<void> {
+  const now = Date.now();
+  if (now - lastAuditGrowthSampleMs < 10 * 60_000) return;
+  lastAuditGrowthSampleMs = now;
+  try {
+    const rows = await prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT count(*) AS count FROM "AuditLog"
+    `;
+    setAuditLogRows(Number(rows[0]?.count ?? 0));
+  } catch (err) {
+    logger.warn('[cron] AuditLog growth sample failed:', err);
+  }
+}
+
+async function archiveAuditLogs(): Promise<void> {
+  if (!AUDIT_ARCHIVE_ENABLED) return;
+  const now = Date.now();
+  if (now - lastAuditArchiveRunMs < 24 * 3_600_000) return;
+  if (!(await acquireLock('audit-log-archive', 30 * 60_000))) return;
+
+  try {
+    lastAuditArchiveRunMs = now;
+    const cutoff = new Date(now - AUDIT_ARCHIVE_OLDER_THAN_DAYS * 24 * 3_600_000);
+    const archived = await prisma.$executeRaw`
+      INSERT INTO "AuditLogArchive"
+        ("id", "entity", "entityId", "action", "actorId", "actorEmail", "actorRole",
+         "changes", "justification", "ipAddress", "branch", "department",
+         "companyProfileId", "createdAt")
+      SELECT "id", "entity", "entityId", "action", "actorId", "actorEmail", "actorRole",
+             "changes"::jsonb, "justification", "ipAddress", "branch", "department",
+             "companyProfileId", "createdAt"
+      FROM "AuditLog" WHERE "createdAt" < ${cutoff}
+      ON CONFLICT ("id") DO NOTHING;
+    `;
+    if (archived > 0) {
+      await prisma.$executeRaw`DELETE FROM "AuditLog" WHERE "createdAt" < ${cutoff};`;
+      logger.info(
+        `[cron] Archived ${archived} AuditLog row(s) older than ${AUDIT_ARCHIVE_OLDER_THAN_DAYS} days. Record this run in docs/DATA_CHANGES.md.`,
+      );
+    }
+  } catch (err) {
+    logger.error('[cron] AuditLog archival error:', err);
+  } finally {
+    await releaseLock('audit-log-archive');
   }
 }
 
@@ -399,6 +463,8 @@ export function startCron(): void {
       await purgeRetentionPolicies();
       await closeStaleActiveTimeEntries();
       await reconcileOverdueActiveEntries();
+      await sampleAuditLogGrowth();
+      await archiveAuditLogs();
       pruneStaleConnections();
     });
   };

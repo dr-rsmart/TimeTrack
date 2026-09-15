@@ -42,6 +42,10 @@ export default tseslint.config(
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      // Open-09 ratchet (2026-09-15): modules must stay under 700 lines.
+      // Existing offenders are tracked in docs/AUDIT_REGISTER.md (Open-09);
+      // the warning prevents NEW oversized modules and growing existing ones.
+      'max-lines': ['warn', { max: 700, skipBlankLines: true, skipComments: true }],
       // Intentional empty catch blocks (e.g. "non-fatal — keep the stream
       // alive") are a deliberate pattern in this codebase.
       'no-empty': ['error', { allowEmptyCatch: true }],

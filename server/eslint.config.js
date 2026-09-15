@@ -21,6 +21,9 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      // Open-09 ratchet (2026-09-15): modules must stay under 700 lines.
+      // Existing offenders are tracked in docs/AUDIT_REGISTER.md (Open-09).
+      'max-lines': ['warn', { max: 700, skipBlankLines: true, skipComments: true }],
       // Intentional empty catch blocks are a deliberate pattern here.
       'no-empty': ['error', { allowEmptyCatch: true }],
       // Regex-heavy validation code contains harmless/useful escapes.

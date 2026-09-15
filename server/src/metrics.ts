@@ -21,6 +21,13 @@ const http: HttpCounters = {
 const startedAt = Date.now();
 let auditWriteFailures = 0;
 const autoClockOutcomes: Record<string, number> = {};
+/** -1 until the cron sampler reports the first AuditLog row count. */
+let auditLogRows = -1;
+
+/** Set the AuditLog size gauge (sampled periodically by the cron runner). */
+export function setAuditLogRows(count: number): void {
+  auditLogRows = Number.isFinite(count) ? count : -1;
+}
 
 /** Record an auto-clock lifecycle outcome for reliability monitoring. */
 export function recordAutoClockOutcome(outcome: string): void {
@@ -50,6 +57,7 @@ export function getMetricSnapshot() {
     httpErrorsTotal: http.errors,
     httpByStatusClass: { ...http.byClass },
     auditWriteFailures,
+    auditLogRows,
     autoClockOutcomes: { ...autoClockOutcomes },
   };
 }
@@ -88,6 +96,12 @@ export function renderMetrics(
   lines.push('# HELP timetrack_audit_write_failures_total Failed audit persistence attempts.');
   lines.push('# TYPE timetrack_audit_write_failures_total counter');
   lines.push(`timetrack_audit_write_failures_total ${auditWriteFailures}`);
+
+  if (auditLogRows >= 0) {
+    lines.push('# HELP timetrack_audit_log_rows Append-only AuditLog table size.');
+    lines.push('# TYPE timetrack_audit_log_rows gauge');
+    lines.push(`timetrack_audit_log_rows ${auditLogRows}`);
+  }
 
   lines.push('# HELP timetrack_auto_clock_outcomes_total Auto-clock lifecycle outcomes.');
   lines.push('# TYPE timetrack_auto_clock_outcomes_total counter');
