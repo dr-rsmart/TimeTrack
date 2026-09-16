@@ -23,6 +23,7 @@ import { timeEntryApi, type TimeEntry, ApiError } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useSSE } from '../hooks/useSSE';
 import { MyWorkLocation } from '../components/location/MyWorkLocation';
+import { isAutoClockEligible, useAutoGeofenceState } from '../hooks/useAutoGeofence';
 import StaffClockModal from '../components/time/StaffClockModal';
 import ManualTimeEntryModal from '../components/time/ManualTimeEntryModal';
 import {
@@ -66,6 +67,9 @@ export default function TimeTracking() {
 
   // ── Manual time entry modal (backdated hours for a previous date) ──
   const [showManualEntryModal, setShowManualEntryModal] = useState(false);
+
+  // ── Auto-geofence toggle state (read-only) for the not-clocked-in card ──
+  const autoGeo = useAutoGeofenceState(user ? `${user.email}:${user.role}` : undefined);
 
   const load = useCallback(async () => {
     try {
@@ -223,7 +227,7 @@ export default function TimeTracking() {
               </div>
               <p className="text-lg font-semibold">You are not clocked in</p>
               <p className="text-sm text-muted-foreground">
-                {user?.branch ? `Assigned location: ${user.branch}` : 'Start your work session'}
+                {user?.branch ? `Branch: ${user.branch}` : 'Start your work session'}
               </p>
               <motion.div whileTap={{ scale: 0.97 }}>
                 <Button
@@ -237,13 +241,30 @@ export default function TimeTracking() {
               </motion.div>
             </>
           )}
+          <Badge
+            variant={
+              isAutoClockEligible(user) && autoGeo.autoGeofenceEnabled ? 'success' : 'secondary'
+            }
+            className="px-2.5 py-0.5 text-xs"
+            title="Device setting only. ON does not confirm that background monitoring is running."
+          >
+            Auto-Geofence{' '}
+            {!isAutoClockEligible(user)
+              ? 'not applicable'
+              : autoGeo.autoGeofenceEnabled
+                ? 'ON'
+                : 'OFF'}
+          </Badge>
         </CardContent>
       </Card>
 
       {/* My Work Location — available to all roles.
           Only admin/master can add locations; managers and employees get read-only view.
           Managers can change employee locations via Workforce, but cannot create new locations. */}
-      <MyWorkLocation canAddLocation={user?.role === 'admin' || user?.role === 'master'} />
+      <MyWorkLocation
+        canAddLocation={user?.role === 'admin' || user?.role === 'master'}
+        clockedIn={loading ? undefined : !!active}
+      />
 
       {/* Recent entries */}
       <Card className="border-border/50">

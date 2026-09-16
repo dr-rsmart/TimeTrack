@@ -306,3 +306,62 @@ describe('AutoGeofenceService — watch resilience', () => {
     expect(autoGeofenceService.getState().isMonitoring).toBe(false);
   });
 });
+
+describe('AutoGeofenceService — awaiting-exit suppression visibility', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    vi.useFakeTimers({ now: new Date('2026-08-30T08:00:00Z') });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('publishes awaitingExit in getState when a voluntary on-site clock-out arms it', async () => {
+    const harness = createGeolocationHarness();
+    vi.stubGlobal('navigator', { geolocation: harness.geolocation });
+    const { autoGeofenceService } = await importFreshService();
+
+    expect(autoGeofenceService.getState().awaitingExit).toBe(false);
+    autoGeofenceService.startMonitoring(GEOFENCE, true);
+    // Initial mount sync (clocked in) — must never arm the suppression.
+    autoGeofenceService.syncClockedIn(true);
+    expect(autoGeofenceService.getState().awaitingExit).toBe(false);
+    // Voluntary clock-out while on site arms the double clock-in guard.
+    autoGeofenceService.syncClockedIn(false);
+    expect(autoGeofenceService.getState().awaitingExit).toBe(true);
+    expect(autoGeofenceService.getState().awaitingExitSetAt).toBeTypeOf('number');
+  });
+
+  it('clears awaitingExit from state when a confirmed exit releases it', async () => {
+    const harness = createGeolocationHarness();
+    vi.stubGlobal('navigator', { geolocation: harness.geolocation });
+    const { autoGeofenceService, CONSECUTIVE_CONFIRMATIONS } = await importFreshService();
+
+    autoGeofenceService.startMonitoring(GEOFENCE, true);
+    autoGeofenceService.syncClockedIn(true);
+    autoGeofenceService.syncClockedIn(false);
+    expect(autoGeofenceService.getState().awaitingExit).toBe(true);
+
+    for (let i = 0; i < CONSECUTIVE_CONFIRMATIONS; i++) {
+      vi.advanceTimersByTime(2000);
+      harness.emitFix({ ...POS_OUTSIDE, accuracy: 10 });
+    }
+    expect(autoGeofenceService.getState().awaitingExit).toBe(false);
+    expect(autoGeofenceService.getState().awaitingExitSetAt).toBeNull();
+  });
+
+  it('clears awaitingExit from state when the employee clocks back in', async () => {
+    const harness = createGeolocationHarness();
+    vi.stubGlobal('navigator', { geolocation: harness.geolocation });
+    const { autoGeofenceService } = await importFreshService();
+
+    autoGeofenceService.startMonitoring(GEOFENCE, true);
+    autoGeofenceService.syncClockedIn(true);
+    autoGeofenceService.syncClockedIn(false);
+    expect(autoGeofenceService.getState().awaitingExit).toBe(true);
+    autoGeofenceService.syncClockedIn(true);
+    expect(autoGeofenceService.getState().awaitingExit).toBe(false);
+  });
+});

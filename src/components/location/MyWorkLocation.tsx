@@ -25,6 +25,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { MapPin, Navigation, Radio, Plus } from 'lucide-react';
 import { Button, Card, CardContent, CardHeader, CardTitle, EmptyState, Spinner } from '../ui';
 import { useSSE } from '../../hooks/useSSE';
+import { useAuth } from '../../context/AuthContext';
+import { useAutoGeofenceState, isAutoClockEligible } from '../../hooks/useAutoGeofence';
+import { resolveAutoClockStatus } from '../../utils/autoClockStatus';
+import { workLocationSummary } from '../../utils/workLocationSummary';
+import { GEOFENCE_CONFIRMATIONS } from '../../constants/geofence';
+import { AutoClockStatusNote } from './AutoClockStatusNote';
 import { AddLocationModal } from './AddLocationModal';
 import { GeofenceManager } from '../settings/GeofenceManager';
 import { EXIT_BUFFER_METERS } from '../../services/AutoGeofenceService';
@@ -93,6 +99,12 @@ interface MyWorkLocationProps {
    * Locations" list.
    */
   canAddLocation?: boolean;
+  /**
+   * Whether the employee currently has an active time entry. Lets the
+   * auto-geofence status note explain the "inside geofence but not clocked
+   * in" contradiction on the Time tab. Undefined while attendance is loading.
+   */
+  clockedIn?: boolean;
 }
 
 /** Determine the proximity zone for a given distance and geofence radius. */
@@ -102,7 +114,11 @@ function getZone(distanceMeters: number, radiusMeters: number): ProximityZone {
   return 'outside';
 }
 
-export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
+export function MyWorkLocation({ canAddLocation = true, clockedIn }: MyWorkLocationProps) {
+  const { user } = useAuth();
+  // Read-only auto-geofence state: explains why an auto clock-in has not
+  // fired while the distance card shows the employee inside the geofence.
+  const autoGeo = useAutoGeofenceState(user ? `${user.email}:${user.role}` : undefined);
   const [allGeofences, setAllGeofences] = useState<Geofence[]>([]);
   const [assignedGeofenceIds, setAssignedGeofenceIds] = useState<string[]>([]);
   const [distanceResults, setDistanceResults] = useState<DistanceResult[]>([]);
@@ -391,6 +407,25 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
     );
   }
 
+  // ── Auto-geofence observability: explain "inside geofence but not clocked in" ──
+  const autoClockStatus =
+    clockedIn === undefined
+      ? null
+      : resolveAutoClockStatus({
+          clockedIn,
+          inside: closestResult?.zone === 'inside',
+          toggleEnabled: autoGeo.autoGeofenceEnabled,
+          eligible: isAutoClockEligible(user),
+          nativeShell: autoGeo.nativeShell,
+          webMonitoringActive: autoGeo.monitorState?.isMonitoring === true,
+          webAwaitingExit: autoGeo.monitorState?.awaitingExit === true,
+          webAwaitingExitSetAt: autoGeo.monitorState?.awaitingExitSetAt,
+          webPermissionDenied: autoGeo.monitorState?.permissionDenied === true,
+          webPoorSignal: autoGeo.monitorState?.poorSignal === true,
+          nativeStatus: autoGeo.nativeStatus,
+          confirmations: GEOFENCE_CONFIRMATIONS,
+        });
+
   return (
     <>
       <Card className="border-border/50">
@@ -407,8 +442,7 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
             )}
           </CardTitle>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {allGeofences.filter((g) => g.isActive).length} active location(s) — GPS validation
-            enabled
+            {workLocationSummary(allGeofences, assignedGeofenceIds)}
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -447,7 +481,9 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
               <p className={`text-2xl font-bold tabular-nums ${zoneTextClass(closestResult.zone)}`}>
                 {formatDistance(closestResult.distanceMeters)}
                 {gpsAccuracy !== null && (
-                  <span className="text-sm font-normal text-slate-400 ml-1.5">±{gpsAccuracy}m</span>
+                  <span className="text-sm font-normal text-slate-400 ml-1.5">
+                    ±{gpsAccuracy} m
+                  </span>
                 )}
               </p>
               <div className="flex items-center gap-2 text-xs mt-1">
@@ -484,6 +520,9 @@ export function MyWorkLocation({ canAddLocation = true }: MyWorkLocationProps) {
               </div>
             </div>
           )}
+
+          {/* Auto-geofence status — explains why auto clock-in has not fired */}
+          {autoClockStatus && <AutoClockStatusNote status={autoClockStatus} />}
 
           {/*
             Allowed geofences with distances.

@@ -120,6 +120,8 @@ const TOKEN_KEY = 'timetrack_auth_token';
 const REFRESH_TOKEN_KEY = 'timetrack_native_refresh_token';
 /** Persisted boundary state machine (zone, confirmation counters, cooldown). */
 const GEOFENCE_STATE_KEY = 'timetrack_geofence_state';
+/** Sanitised diagnostics only — never store tokens or API response bodies here. */
+const AUTO_CLOCK_DIAGNOSTICS_KEY = 'timetrack_auto_clock_diagnostics';
 /** One-shot flag: background-permission guidance already shown. */
 const BG_PERMISSION_PROMPTED_KEY = 'timetrack_bg_permission_prompted';
 
@@ -147,10 +149,14 @@ async function readGeofences() {
 }
 
 // ── Geofence hysteresis constants (mirrors src/services/AutoGeofenceService.ts) ──
-// Keep in sync with the web implementation.
+// Keep in sync with the web implementation (src/constants/geofence.ts).
+// NOTE: the web watcher is continuous and clocks in on the FIRST accepted fix
+// (isInitialFix bypass); native background wakes are sparse, so every crossing
+// here requires CONFIRMATIONS consecutive samples. Only the tuning constants
+// are shared — that asymmetry is intentional.
 const EXIT_BUFFER_METERS = 200; // grace distance outside radius before clock-out
 const MAX_ACCURACY_METERS = 150; // fixes worse than this are ignored
-const CONFIRMATIONS = 2; // consecutive samples required to confirm a crossing
+const CONFIRMATIONS = 3; // consecutive samples required to confirm a crossing (mirrors src/constants/geofence.ts GEOFENCE_CONFIRMATIONS)
 const EVENT_COOLDOWN_MS = 60_000; // minimum time between clock events
 /** Safety expiry for the clockedOutInside suppression (mirrors web AWAITING_EXIT_TTL_MS). */
 const CLOCKED_OUT_INSIDE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -168,7 +174,7 @@ function distanceMetres(a, b) {
 }
 
 // ── API helpers: actually clock in/out against the TimeTrack backend ──
-async function apiClock(kind, pos, idempotencyKey) {
+async function requestClock(kind, pos, idempotencyKey) {
   const token = await AsyncStorage.getItem(TOKEN_KEY);
   if (!token) return { status: 401, data: {} };
 
@@ -206,6 +212,39 @@ async function apiClock(kind, pos, idempotencyKey) {
   }
   const data = await res.json().catch(() => ({}));
   return { status: res.status, data };
+}
+
+async function updateAutoClockDiagnostics(patch) {
+  try {
+    const raw = await AsyncStorage.getItem(AUTO_CLOCK_DIAGNOSTICS_KEY);
+    await AsyncStorage.setItem(
+      AUTO_CLOCK_DIAGNOSTICS_KEY,
+      JSON.stringify({ ...(raw ? JSON.parse(raw) : {}), ...patch }),
+    );
+  } catch {
+    // Diagnostics must not interrupt attendance processing.
+  }
+}
+
+async function apiClock(kind, pos, idempotencyKey) {
+  try {
+    const result = await requestClock(kind, pos, idempotencyKey);
+    const failure =
+      result.status === 401
+        ? 'auth'
+        : result.data?.code === 'RECLOCK_GUARD'
+          ? 'reclock'
+          : result.status >= 500
+            ? 'server'
+            : result.status >= 400
+              ? 'rejected'
+              : null;
+    await updateAutoClockDiagnostics({ failure });
+    return result;
+  } catch {
+    await updateAutoClockDiagnostics({ failure: 'network' });
+    return { status: 0, data: {} };
+  }
 }
 
 async function refreshNativeAccessToken() {
@@ -282,7 +321,11 @@ async function retryPendingNotification() {
 // clock-outs — system (cron) auto-closes arrive with CLOCK_STATE bySystem and
 // are exempt — and it expires automatically after CLOCKED_OUT_INSIDE_TTL_MS.
 async function processBackgroundLocation({ data, error }) {
-  if (error) return;
+  if (error) {
+    await updateAutoClockDiagnostics({ taskError: true });
+    void syncAutoClockStatusToWebview();
+    return;
+  }
   if (!data?.locations?.length) return;
 
   try {
@@ -352,6 +395,9 @@ async function processBackgroundLocation({ data, error }) {
     }
 
     for (const loc of data.locations) {
+      // Use the OS fix timestamp, not the time a batched task happens to wake.
+      const sampleAt = Number.isFinite(loc.timestamp) ? loc.timestamp : null;
+      await updateAutoClockDiagnostics({ lastSampleAt: sampleAt, taskError: false });
       const accuracy = loc.coords?.accuracy;
       const pos = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
 
@@ -384,11 +430,20 @@ async function processBackgroundLocation({ data, error }) {
           const radius = gf.radiusMeters || 300;
           return distanceMetres(pos, gf) - accuracy > radius + EXIT_BUFFER_METERS;
         });
-        if (!clearlyFarEverywhere) continue;
+        if (!clearlyFarEverywhere) {
+          await updateAutoClockDiagnostics({ poorSignal: true });
+          continue;
+        }
         // Coarse-but-clearly-far fix: treat as an outside signal only.
         inside = false;
         outside = true;
       }
+
+      await updateAutoClockDiagnostics({
+        lastAcceptedAt: sampleAt,
+        sampleZone: inside ? 'inside' : outside ? 'outside' : 'approaching',
+        poorSignal: false,
+      });
 
       // A clearly-outside fix releases the double-clock-in suppression.
       if (outside && st.clockedOutInside) {
@@ -433,6 +488,7 @@ async function processBackgroundLocation({ data, error }) {
                 .toLowerCase()
                 .includes('already clocked'));
           if (status === 201 || status === 200 || alreadyActive) {
+            await updateAutoClockDiagnostics({ failure: null });
             st.zone = 'inside';
             st.lastEventAt = Date.now();
             st.pendingAction = null;
@@ -483,6 +539,7 @@ async function processBackgroundLocation({ data, error }) {
               .toLowerCase()
               .includes('no active');
           if (status === 200 || noActive) {
+            await updateAutoClockDiagnostics({ failure: null });
             st.zone = 'outside';
             st.lastEventAt = Date.now();
             st.pendingAction = null;
@@ -509,6 +566,8 @@ async function processBackgroundLocation({ data, error }) {
     }
 
     await AsyncStorage.setItem(GEOFENCE_STATE_KEY, JSON.stringify(st));
+    // Let the open WebView explain the current auto-clock situation.
+    void syncAutoClockStatusToWebview();
   } catch {
     // Never crash the background task
   }
@@ -548,6 +607,72 @@ async function ensureBackgroundLocationUpdates() {
     },
     pausesUpdatesAutomatically: false,
   });
+}
+
+// ── Native → WebView auto-clock observability bridge ──
+// Inside the WebView the web geofence monitor is deliberately stopped (the
+// native background task owns auto clock-in/out), so employee-facing screens
+// cannot see WHY nothing happened. Publish a compact status snapshot —
+// suppression flag, boundary zone, confirmation progress and whether the OS
+// background task is actually running — using the same injectJavaScript
+// pattern as the auth-token bridge. Observability only: failures are silent.
+const NATIVE_AUTO_CLOCK_EVENT = 'timetrack-native-auto-clock';
+let webviewBridgeRef = null; // set to the <App> webview ref while mounted
+let autoClockSessionGeneration = 0;
+
+async function syncAutoClockStatusToWebview(requestId) {
+  const bridge = webviewBridgeRef ? webviewBridgeRef.current : null;
+  if (!bridge) return;
+  const generation = autoClockSessionGeneration;
+  try {
+    const [backgroundStarted, permission, token, enabled, geofences, diagnosticsRaw] =
+      await Promise.all([
+        Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => null),
+        Location.getBackgroundPermissionsAsync().catch(() => null),
+        AsyncStorage.getItem(TOKEN_KEY),
+        AsyncStorage.getItem(AUTO_CLOCK_ENABLED_KEY),
+        readGeofences(),
+        AsyncStorage.getItem(AUTO_CLOCK_DIAGNOSTICS_KEY),
+      ]);
+    const diagnostics = diagnosticsRaw ? JSON.parse(diagnosticsRaw) : {};
+    let st = null;
+    try {
+      const stateRaw = await AsyncStorage.getItem(GEOFENCE_STATE_KEY);
+      st = stateRaw ? JSON.parse(stateRaw) : null;
+    } catch {
+      st = null;
+    }
+    const detail = {
+      requestId: typeof requestId === 'string' ? requestId : null,
+      suppressed: Boolean(st && st.clockedOutInside),
+      suppressedSetAt:
+        st && typeof st.clockedOutInsideSetAt === 'number' ? st.clockedOutInsideSetAt : null,
+      zone: st && (st.zone === 'inside' || st.zone === 'outside') ? st.zone : null,
+      pendingEnter: st && typeof st.pendingEnter === 'number' ? st.pendingEnter : 0,
+      backgroundStarted,
+      backgroundPermission: permission?.status ?? null,
+      enabled: enabled !== 'false',
+      hasToken: Boolean(token),
+      monitoredCount: geofences.length,
+      lastSampleAt: diagnostics.lastSampleAt ?? null,
+      lastAcceptedAt: diagnostics.lastAcceptedAt ?? null,
+      sampleZone: diagnostics.sampleZone ?? null,
+      poorSignal: diagnostics.poorSignal === true,
+      taskError: diagnostics.taskError === true,
+      failure: diagnostics.failure ?? null,
+      cooldownUntil: st?.lastEventAt ? st.lastEventAt + EVENT_COOLDOWN_MS : null,
+      at: Date.now(),
+    };
+    if (generation !== autoClockSessionGeneration || bridge !== webviewBridgeRef?.current) return;
+    bridge.injectJavaScript(`
+      try {
+        window.dispatchEvent(new CustomEvent('${NATIVE_AUTO_CLOCK_EVENT}', { detail: ${JSON.stringify(detail)} }));
+      } catch (_) {}
+      true;
+    `);
+  } catch {
+    /* observability only — never break the background pipeline */
+  }
 }
 
 export default function App() {
@@ -598,6 +723,15 @@ export default function App() {
 
   // Cancel any pending retry timer on unmount
   useEffect(() => () => clearRetryTimer(), [clearRetryTimer]);
+
+  // Publish the ref object (not .current) so module-level background code can
+  // inject status snapshots whenever the WebView happens to be mounted.
+  useEffect(() => {
+    webviewBridgeRef = webviewRef;
+    return () => {
+      webviewBridgeRef = null;
+    };
+  }, []);
 
   // ── Connectivity awareness: offline screen + auto-reload on reconnect ──
   useEffect(() => {
@@ -719,10 +853,12 @@ export default function App() {
     let cancelled = false;
     const start = () => {
       if (!cancelled) {
-        void ensureBackgroundLocationUpdates().catch(() => {
-          // Background updates unavailable (e.g. simulator or permission not
-          // granted yet). The app-resume listener below retries automatically.
-        });
+        void ensureBackgroundLocationUpdates()
+          .catch(() => {
+            // Background updates unavailable (e.g. simulator or permission not
+            // granted yet). The app-resume listener below retries automatically.
+          })
+          .finally(() => syncAutoClockStatusToWebview());
       }
     };
 
@@ -732,6 +868,7 @@ export default function App() {
         start();
         void retryPendingNotification();
         void restoreNativeSession();
+        void syncAutoClockStatusToWebview();
       }
     });
 
@@ -745,6 +882,10 @@ export default function App() {
   const processWebViewMessage = async (event) => {
     try {
       const msg = JSON.parse(event.nativeEvent.data || '{}');
+      if (msg.type === 'AUTO_CLOCK_STATUS_REQUEST' && typeof msg.requestId === 'string') {
+        await syncAutoClockStatusToWebview(msg.requestId);
+        return;
+      }
       if (msg.type === 'GEOFENCE_ASSIGNED') {
         // Multi-location builds send `geofences` (array); older builds send a
         // single `geofence` object. An empty/null assignment means the
@@ -770,6 +911,7 @@ export default function App() {
         // (clockedOutInside + lastClockedIn survive: they belong to the
         // employee, not to a specific location.)
         if (prevList !== nextList || prevSingle !== nextSingle) {
+          await AsyncStorage.removeItem(AUTO_CLOCK_DIAGNOSTICS_KEY);
           const stateRaw = await AsyncStorage.getItem(GEOFENCE_STATE_KEY);
           if (stateRaw) {
             try {
@@ -797,10 +939,13 @@ export default function App() {
         // Assignment messages arrive after the WebView has authenticated and
         // are another safe opportunity to recover a background task that was
         // blocked by a temporary permission/provider failure.
-        void ensureBackgroundLocationUpdates().catch(() => undefined);
+        void ensureBackgroundLocationUpdates()
+          .catch(() => undefined)
+          .finally(() => syncAutoClockStatusToWebview());
       }
       if (msg.type === 'AUTO_CLOCK_ENABLED' && typeof msg.enabled === 'boolean') {
         await AsyncStorage.setItem(AUTO_CLOCK_ENABLED_KEY, String(msg.enabled));
+        void syncAutoClockStatusToWebview();
       }
       if (msg.type === 'CLOCK_STATE' && typeof msg.clockedIn === 'boolean') {
         await AsyncStorage.setItem(CLOCKED_IN_KEY, String(msg.clockedIn));
@@ -837,17 +982,20 @@ export default function App() {
             }
           }
           if (msg.clockedIn === true) {
+            await updateAutoClockDiagnostics({ failure: null });
             st.clockedOutInside = false;
             st.clockedOutInsideSetAt = null;
           }
           st.lastClockedIn = msg.clockedIn;
           await AsyncStorage.setItem(GEOFENCE_STATE_KEY, JSON.stringify(st));
+          void syncAutoClockStatusToWebview();
         } catch {
           /* non-fatal */
         }
       }
       if (msg.type === 'AUTH_TOKEN' && typeof msg.token === 'string' && msg.token.length > 0) {
         await AsyncStorage.setItem(TOKEN_KEY, msg.token);
+        await updateAutoClockDiagnostics({ failure: null });
         if (typeof msg.refreshToken === 'string' && msg.refreshToken.length > 0) {
           await AsyncStorage.setItem(REFRESH_TOKEN_KEY, msg.refreshToken);
         }
@@ -862,6 +1010,7 @@ export default function App() {
         }
       }
       if (msg.type === 'SESSION_ENDED') {
+        autoClockSessionGeneration += 1;
         // Sign-out: wipe everything so the next session starts clean.
         await AsyncStorage.multiRemove([
           TOKEN_KEY,
@@ -871,6 +1020,7 @@ export default function App() {
           CLOCKED_IN_KEY,
           GEOFENCE_STATE_KEY,
           AUTO_CLOCK_ENABLED_KEY,
+          AUTO_CLOCK_DIAGNOSTICS_KEY,
         ]);
       }
     } catch {
@@ -881,10 +1031,11 @@ export default function App() {
   // WebView messages are delivered independently and each handler performs
   // asynchronous storage writes. Serialize them so CLOCK_STATE transitions
   // (especially true -> false after clock-out) cannot commit out of order.
-  const bridgeQueueRef = useRef(Promise.resolve());
   const onWebViewMessage = (event) => {
-    const next = bridgeQueueRef.current.then(() => processWebViewMessage(event));
-    bridgeQueueRef.current = next.catch(() => undefined);
+    // Share the background queue: sign-out/assignment resets must not race an
+    // in-flight punch and let it restore the previous employee's diagnostics.
+    const next = backgroundTaskQueue.then(() => processWebViewMessage(event));
+    backgroundTaskQueue = next.catch(() => undefined);
     return next;
   };
 
@@ -924,6 +1075,9 @@ export default function App() {
           onLoadEnd={() => {
             setLoadProgress(0);
             void restoreNativeSession();
+            // First opportunity to explain the auto-clock situation to the
+            // freshly loaded Time tab (e.g. an armed on-site suppression).
+            void syncAutoClockStatusToWebview();
           }}
           onMessage={onWebViewMessage}
           javaScriptEnabled

@@ -1,6 +1,11 @@
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  // Keep the test transform cache separate from the Vite dev server's cache
+  // (node_modules/.vite). Both otherwise share one directory, and a running
+  // `npm run dev` can corrupt vitest's dependency-optimization metadata
+  // mid-run ("Cannot read properties of undefined (reading 'config')").
+  cacheDir: 'node_modules/.vitest',
   test: {
     coverage: {
       provider: 'v8',

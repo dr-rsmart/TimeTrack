@@ -136,6 +136,14 @@ export interface AutoGeofenceState {
   poorSignal: boolean;
   /** True when geolocation permission is denied — monitoring cannot continue until re-enabled. */
   permissionDenied: boolean;
+  /**
+   * True while the double clock-in suppression is armed (the employee clocked
+   * out while still on site and has not produced a confirmed exit yet).
+   * Published so read-only UI hooks can explain a paused auto clock-in.
+   */
+  awaitingExit: boolean;
+  /** When the armed suppression was set (null when not suppressed). */
+  awaitingExitSetAt: number | null;
   geofence?: GeofenceDefinition;
   error?: string;
 }
@@ -172,6 +180,8 @@ class AutoGeofenceService {
     zone: 'outside',
     poorSignal: false,
     permissionDenied: false,
+    awaitingExit: false,
+    awaitingExitSetAt: null,
   };
   private eventListeners: Array<(event: AutoGeofenceEvent) => void> = [];
   private stateListeners: Array<(state: AutoGeofenceState) => void> = [];
@@ -238,6 +248,11 @@ class AutoGeofenceService {
     if (this.awaitingExit === value) return;
     this.awaitingExit = value;
     this.awaitingExitSetAt = value ? Date.now() : null;
+    // Publish the suppression to state listeners (read-only UI hooks) so
+    // employee-facing screens can explain why auto clock-in is paused.
+    this.state.awaitingExit = value;
+    this.state.awaitingExitSetAt = this.awaitingExitSetAt;
+    this.notifyState();
     try {
       if (value) {
         localStorage.setItem(AWAITING_EXIT_KEY, JSON.stringify({ setAt: Date.now() }));
@@ -310,6 +325,8 @@ class AutoGeofenceService {
       zone: 'outside',
       poorSignal: false,
       permissionDenied: false,
+      awaitingExit: false,
+      awaitingExitSetAt: null,
       geofence: list[0],
     };
     // Seed boundary state from live clock state (see doc above).
@@ -320,6 +337,10 @@ class AutoGeofenceService {
     // also survives same-session monitoring restarts (storage may be absent).
     this.awaitingExit = isClockedIn ? false : this.awaitingExit || this.loadAwaitingExit();
     if (isClockedIn) this.setAwaitingExit(false);
+    // Mirror the suppression flag into the published state so read-only UI
+    // hooks can explain a paused auto clock-in.
+    this.state.awaitingExit = this.awaitingExit;
+    this.state.awaitingExitSetAt = this.awaitingExitSetAt;
     this.lastAccepted = null;
     this.pendingEnter = 0;
     this.pendingExit = 0;

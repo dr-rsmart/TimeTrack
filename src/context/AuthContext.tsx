@@ -86,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }),
           )
           .catch(() => {
-            /* Non-fatal: foreground web auto-clock still works. */
+            /* Foreground session still works; native auto-clock may need sign-in. */
           });
       }
     } catch {
@@ -106,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // A 401 during a voluntary sign-out is also expected.
       if (code === 'UNAUTHENTICATED' && loggingOutRef.current) return;
       setSessionError({ code, message });
+      postToNativeShell({ type: 'SESSION_ENDED' });
       hadSessionRef.current = false;
       setUser(null);
     });

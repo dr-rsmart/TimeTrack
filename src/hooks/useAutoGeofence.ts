@@ -18,6 +18,11 @@ import { authApi, employeeApi, timeEntryApi, settingsApi } from '../services/api
 import { getCurrentPosition } from '../utils/clockInHelper';
 import { useSSE } from './useSSE';
 import { getAutoClockRuntime } from '../utils/autoClockRuntime';
+import type { NativeAutoClockStatus } from '../utils/autoClockStatus';
+import {
+  AUTO_CLOCK_SESSION_ENDED_EVENT,
+  useNativeAutoClockStatus,
+} from './useNativeAutoClockStatus';
 
 /** How often the geofence assignment is re-fetched as a safety net (SSE covers most updates instantly). */
 const GEOFENCE_REFRESH_INTERVAL_MS = 5 * 60_000;
@@ -145,6 +150,9 @@ async function sendNotification(title: string, body: string): Promise<void> {
 
 export function postToNativeShell(message: Record<string, unknown>): void {
   try {
+    if (message.type === 'SESSION_ENDED') {
+      window.dispatchEvent(new Event(AUTO_CLOCK_SESSION_ENDED_EVENT));
+    }
     const shell = (
       window as unknown as { ReactNativeWebView?: { postMessage?: (msg: string) => void } }
     ).ReactNativeWebView;
@@ -603,9 +611,13 @@ export interface UseAutoGeofenceStateReturn {
   monitorState: AutoGeofenceState | null;
   autoGeofenceEnabled: boolean;
   error: string | null;
+  /** Latest status snapshot published by the native shell (null in browsers). */
+  nativeStatus: NativeAutoClockStatus | null;
+  /** True when running inside the React Native WebView shell. */
+  nativeShell: boolean;
 }
 
-export function useAutoGeofenceState(): UseAutoGeofenceStateReturn {
+export function useAutoGeofenceState(sessionKey?: string): UseAutoGeofenceStateReturn {
   const [autoGeofenceEnabled, setAutoGeofenceEnabledState] = useState(() =>
     getAutoGeofenceEnabled(),
   );
@@ -615,6 +627,8 @@ export function useAutoGeofenceState(): UseAutoGeofenceStateReturn {
   const [monitorState, setMonitorState] = useState<AutoGeofenceState | null>(null);
   const [isInsideGeofence, setIsInsideGeofence] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nativeShell] = useState(() => isNativeShellPresent());
+  const nativeStatus = useNativeAutoClockStatus(nativeShell, sessionKey, postToNativeShell);
 
   useEffect(() => {
     const handleSettingChange = (event: Event) => {
@@ -646,7 +660,15 @@ export function useAutoGeofenceState(): UseAutoGeofenceStateReturn {
     };
   }, []);
 
-  return { isInsideGeofence, geofence, monitorState, autoGeofenceEnabled, error };
+  return {
+    isInsideGeofence,
+    geofence,
+    monitorState,
+    autoGeofenceEnabled,
+    error,
+    nativeStatus,
+    nativeShell,
+  };
 }
 
 export default useAutoGeofence;

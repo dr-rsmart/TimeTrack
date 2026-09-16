@@ -44,7 +44,7 @@ export default function BrandLogo({
           >
             <span className="gradient-text">TimeTrack</span>
           </span>
-          <span className="text-[9px] text-muted-foreground font-medium tracking-widest uppercase">
+          <span className="text-[9px] text-muted-foreground font-medium tracking-widest uppercase whitespace-nowrap">
             Time & Attendance
           </span>
         </div>

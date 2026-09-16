@@ -257,7 +257,7 @@ export default function SelfClockWidget({
                               {autoGeo.monitorState.lastAccuracy !== undefined && (
                                 <span className="font-normal opacity-70">
                                   {' '}
-                                  ±{autoGeo.monitorState.lastAccuracy}m
+                                  ±{autoGeo.monitorState.lastAccuracy} m
                                 </span>
                               )}
                             </span>
