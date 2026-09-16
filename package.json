@@ -5,6 +5,9 @@
   "type": "module",
   "main": "index.js",
   "description": "TimeTrack — multi-tenant time tracking, scheduling and payroll platform (rebuilt from TimeTrack)",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "concurrently -n server,web -c blue,green \"npm run dev:server\" \"npm run dev:web\"",
     "dev:web": "vite",
