@@ -2,18 +2,18 @@
  * Google Play Console — Closed testing ("alpha") rollout updater
  * --------------------------------------------------------------
  * Promotes the Closed testing -> alpha track from "Release: 11 (1.0.0)" to
- * "Release: 15 (1.0.0)" by shipping version code 15 (timetrack-vc15 bundle:
- * EAS build #15 — targets API 36 per the Google Play Aug-2026 policy).
+ * "Release: 16 (1.0.0)" by shipping version code 16 (timetrack-vc16 bundle:
+ * EAS build #16 — targets API 36 per the Google Play Aug-2026 policy).
  *
  * Conventions match scripts/upload-play-console.mjs:
  *  - Persistent Chromium profile (.playwright-google-profile/) keeps the
  *    Google sign-in alive across runs.
  *  - If a sign-in / 2FA challenge appears the script waits for the human.
- *  - Prefers attaching the already-uploaded vc15 bundle from the Play
+ *  - Prefers attaching the already-uploaded vc16 bundle from the Play
  *    Console app bundle library; falls back to uploading the .aab.
  *
  * Log markers (for automation watchers):
- *   PLAY_CONSOLE_RESULT: DONE    -> release 15 rollout submitted on closed alpha
+ *   PLAY_CONSOLE_RESULT: DONE    -> release 16 rollout submitted on closed alpha
  *   PLAY_CONSOLE_RESULT: GUIDED  -> window left open for manual completion
  *   PLAY_CONSOLE_RESULT: ERROR   -> unexpected failure
  */
@@ -24,8 +24,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const AAB_PATH = path.resolve(ROOT, 'timetrack-vc15.aab');
-const RELEASE_NAME = '15'; // track row then reads "Release: 15 (1.0.0)"
+const AAB_PATH = path.resolve(ROOT, 'timetrack-vc16.aab');
+const RELEASE_NAME = '16'; // track row then reads "Release: 16 (1.0.0)"
 const PROFILE_DIR = path.resolve(ROOT, '.playwright-google-profile');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -134,12 +134,12 @@ async function submitRelease(page) {
   );
 }
 
-// Attach version code 15 INSIDE the release editor. Preference order:
-//  1) pick the already-processed vc15 bundle from the app bundle library,
+// Attach version code 16 INSIDE the release editor. Preference order:
+//  1) pick the already-processed vc16 bundle from the app bundle library,
 //  2) trigger the bundle upload dropzone/Browse button and serve the .aab
 //     through the browser file chooser (new Play Console UI),
 //  3) direct setInputFiles into any <input type=file> if one exists.
-async function attachBundleVc15(page) {
+async function attachBundleVc16(page) {
   // ── 1) App bundle library ──
   const fromLibrary = await clickVisible(
     page,
@@ -156,16 +156,16 @@ async function attachBundleVc15(page) {
     await wait(4000);
     const picked = await clickVisible(
       page,
-      'vc15 row checkbox in library chooser',
+      'vc16 row checkbox in library chooser',
       [
         // Dialog table is custom (no <tr>): the row checkbox precedes the
         // unique version-code cell text "15".
         (p) =>
           p.locator(
-            'xpath=(//*[normalize-space(text())="15"]/preceding::*[self::input[@type="checkbox"] or @role="checkbox"])[last()]',
+            'xpath=(//*[normalize-space(text())="16"]/preceding::*[self::input[@type="checkbox"] or @role="checkbox"])[last()]',
           ),
         // Fallback: dialog checkbox list — header "select all" first, then
-        // rows sorted newest-first (vc15 is the newest upload).
+        // rows sorted newest-first (vc16 is the newest upload).
         (p) =>
           p
             .locator('[role="dialog"] input[type="checkbox"], [role="dialog"] [role="checkbox"]')
@@ -173,17 +173,17 @@ async function attachBundleVc15(page) {
         (p) =>
           p
             .locator('tr')
-            .filter({ has: p.locator('td').filter({ hasText: /^15$/ }) })
+            .filter({ has: p.locator('td').filter({ hasText: /^16$/ }) })
             .getByRole('checkbox'),
         (p) =>
           p
             .locator('tr')
-            .filter({ hasText: /App bundle\s+15\s+1\.0\.0/ })
+            .filter({ hasText: /App bundle\s+16\s+1\.0\.0/ })
             .getByRole('checkbox'),
       ],
       20000,
     );
-    if (!picked) await shot(page, 'library-no-vc15');
+    if (!picked) await shot(page, 'library-no-vc16');
     await wait(1500);
     const added = await clickVisible(
       page,
@@ -196,7 +196,7 @@ async function attachBundleVc15(page) {
       15000,
     );
     if (picked && added) {
-      console.log('✅ Attached vc15 from the app bundle library.');
+      console.log('✅ Attached vc16 from the app bundle library.');
       await wait(30000);
       return true;
     }
@@ -243,13 +243,13 @@ async function attachBundleVc15(page) {
   }
 }
 
-// ── Release name box: ensure it reflects release 15 ──
+// ── Release name box: ensure it reflects release 16 ──
 async function ensureReleaseName(page) {
   try {
     const nameBox = page.getByLabel(/release name/i).first();
     if ((await nameBox.count()) > 0) {
       const current = await nameBox.inputValue().catch(() => '');
-      if (!current || !/^\s*15\b/.test(current)) {
+      if (!current || !/^\s*16\b/.test(current)) {
         await nameBox.fill(RELEASE_NAME);
         console.log(`✅ Release name set to "${RELEASE_NAME}".`);
       } else {
@@ -259,10 +259,10 @@ async function ensureReleaseName(page) {
   } catch {}
 }
 
-// ── Remove the stale vc14 bundle row (Play rejected it: targets API 35) ──
+// ── Remove the stale vc15 bundle row (Play rejected it: targets API 35) ──
 async function removeStaleBundle(page) {
-  if (!(await isVisible(page, /14 \(1\.0\.0\)|timetrack-vc14\.aab/, 5000))) return;
-  console.log('ℹ️  Stale vc14 bundle present — removing it from this release...');
+  if (!(await isVisible(page, /15 \(1\.0\.0\)|timetrack-vc15\.aab/, 5000))) return;
+  console.log('ℹ️  Stale vc15 bundle present — removing it from this release...');
   const makers = [
     // Prepare-page rows read "14 (1.0.0)" (not the file name): walk up to the
     // nearest button-bearing container and click its last button (the row's ✕).
@@ -274,11 +274,11 @@ async function removeStaleBundle(page) {
         .first(),
     () => page.locator('[aria-label*="remove" i], [aria-label*="delete" i]').first(),
     () =>
-      page.locator('xpath=//*[contains(text(),"timetrack-vc14.aab")]/following::button[1]').first(),
+      page.locator('xpath=//*[contains(text(),"timetrack-vc15.aab")]/following::button[1]').first(),
     () => page.getByRole('button', { name: /remove|delete|dismiss/i }).first(),
   ];
   for (const mk of makers) {
-    if (!(await isVisible(page, /14 \(1\.0\.0\)|timetrack-vc14\.aab/, 2000))) break;
+    if (!(await isVisible(page, /15 \(1\.0\.0\)|timetrack-vc15\.aab/, 2000))) break;
     try {
       const btn = mk();
       if ((await btn.count()) > 0 && (await btn.isVisible().catch(() => false))) {
@@ -287,11 +287,11 @@ async function removeStaleBundle(page) {
       }
     } catch {}
   }
-  if (await isVisible(page, /14 \(1\.0\.0\)|timetrack-vc14\.aab/, 2000)) {
-    console.log('⚠️  Could not remove the vc14 row automatically — remove it manually.');
-    await shot(page, 'stale-vc14-remains');
+  if (await isVisible(page, /15 \(1\.0\.0\)|timetrack-vc15\.aab/, 2000)) {
+    console.log('⚠️  Could not remove the vc15 row automatically — remove it manually.');
+    await shot(page, 'stale-vc15-remains');
   } else {
-    console.log('✅ Removed the stale vc14 bundle row.');
+    console.log('✅ Removed the stale vc15 bundle row.');
   }
 }
 
@@ -417,7 +417,7 @@ async function run() {
   await shot(page, 'alpha-track-page');
 
   // ── Detect current track state ──
-  const hasVc15 = await isVisible(page, /15 \(1\.0\.0\)/, 6000);
+  const hasVc16 = await isVisible(page, /16 \(1\.0\.0\)/, 6000);
   const hasDraft =
     (await isVisible(page, /edit release/i, 5000)) ||
     (await isVisible(page, /^\s*Untitled release\s*$/i, 4000)) ||
@@ -428,13 +428,13 @@ async function run() {
     6000,
   );
   console.log(
-    `ℹ️  track state: hasVc15=${hasVc15} hasDraft=${hasDraft} hasLiveRelease14=${await isVisible(page, /14 \(1\.0\.0\)/, 4000)}`,
+    `ℹ️  track state: hasVc16=${hasVc16} hasDraft=${hasDraft} hasLiveRelease15=${await isVisible(page, /15 \(1\.0\.0\)/, 4000)}`,
   );
 
   let submitted = false;
 
-  if (hasVc15 && alreadyLive && !hasDraft) {
-    console.log('ℹ️  Closed "alpha" already carries Release 15 (1.0.0) — nothing to do.');
+  if (hasVc16 && alreadyLive && !hasDraft) {
+    console.log('ℹ️  Closed "alpha" already carries Release 16 (1.0.0) — nothing to do.');
     submitted = true;
   } else {
     // Enter the release editor: via the existing draft, or by creating one.
@@ -467,15 +467,15 @@ async function run() {
       await wait(6000);
       await shot(page, 'release-editor');
 
-      // Remove the stale vc14 bundle row (rejected: targets API 35) if present.
+      // Remove the stale vc15 bundle row (rejected: targets API 35) if present.
       await removeStaleBundle(page);
 
-      // Skip bundling if the editor already shows vc15 attached.
-      const bundleAlready = await isVisible(page, /15 \(1\.0\.0\)/, 5000);
+      // Skip bundling if the editor already shows vc16 attached.
+      const bundleAlready = await isVisible(page, /16 \(1\.0\.0\)/, 5000);
       if (bundleAlready) {
-        console.log('ℹ️  vc15 already attached to this release.');
+        console.log('ℹ️  vc16 already attached to this release.');
       } else {
-        await attachBundleVc15(page);
+        await attachBundleVc16(page);
       }
       await ensureReleaseName(page);
       await shot(page, 'before-review');
@@ -506,7 +506,7 @@ async function run() {
   await shot(page, 'final');
 
   if (done) {
-    console.log('✅ Release 15 (1.0.0) rollout submitted on closed testing "alpha".');
+    console.log('✅ Release 16 (1.0.0) rollout submitted on closed testing "alpha".');
     console.log('PLAY_CONSOLE_RESULT: DONE');
   } else if (submitted) {
     console.log('ℹ️  Rollout clicked but final status not yet visible (may take review time).');
@@ -517,7 +517,7 @@ async function run() {
     console.log('   1. Test and release -> Closed testing -> alpha');
     console.log('   2. "Create new release" -> attach');
     console.log(`      ${AAB_PATH}`);
-    console.log('      (or pick Release 15 from the app bundle library)');
+    console.log('      (or pick Release 16 from the app bundle library)');
     console.log(`   3. Release name: ${RELEASE_NAME}`);
     console.log('   4. "Review release" -> "Start rollout to closed testing"');
     console.log('======================================================');

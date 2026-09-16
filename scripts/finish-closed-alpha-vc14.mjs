@@ -1,20 +1,20 @@
 /**
- * Google Play Console — finish the vc15 closed-alpha rollout
+ * Google Play Console — finish the vc14 closed-alpha rollout
  * ----------------------------------------------------------
- * The vc15 draft release exists on Closed testing -> alpha with the
- * timetrack-vc15.aab upload still being processed ("optimized for
+ * The vc14 draft release exists on Closed testing -> alpha with the
+ * timetrack-vc14.aab upload still being processed ("optimized for
  * distribution"), which leaves the editor's "Next" button disabled until
  * processing completes.
  *
  * This focused script:
  *  1) opens the draft editor,
  *  2) discards any duplicate-upload error state if present,
- *  3) re-attaches vc15 from the app bundle library ONLY if the bundle row is
+ *  3) re-attaches vc14 from the app bundle library ONLY if the bundle row is
  *     actually missing,
  *  4) completes Next -> Start rollout to Closed testing -> Confirm using
  *     actionability-aware clicks (waits up to 5 minutes for "Next" to enable).
  *
- * Log markers: FINISH15: DONE | FINISH15: GUIDED | FINISH15: ERROR
+ * Log markers: FINISH14: DONE | FINISH14: GUIDED | FINISH14: ERROR
  */
 import { chromium } from '@playwright/test';
 import path from 'path';
@@ -29,8 +29,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 async function shot(page, name) {
   console.log(`🔎 [${name}] url=${page.url()}`);
   try {
-    await page.screenshot({ path: path.resolve(ROOT, `play-console-finish15-${name}.png`) });
-    console.log(`📸 saved play-console-finish15-${name}.png`);
+    await page.screenshot({ path: path.resolve(ROOT, `play-console-finish14-${name}.png`) });
+    console.log(`📸 saved play-console-finish14-${name}.png`);
   } catch {}
 }
 
@@ -113,7 +113,7 @@ async function run() {
   }
   if (!entered) {
     await shot(page, 'no-draft-editor');
-    console.log('FINISH15: GUIDED — no draft editor link found; finish manually.');
+    console.log('FINISH14: GUIDED — no draft editor link found; finish manually.');
     await context.close();
     return;
   }
@@ -121,93 +121,41 @@ async function run() {
   await wait(6000);
   await shot(page, 'editor');
 
-  // ── 0) If the draft still carries the rejected vc14 bundle, discard the
-  //        whole draft. vc15 is already processed in the app bundle library,
-  //        so the update script can recreate the release cleanly afterwards.
-  //        (Row-level ✕ buttons sit in a horizontally-scrolled table column
-  //        and the version cell text is split across two lines, making
-  //        row-targeted clicks unreliable.) ──
-  const hasVc14Row =
-    (await isVisible(page, /14\s*\(1\.0\.0\)/, 5000)) ||
-    (await isVisible(
-      page,
-      /has already been used|We found some problems|must target at least API level/i,
-      5000,
-    ));
-  if (hasVc14Row) {
-    console.log('ℹ️  Draft carries the rejected vc14 bundle — discarding the draft release...');
-    await page
-      .getByText('Discard draft release', { exact: false })
-      .first()
-      .click({ timeout: 10000 })
-      .catch(() => {});
-    await wait(3000);
-    // Confirm dialog if the console asks (exact label — "Discard changes"
-    // at the page bottom is disabled and must not be matched).
-    await page
-      .getByRole('button', { name: 'Discard draft release', exact: true })
-      .first()
-      .click({ timeout: 8000 })
-      .catch(() => {});
-    await wait(5000);
-    await shot(page, 'after-discard');
-    console.log('FINISH15: DONE — draft discarded; rerun update-closed-alpha-vc15 next.');
-    await context.close();
-    return;
-  }
-
   // ── 1) Drop the duplicate-upload error state ──
   // The errored row may be SAVED in the draft (Discard disabled), so remove
   // the row itself via its X button; only fall back to Discard changes if
   // the console still offers it.
-  if (
-    await isVisible(
-      page,
-      /14 \(1\.0\.0\)|timetrack-vc14\.aab|has already been used|must target at least API level|We found some problems/i,
-      5000,
-    )
-  ) {
-    console.log('ℹ️  Errored bundle state present — removing the errored row...');
+  if (await isVisible(page, /has already been used/i, 5000)) {
+    console.log('ℹ️  Duplicate-upload error present — removing the errored row...');
     const makers = [
-      // Prepare-page rows read "14 (1.0.0)" — walk up to the button-bearing
-      // container and click its last button (the row's ✕).
-      () =>
-        page
-          .locator(
-            'xpath=//*[contains(text(),"14 (1.0.0)")]/ancestor::div[.//button][1]//button[last()]',
-          )
-          .first(),
-      () => page.locator('[aria-label*="remove" i], [aria-label*="delete" i]').first(),
-      () =>
-        page
-          .locator('xpath=//*[contains(text(),"timetrack-vc14.aab")]/following::button[1]')
-          .first(),
+      () => page.locator('xpath=//*[contains(text(),"timetrack-vc14.aab")]/following::button[1]'),
       () => page.getByRole('button', { name: /remove|dismiss|delete|close/i }).first(),
     ];
     for (const mk of makers) {
-      if (!(await isVisible(page, /14 \(1\.0\.0\)|timetrack-vc14\.aab/i, 2000))) break;
+      if (!(await isVisible(page, /has already been used/i, 2000))) break;
       const btn = mk();
       if ((await btn.count()) > 0) {
         await btn.click({ timeout: 8000 }).catch(() => {});
         await wait(4000);
       }
     }
-    if (await isVisible(page, /14 \(1\.0\.0\)|timetrack-vc14\.aab/i, 2000)) {
-      // NOTE: never "Discard changes" here — that would drop vc15 too.
-      console.log('⚠️  vc14 row still present — remove it manually in the browser window.');
+    if (await isVisible(page, /has already been used/i, 2000)) {
+      const discard = page.getByText('Discard changes', { exact: false }).first();
+      await discard.click({ timeout: 8000 }).catch(() => {});
+      await wait(4000);
     }
     await shot(page, 'after-remove');
   } else {
-    console.log('ℹ️  No errored-bundle state visible.');
+    console.log('ℹ️  No duplicate-upload error visible.');
   }
 
-  // ── 2) Ensure the vc15 bundle row is present ──
-  let hasBundle = await isVisible(page, /15 \(1\.0\.0\)/, 6000);
+  // ── 2) Ensure the vc11 bundle row is present ──
+  let hasBundle = await isVisible(page, /14 \(1\.0\.0\)/, 6000);
   if (!hasBundle) {
-    hasBundle = await isVisible(page, /timetrack-vc15\.aab/, 4000);
+    hasBundle = await isVisible(page, /timetrack-vc14\.aab/, 4000);
   }
   if (!hasBundle) {
-    console.log('ℹ️  Bundle row missing — attaching vc15 from the app bundle library...');
+    console.log('ℹ️  Bundle row missing — attaching vc14 from the app bundle library...');
     await page
       .getByText(/add from library/i)
       .first()
@@ -216,7 +164,7 @@ async function run() {
     await wait(4000);
     const row = page
       .locator('tr')
-      .filter({ has: page.locator('td').filter({ hasText: /^15$/ }) })
+      .filter({ has: page.locator('td').filter({ hasText: /^14$/ }) })
       .first();
     if ((await row.count()) > 0) {
       await row
@@ -233,7 +181,7 @@ async function run() {
     }
     await shot(page, 'after-library');
   } else {
-    console.log('✅ vc15 bundle row present in the draft.');
+    console.log('✅ vc14 bundle row present in the draft.');
   }
 
   // ── 3) Next (actionability-aware: waits until enabled; the bundle can
@@ -274,16 +222,16 @@ async function run() {
     20000,
   );
   if (done) {
-    console.log('✅ Release 15 rollout submitted on closed testing "alpha".');
-    console.log('FINISH15: DONE');
+    console.log('✅ Release 14 rollout submitted on closed testing "alpha".');
+    console.log('FINISH14: DONE');
   } else {
-    console.log('FINISH15: GUIDED — complete the rollout in the open browser window.');
+    console.log('FINISH14: GUIDED — complete the rollout in the open browser window.');
     const deadline = Date.now() + 8 * 60 * 1000;
     while (Date.now() < deadline && !page.isClosed()) {
       await wait(15000);
       if (await isVisible(page, /rollout started|in review|review in progress/i, 1000)) {
         console.log('✅ Guided completion detected.');
-        console.log('FINISH15: DONE');
+        console.log('FINISH14: DONE');
         break;
       }
     }
@@ -292,6 +240,6 @@ async function run() {
 }
 
 run().catch((e) => {
-  console.error('FINISH15: ERROR —', e);
+  console.error('FINISH14: ERROR —', e);
   process.exitCode = 1;
 });

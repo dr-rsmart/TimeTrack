@@ -1,19 +1,19 @@
 /**
- * Google Play Console — Closed testing ("alpha") rollout updater
- * --------------------------------------------------------------
- * Promotes the Closed testing -> alpha track from "Release: 11 (1.0.0)" to
- * "Release: 15 (1.0.0)" by shipping version code 15 (timetrack-vc15 bundle:
- * EAS build #15 — targets API 36 per the Google Play Aug-2026 policy).
+ * Google Play Console — PRODUCTION rollout for release 16 (1.0.0)
+ * ---------------------------------------------------------------
+ * Ships the vc16 app bundle (EAS build #16, targets API 36 per the Google
+ * Play Aug-2026 policy — already live on Closed testing "alpha") to the
+ * Production track with upbeat release notes.
  *
- * Conventions match scripts/upload-play-console.mjs:
+ * Conventions match scripts/update-closed-alpha-vc16.mjs:
  *  - Persistent Chromium profile (.playwright-google-profile/) keeps the
  *    Google sign-in alive across runs.
  *  - If a sign-in / 2FA challenge appears the script waits for the human.
- *  - Prefers attaching the already-uploaded vc15 bundle from the Play
+ *  - Prefers attaching the already-uploaded vc16 bundle from the Play
  *    Console app bundle library; falls back to uploading the .aab.
  *
  * Log markers (for automation watchers):
- *   PLAY_CONSOLE_RESULT: DONE    -> release 15 rollout submitted on closed alpha
+ *   PLAY_CONSOLE_RESULT: DONE    -> production rollout submitted
  *   PLAY_CONSOLE_RESULT: GUIDED  -> window left open for manual completion
  *   PLAY_CONSOLE_RESULT: ERROR   -> unexpected failure
  */
@@ -24,17 +24,32 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const AAB_PATH = path.resolve(ROOT, 'timetrack-vc15.aab');
-const RELEASE_NAME = '15'; // track row then reads "Release: 15 (1.0.0)"
+const AAB_PATH = path.resolve(ROOT, 'timetrack-vc16.aab');
+const RELEASE_NAME = '16'; // production row then reads "Release: 16 (1.0.0)"
 const PROFILE_DIR = path.resolve(ROOT, '.playwright-google-profile');
+// Verified 2026-09-16 from the Play Console URL of "TimeTrack: Workforce &
+// Payroll" (the account hosts several apps; app-list row clicks proved
+// unreliable, so we navigate straight to the app).
+const DEV_ID = '8121995548332442173';
+const APP_ID = '4976072281005342488';
+
+// "What's new" copy — enthusiastic and appreciative (Play limit: 500 chars).
+const RELEASE_NOTES = [
+  '🚀 TimeTrack 1.0.0 — Release 16',
+  '📍 Auto clock-in/out fixed: automatic attendance now works reliably again, including after shift-end auto clock-outs',
+  '🩺 New auto-clock status card: see exactly why a punch has not fired yet (permission, GPS signal, confirmation progress)',
+  '⚡ Improved background location monitoring and diagnostics',
+  '🛠 Stability improvements and polish',
+  'Thank you for your feedback — this one fixes auto clocking for good! 💙',
+].join('\n');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function shot(page, name) {
   console.log(`🔎 [${name}] url=${page.url()}`);
   try {
-    await page.screenshot({ path: path.resolve(ROOT, `play-console-closealpha-${name}.png`) });
-    console.log(`📸 saved play-console-closealpha-${name}.png`);
+    await page.screenshot({ path: path.resolve(ROOT, `play-console-production-${name}.png`) });
+    console.log(`📸 saved play-console-production-${name}.png`);
   } catch {}
 }
 
@@ -54,8 +69,6 @@ async function clickVisible(page, label, makers, timeout = 30000) {
             try {
               await el.click({ timeout: 5000 });
             } catch {
-              // Google Console overlays sometimes intercept; forced dispatch is
-              // the documented workaround (probe-verified in prior scripts).
               await el.click({ force: true, timeout: 5000 });
             }
             console.log(`✅ Clicked: ${label}`);
@@ -79,11 +92,8 @@ async function isVisible(page, rx, timeout = 8000) {
   }
 }
 
-// ── Review + rollout (shared by draft submission and fresh releases) ──
+// ── Review + rollout (production wording; falls back to generic labels) ──
 async function submitRelease(page) {
-  // Current Play Console flow: the prepare page ends with a "Next" button
-  // that leads to the review page where the rollout button lives. Wait
-  // generously — "Next" stays disabled while the bundle is still processing.
   await clickVisible(
     page,
     '"Next" (prepare -> review)',
@@ -94,7 +104,6 @@ async function submitRelease(page) {
     60000,
   );
   await wait(5000);
-  // A second "Next" may appear (release notes / country selection pages).
   await clickVisible(
     page,
     'second "Next" (if present)',
@@ -114,10 +123,11 @@ async function submitRelease(page) {
   await wait(4000);
   await clickVisible(
     page,
-    '"Start rollout to closed testing"',
+    '"Start rollout to Production" / "Send for review"',
     [
-      (p) => p.getByRole('button', { name: /start rollout to closed testing/i }),
-      (p) => p.getByText(/Start rollout to Closed testing/i),
+      (p) => p.getByRole('button', { name: /start rollout to production/i }),
+      (p) => p.getByText(/Start rollout to Production/i),
+      (p) => p.getByRole('button', { name: /send (release )?(for|to) review/i }),
       (p) => p.getByRole('button', { name: /start rollout/i }),
     ],
     30000,
@@ -128,19 +138,15 @@ async function submitRelease(page) {
     'confirm dialog',
     [
       (p) => p.getByRole('button', { name: /^confirm$/i }),
+      (p) => p.getByRole('button', { name: /send for review/i }),
       (p) => p.getByRole('button', { name: /start rollout/i }),
     ],
     15000,
   );
 }
 
-// Attach version code 15 INSIDE the release editor. Preference order:
-//  1) pick the already-processed vc15 bundle from the app bundle library,
-//  2) trigger the bundle upload dropzone/Browse button and serve the .aab
-//     through the browser file chooser (new Play Console UI),
-//  3) direct setInputFiles into any <input type=file> if one exists.
-async function attachBundleVc15(page) {
-  // ── 1) App bundle library ──
+// Attach version code 16 INSIDE the release editor (library first, then upload).
+async function attachBundleVc16(page) {
   const fromLibrary = await clickVisible(
     page,
     '"Add from library"',
@@ -156,16 +162,12 @@ async function attachBundleVc15(page) {
     await wait(4000);
     const picked = await clickVisible(
       page,
-      'vc15 row checkbox in library chooser',
+      'vc16 row checkbox in library chooser',
       [
-        // Dialog table is custom (no <tr>): the row checkbox precedes the
-        // unique version-code cell text "15".
         (p) =>
           p.locator(
-            'xpath=(//*[normalize-space(text())="15"]/preceding::*[self::input[@type="checkbox"] or @role="checkbox"])[last()]',
+            'xpath=(//*[normalize-space(text())="16"]/preceding::*[self::input[@type="checkbox"] or @role="checkbox"])[last()]',
           ),
-        // Fallback: dialog checkbox list — header "select all" first, then
-        // rows sorted newest-first (vc15 is the newest upload).
         (p) =>
           p
             .locator('[role="dialog"] input[type="checkbox"], [role="dialog"] [role="checkbox"]')
@@ -173,17 +175,17 @@ async function attachBundleVc15(page) {
         (p) =>
           p
             .locator('tr')
-            .filter({ has: p.locator('td').filter({ hasText: /^15$/ }) })
+            .filter({ has: p.locator('td').filter({ hasText: /^16$/ }) })
             .getByRole('checkbox'),
         (p) =>
           p
             .locator('tr')
-            .filter({ hasText: /App bundle\s+15\s+1\.0\.0/ })
+            .filter({ hasText: /App bundle\s+16\s+1\.0\.0/ })
             .getByRole('checkbox'),
       ],
       20000,
     );
-    if (!picked) await shot(page, 'library-no-vc15');
+    if (!picked) await shot(page, 'library-no-vc16');
     await wait(1500);
     const added = await clickVisible(
       page,
@@ -196,13 +198,12 @@ async function attachBundleVc15(page) {
       15000,
     );
     if (picked && added) {
-      console.log('✅ Attached vc15 from the app bundle library.');
+      console.log('✅ Attached vc16 from the app bundle library.');
       await wait(30000);
       return true;
     }
   }
 
-  // ── 2) Upload dropzone / Browse button + file chooser ──
   const chooserP = page.waitForEvent('filechooser', { timeout: 20000 }).catch(() => null);
   const clickedUpload = await clickVisible(
     page,
@@ -228,28 +229,27 @@ async function attachBundleVc15(page) {
     console.log('ℹ️  Upload clicked but no chooser appeared; trying direct input...');
   }
 
-  // ── 3) Direct file input ──
   try {
     const fileInput = page.locator('input[type="file"]').first();
     await fileInput.waitFor({ state: 'attached', timeout: 10000 });
     await fileInput.setInputFiles(AAB_PATH);
-    console.log(`✅ Uploading bundle: ${path.basename(AAB_PATH)} (this can take a minute)...`);
+    console.log(`✅ Uploading bundle via direct input: ${path.basename(AAB_PATH)}`);
     await wait(60000);
     return true;
   } catch {
-    console.log('⚠️  No file input found and library attach failed.');
-    await shot(page, 'no-bundle-attach');
+    console.log('⚠️  Could not attach the vc16 bundle automatically.');
+    await shot(page, 'attach-failed');
     return false;
   }
 }
 
-// ── Release name box: ensure it reflects release 15 ──
+// ── Release name box: ensure it reflects release 16 ──
 async function ensureReleaseName(page) {
   try {
     const nameBox = page.getByLabel(/release name/i).first();
     if ((await nameBox.count()) > 0) {
       const current = await nameBox.inputValue().catch(() => '');
-      if (!current || !/^\s*15\b/.test(current)) {
+      if (!current || !/^\s*16\b/.test(current)) {
         await nameBox.fill(RELEASE_NAME);
         console.log(`✅ Release name set to "${RELEASE_NAME}".`);
       } else {
@@ -259,40 +259,58 @@ async function ensureReleaseName(page) {
   } catch {}
 }
 
-// ── Remove the stale vc14 bundle row (Play rejected it: targets API 35) ──
-async function removeStaleBundle(page) {
-  if (!(await isVisible(page, /14 \(1\.0\.0\)|timetrack-vc14\.aab/, 5000))) return;
-  console.log('ℹ️  Stale vc14 bundle present — removing it from this release...');
+// ── Release notes ("What's new"): upbeat copy, en-US default ──
+async function fillReleaseNotes(page) {
+  // The editor keeps notes behind an "Add release notes" expander; open it.
+  await clickVisible(
+    page,
+    '"Add release notes" expander (if present)',
+    [
+      (p) => p.getByText('Add release notes', { exact: true }),
+      (p) => p.getByRole('button', { name: /add release notes/i }),
+      (p) => p.getByText(/release notes/i).first(),
+    ],
+    8000,
+  );
+  await wait(2500);
   const makers = [
-    // Prepare-page rows read "14 (1.0.0)" (not the file name): walk up to the
-    // nearest button-bearing container and click its last button (the row's ✕).
-    () =>
-      page
-        .locator(
-          'xpath=//*[contains(text(),"14 (1.0.0)")]/ancestor::div[.//button][1]//button[last()]',
-        )
-        .first(),
-    () => page.locator('[aria-label*="remove" i], [aria-label*="delete" i]').first(),
-    () =>
-      page.locator('xpath=//*[contains(text(),"timetrack-vc14.aab")]/following::button[1]').first(),
-    () => page.getByRole('button', { name: /remove|delete|dismiss/i }).first(),
+    (p) => p.getByLabel(/release notes/i),
+    (p) => p.locator('textarea[aria-label*="release notes" i]'),
+    (p) => p.locator('[role="dialog"] textarea'),
+    (p) => p.locator('textarea'),
   ];
+  let filled = false;
   for (const mk of makers) {
-    if (!(await isVisible(page, /14 \(1\.0\.0\)|timetrack-vc14\.aab/, 2000))) break;
     try {
-      const btn = mk();
-      if ((await btn.count()) > 0 && (await btn.isVisible().catch(() => false))) {
-        await btn.click({ timeout: 8000 }).catch(() => {});
-        await wait(4000);
+      const loc = mk(page);
+      const n = await loc.count();
+      for (let i = 0; i < n; i++) {
+        const el = loc.nth(i);
+        if (await el.isVisible().catch(() => false)) {
+          await el.fill(RELEASE_NOTES);
+          console.log('✅ Release notes filled (overwhelmingly positive ✨).');
+          filled = true;
+          break;
+        }
       }
     } catch {}
+    if (filled) break;
   }
-  if (await isVisible(page, /14 \(1\.0\.0\)|timetrack-vc14\.aab/, 2000)) {
-    console.log('⚠️  Could not remove the vc14 row automatically — remove it manually.');
-    await shot(page, 'stale-vc14-remains');
-  } else {
-    console.log('✅ Removed the stale vc14 bundle row.');
+  if (!filled) {
+    console.log('ℹ️  No release-notes textarea found (optional) — skipping.');
+    return;
   }
+  await wait(1500);
+  // Notes dialogs carry an explicit Save/Apply; inline forms do not.
+  await clickVisible(
+    page,
+    'notes "Save"/"Apply" (if dialog)',
+    [
+      (p) => p.getByRole('button', { name: /^(save|apply)$/i }),
+      (p) => p.locator('[role="dialog"]').getByRole('button', { name: /^(save|apply)$/i }),
+    ],
+    6000,
+  );
 }
 
 async function run() {
@@ -311,12 +329,10 @@ async function run() {
   });
   const page = context.pages()[0] || (await context.newPage());
 
-  console.log('🌐 Navigating to Google Play Console app list...');
+  console.log('🌐 Navigating directly to the TimeTrack app (verified IDs)...');
+  const appUrl = `https://play.google.com/console/u/0/developers/${DEV_ID}/app/${APP_ID}`;
   await page
-    .goto('https://play.google.com/console/u/0/app-list', {
-      waitUntil: 'domcontentloaded',
-      timeout: 60000,
-    })
+    .goto(`${appUrl}/test-and-release`, { waitUntil: 'domcontentloaded', timeout: 60000 })
     .catch(() => {});
 
   if (page.url().includes('accounts.google.com')) {
@@ -327,120 +343,114 @@ async function run() {
     await page
       .waitForURL((u) => u.toString().includes('play.google.com'), { timeout: 300000 })
       .catch(() => {});
+    await page
+      .goto(`${appUrl}/test-and-release`, { waitUntil: 'domcontentloaded', timeout: 60000 })
+      .catch(() => {});
   }
 
   await wait(6000);
-  await shot(page, 'app-list');
-
-  const pickDeveloper = async (label) => {
-    const hit = await clickVisible(
+  if (await isVisible(page, /choose developer account/i, 5000)) {
+    await clickVisible(
       page,
-      `developer account "${label}"`,
-      [(p) => p.getByText(label, { exact: true })],
+      'developer account "dr-rsmart"',
+      [(p) => p.getByText('dr-rsmart', { exact: true })],
       20000,
     );
-    if (hit) await wait(6000);
-    return hit;
-  };
-  if (await isVisible(page, /choose developer account/i, 10000)) await pickDeveloper('dr-rsmart');
-
-  // Open the TimeTrack app (waits for the slow app-list render)
-  let rowReady = await isVisible(page, /TimeTrack: Workforce/i, 25000);
-  if (!rowReady && (await isVisible(page, /choose developer account/i, 5000))) {
-    await pickDeveloper('dr-rsmart');
-    rowReady = await isVisible(page, /TimeTrack: Workforce/i, 30000);
+    await wait(5000);
   }
-  const openedApp = await clickVisible(
-    page,
-    'TimeTrack app row',
-    [
-      (p) => p.getByText('TimeTrack: Workforce'),
-      (p) => p.locator('a').filter({ hasText: /TimeTrack/i }),
-    ],
-    30000,
-  );
-  if (openedApp) await wait(6000);
+  await shot(page, 'test-and-release');
+  const devId = DEV_ID;
+  const appId = APP_ID;
 
-  const m = page.url().match(/developers\/(\d+)\/app\/(\d+)/);
-  if (!m) {
-    await shot(page, 'no-dev-app-ids');
-    console.log('PLAY_CONSOLE_RESULT: GUIDED — navigate to the app manually.');
+  // ── Production track ──
+  console.log('🧭 Opening the Production section...');
+  await page
+    .goto(
+      `https://play.google.com/console/u/0/developers/${devId}/app/${appId}/releases/production`,
+      { waitUntil: 'domcontentloaded', timeout: 60000 },
+    )
+    .catch(() => {});
+  await wait(6000);
+  if (!/production/i.test(page.url())) {
+    await page
+      .goto(`https://play.google.com/console/u/0/developers/${devId}/app/${appId}/production`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
+      })
+      .catch(() => {});
+    await wait(5000);
+  }
+  if (!/production/i.test(page.url())) {
+    // Expand the "Test and release" nav group, then click its Production entry
+    // (a bare text match can hit dashboard cards like "Latest production release").
+    await clickVisible(
+      page,
+      '"Test and release" nav group',
+      [(p) => p.getByText('Test and release', { exact: true })],
+      10000,
+    );
+    await wait(2500);
+    await clickVisible(
+      page,
+      '"Production" nav link',
+      [
+        (p) => p.locator('a').filter({ hasText: /^Production$/ }),
+        (p) => p.getByRole('link', { name: /^production$/i }),
+        (p) => p.getByRole('button', { name: /^production$/i }),
+        (p) => p.getByText('Production', { exact: true }),
+      ],
+      20000,
+    );
+    await wait(5000);
+  }
+  if (!/production/i.test(page.url())) {
+    console.log('⚠️  Could not reach the Production track page.');
+    await shot(page, 'production-unreachable');
+    console.log('PLAY_CONSOLE_RESULT: GUIDED');
+    const dl0 = Date.now() + 10 * 60 * 1000;
+    while (Date.now() < dl0 && !page.isClosed()) await wait(15000);
+    return;
+  }
+  await shot(page, 'production-page');
+
+  // ── Personal-account production gate (tester requirement) ──
+  if (
+    await isVisible(
+      page,
+      /requirements? before (you )?(can )?releas|testers (for|over) \d+ days|meet the (closed )?testing requirements/i,
+      6000,
+    )
+  ) {
+    console.log('🚧 Play is showing the production ELIGIBILITY GATE (tester requirement).');
+    console.log('PLAY_CONSOLE_RESULT: GUIDED — see window; requirement must be met first.');
+    const dl = Date.now() + 10 * 60 * 1000;
+    while (Date.now() < dl && !page.isClosed()) await wait(15000);
     return;
   }
 
-  const devId = m[1];
-  const appId = m[2];
-
-  // ── Closed testing -> Alpha track ──
-  console.log('🧭 Opening the Closed testing section...');
-  await page
-    .goto(`https://play.google.com/console/u/0/developers/${devId}/app/${appId}/closed-testing`, {
-      waitUntil: 'domcontentloaded',
-      timeout: 60000,
-    })
-    .catch(() => {});
-  await wait(6000);
-  await shot(page, 'closed-testing-list');
-
-  // The tracks list shows a "Closed testing - Alpha" card whose right side
-  // carries a "Manage track" link that opens the release page.
-  let entered = await clickVisible(
+  // ── Detect current production state ──
+  const hasVc16 = await isVisible(page, /16 \(1\.0\.0\)/, 6000);
+  const alreadyLive = await isVisible(
     page,
-    '"Manage track" link (Alpha row)',
-    [
-      (p) => p.getByRole('link', { name: /manage track/i }),
-      (p) => p.getByText('Manage track', { exact: true }),
-    ],
-    20000,
+    /rollout started|in review|review in progress|fully live|staged rollout|published/i,
+    6000,
   );
-  if (entered) await wait(5000);
-
-  if (!/releases|track\//.test(page.url())) {
-    // Fallback: click the track title itself.
-    entered = await clickVisible(
-      page,
-      '"Closed testing - Alpha" title',
-      [
-        (p) => p.getByText('Closed testing - Alpha', { exact: true }),
-        (p) => p.getByText(/Closed testing\s*-\s*Alpha/i),
-        (p) => p.getByText('Alpha', { exact: true }),
-      ],
-      15000,
-    );
-    if (entered) await wait(5000);
-  }
-
-  const url = page.url();
-  if (!/closed-testing|alpha|releases/.test(url)) {
-    await shot(page, 'not-on-alpha-track');
-  }
-  await shot(page, 'alpha-track-page');
-
-  // ── Detect current track state ──
-  const hasVc15 = await isVisible(page, /15 \(1\.0\.0\)/, 6000);
   const hasDraft =
     (await isVisible(page, /edit release/i, 5000)) ||
     (await isVisible(page, /^\s*Untitled release\s*$/i, 4000)) ||
     (await isVisible(page, /\bDraft\b/, 4000));
-  const alreadyLive = await isVisible(
-    page,
-    /rollout started|in review|review in progress|available to (selected )?testers|fully live|staged rollout/i,
-    6000,
-  );
   console.log(
-    `ℹ️  track state: hasVc15=${hasVc15} hasDraft=${hasDraft} hasLiveRelease14=${await isVisible(page, /14 \(1\.0\.0\)/, 4000)}`,
+    `ℹ️  production state: hasVc16=${hasVc16} alreadyLive=${alreadyLive} hasDraft=${hasDraft}`,
   );
 
   let submitted = false;
-
-  if (hasVc15 && alreadyLive && !hasDraft) {
-    console.log('ℹ️  Closed "alpha" already carries Release 15 (1.0.0) — nothing to do.');
+  if (hasVc16 && alreadyLive && !hasDraft) {
+    console.log('ℹ️  Production already carries release 16 (1.0.0) — nothing to do.');
     submitted = true;
   } else {
-    // Enter the release editor: via the existing draft, or by creating one.
     let inEditor = false;
     if (hasDraft) {
-      console.log('📝 Draft exists on closed "alpha" — opening its editor.');
+      console.log('📝 Draft exists on Production — opening its editor.');
       inEditor = await clickVisible(
         page,
         '"Edit release" (draft editor)',
@@ -452,13 +462,15 @@ async function run() {
         20000,
       );
     } else {
-      console.log('➕ Creating a new release on closed "alpha"...');
+      console.log('➕ Creating a new PRODUCTION release...');
       inEditor = await clickVisible(
         page,
-        '"Create new release" (closed alpha)',
+        '"Create new release" (production)',
         [
           (p) => p.getByRole('button', { name: /create new release/i }),
           (p) => p.getByText('Create new release', { exact: true }),
+          (p) => p.getByRole('button', { name: /get started|create (your first )?release/i }),
+          (p) => p.getByText(/Create your first release/i),
         ],
         30000,
       );
@@ -466,18 +478,14 @@ async function run() {
     if (inEditor) {
       await wait(6000);
       await shot(page, 'release-editor');
-
-      // Remove the stale vc14 bundle row (rejected: targets API 35) if present.
-      await removeStaleBundle(page);
-
-      // Skip bundling if the editor already shows vc15 attached.
-      const bundleAlready = await isVisible(page, /15 \(1\.0\.0\)/, 5000);
+      const bundleAlready = await isVisible(page, /16 \(1\.0\.0\)/, 5000);
       if (bundleAlready) {
-        console.log('ℹ️  vc15 already attached to this release.');
+        console.log('ℹ️  vc16 already attached to this release.');
       } else {
-        await attachBundleVc15(page);
+        await attachBundleVc16(page);
       }
       await ensureReleaseName(page);
+      await fillReleaseNotes(page);
       await shot(page, 'before-review');
       await submitRelease(page);
       submitted = true;
@@ -491,14 +499,14 @@ async function run() {
   if (submitted) {
     done = await isVisible(
       page,
-      /rollout started|in review|review in progress|ready to send|fully live|staged rollout|available to testers/i,
+      /rollout started|in review|review in progress|fully live|staged rollout|published|changes? sent/i,
       15000,
     );
     for (let i = 0; i < 12 && !done; i++) {
       await wait(10000);
       done = await isVisible(
         page,
-        /rollout started|in review|review in progress|ready to send|fully live|staged rollout/i,
+        /rollout started|in review|review in progress|fully live|staged rollout|published/i,
         5000,
       );
     }
@@ -506,7 +514,7 @@ async function run() {
   await shot(page, 'final');
 
   if (done) {
-    console.log('✅ Release 15 (1.0.0) rollout submitted on closed testing "alpha".');
+    console.log('✅ Release 16 (1.0.0) submitted to PRODUCTION (Google review pending).');
     console.log('PLAY_CONSOLE_RESULT: DONE');
   } else if (submitted) {
     console.log('ℹ️  Rollout clicked but final status not yet visible (may take review time).');
@@ -514,29 +522,30 @@ async function run() {
   } else {
     console.log('======================================================');
     console.log('🟢 GUIDED MODE — finish in the open browser window:');
-    console.log('   1. Test and release -> Closed testing -> alpha');
-    console.log('   2. "Create new release" -> attach');
-    console.log(`      ${AAB_PATH}`);
-    console.log('      (or pick Release 15 from the app bundle library)');
-    console.log(`   3. Release name: ${RELEASE_NAME}`);
-    console.log('   4. "Review release" -> "Start rollout to closed testing"');
+    console.log('   1. Releases -> Production -> "Create new release"');
+    console.log('   2. Attach vc16 from the app bundle library (or upload');
+    console.log(`      ${AAB_PATH})`);
+    console.log(`   3. Release name: ${RELEASE_NAME}; add the positive release notes`);
+    console.log('   4. "Review release" -> "Start rollout to Production" -> Confirm');
     console.log('======================================================');
     console.log('PLAY_CONSOLE_RESULT: GUIDED');
     const deadline = Date.now() + 10 * 60 * 1000;
     while (Date.now() < deadline && !page.isClosed()) {
       await wait(15000);
-      if (await isVisible(page, /rollout started|in review|review in progress/i, 1000)) {
+      if (await isVisible(page, /rollout started|in review|review in progress|published/i, 1000)) {
         console.log('✅ Guided completion detected.');
         await shot(page, 'guided-completed');
         break;
       }
     }
   }
-
-  await context.close();
 }
 
-run().catch((e) => {
-  console.error('PLAY_CONSOLE_RESULT: ERROR —', e);
-  process.exitCode = 1;
-});
+run()
+  .catch((err) => {
+    console.error('❌ Unexpected failure:', err);
+    console.log('PLAY_CONSOLE_RESULT: ERROR');
+  })
+  .finally(() => {
+    setTimeout(() => process.exit(0), 3000);
+  });

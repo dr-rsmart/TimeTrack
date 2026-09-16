@@ -36,6 +36,10 @@ async function checkBundleMarkers() {
     asset: assetMatch[1],
     geofenceIds: js.includes('geofenceIds'),
     weeklySchedule: js.includes('weeklySchedule'),
+    // Auto-clock suppression fix + native observability bridge (2026-09-16):
+    // string literals from 79d1de9 + aa099f3 that survive minification.
+    autoClockFix: js.includes('suppression expired'),
+    autoClockObservability: js.includes('timetrack-native-auto-clock'),
   };
 }
 
@@ -71,13 +75,13 @@ async function main() {
 
   const markers = await checkBundleMarkers();
   console.log(
-    `[verify-live] bundle ${markers.asset} → geofenceIds: ${markers.geofenceIds ? 'YES' : 'NO'}, weeklySchedule: ${markers.weeklySchedule ? 'YES' : 'NO'}`,
+    `[verify-live] bundle ${markers.asset} → geofenceIds: ${markers.geofenceIds ? 'YES' : 'NO'}, weeklySchedule: ${markers.weeklySchedule ? 'YES' : 'NO'}, autoClockFix: ${markers.autoClockFix ? 'YES' : 'NO'}, autoClockObservability: ${markers.autoClockObservability ? 'YES' : 'NO'}`,
   );
 
   if (EMAIL && PASSWORD) {
     try {
       const ok = await checkAuthedEndpoints();
-      if (ok && markers.geofenceIds) {
+      if (ok && markers.autoClockFix && markers.autoClockObservability) {
         console.log('[verify-live] ✅ NEW CODE IS LIVE (bundle + API verified)');
         process.exit(0);
       }
@@ -86,7 +90,12 @@ async function main() {
     }
   }
 
-  if (markers.geofenceIds && markers.weeklySchedule) {
+  if (
+    markers.geofenceIds &&
+    markers.weeklySchedule &&
+    markers.autoClockFix &&
+    markers.autoClockObservability
+  ) {
     console.log('[verify-live] ✅ NEW CODE IS LIVE (bundle markers verified)');
     process.exit(0);
   } else {

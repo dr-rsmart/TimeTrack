@@ -27,6 +27,11 @@ const ROOT = path.resolve(__dirname, '..');
 const AAB_PATH = path.resolve(ROOT, 'timetrack-vc15.aab');
 const RELEASE_NAME = '15'; // production row then reads "Release: 15 (1.0.0)"
 const PROFILE_DIR = path.resolve(ROOT, '.playwright-google-profile');
+// Verified 2026-09-16 from the Play Console URL of "TimeTrack: Workforce &
+// Payroll" (the account hosts several apps; app-list row clicks proved
+// unreliable, so we navigate straight to the app).
+const DEV_ID = '8121995548332442173';
+const APP_ID = '4976072281005342488';
 
 // "What's new" copy — enthusiastic and appreciative (Play limit: 500 chars).
 const RELEASE_NOTES = [
@@ -325,12 +330,10 @@ async function run() {
   });
   const page = context.pages()[0] || (await context.newPage());
 
-  console.log('🌐 Navigating to Google Play Console app list...');
+  console.log('🌐 Navigating directly to the TimeTrack app (verified IDs)...');
+  const appUrl = `https://play.google.com/console/u/0/developers/${DEV_ID}/app/${APP_ID}`;
   await page
-    .goto('https://play.google.com/console/u/0/app-list', {
-      waitUntil: 'domcontentloaded',
-      timeout: 60000,
-    })
+    .goto(`${appUrl}/test-and-release`, { waitUntil: 'domcontentloaded', timeout: 60000 })
     .catch(() => {});
 
   if (page.url().includes('accounts.google.com')) {
@@ -341,47 +344,24 @@ async function run() {
     await page
       .waitForURL((u) => u.toString().includes('play.google.com'), { timeout: 300000 })
       .catch(() => {});
+    await page
+      .goto(`${appUrl}/test-and-release`, { waitUntil: 'domcontentloaded', timeout: 60000 })
+      .catch(() => {});
   }
 
   await wait(6000);
-  await shot(page, 'app-list');
-
-  const pickDeveloper = async (label) => {
-    const hit = await clickVisible(
+  if (await isVisible(page, /choose developer account/i, 5000)) {
+    await clickVisible(
       page,
-      `developer account "${label}"`,
-      [(p) => p.getByText(label, { exact: true })],
+      'developer account "dr-rsmart"',
+      [(p) => p.getByText('dr-rsmart', { exact: true })],
       20000,
     );
-    if (hit) await wait(6000);
-    return hit;
-  };
-  if (await isVisible(page, /choose developer account/i, 10000)) await pickDeveloper('dr-rsmart');
-
-  let rowReady = await isVisible(page, /TimeTrack: Workforce/i, 25000);
-  if (!rowReady && (await isVisible(page, /choose developer account/i, 5000))) {
-    await pickDeveloper('dr-rsmart');
-    rowReady = await isVisible(page, /TimeTrack: Workforce/i, 30000);
+    await wait(5000);
   }
-  const openedApp = await clickVisible(
-    page,
-    'TimeTrack app row',
-    [
-      (p) => p.getByText('TimeTrack: Workforce'),
-      (p) => p.locator('a').filter({ hasText: /TimeTrack/i }),
-    ],
-    30000,
-  );
-  if (openedApp) await wait(6000);
-
-  const m = page.url().match(/developers\/(\d+)\/app\/(\d+)/);
-  if (!m) {
-    await shot(page, 'no-dev-app-ids');
-    console.log('PLAY_CONSOLE_RESULT: GUIDED — navigate to the app manually.');
-    return;
-  }
-  const devId = m[1];
-  const appId = m[2];
+  await shot(page, 'test-and-release');
+  const devId = DEV_ID;
+  const appId = APP_ID;
 
   // ── Production track ──
   console.log('🧭 Opening the Production section...');
@@ -402,16 +382,35 @@ async function run() {
     await wait(5000);
   }
   if (!/production/i.test(page.url())) {
+    // Expand the "Test and release" nav group, then click its Production entry
+    // (a bare text match can hit dashboard cards like "Latest production release").
+    await clickVisible(
+      page,
+      '"Test and release" nav group',
+      [(p) => p.getByText('Test and release', { exact: true })],
+      10000,
+    );
+    await wait(2500);
     await clickVisible(
       page,
       '"Production" nav link',
       [
+        (p) => p.locator('a').filter({ hasText: /^Production$/ }),
         (p) => p.getByRole('link', { name: /^production$/i }),
+        (p) => p.getByRole('button', { name: /^production$/i }),
         (p) => p.getByText('Production', { exact: true }),
       ],
       20000,
     );
     await wait(5000);
+  }
+  if (!/production/i.test(page.url())) {
+    console.log('⚠️  Could not reach the Production track page.');
+    await shot(page, 'production-unreachable');
+    console.log('PLAY_CONSOLE_RESULT: GUIDED');
+    const dl0 = Date.now() + 10 * 60 * 1000;
+    while (Date.now() < dl0 && !page.isClosed()) await wait(15000);
+    return;
   }
   await shot(page, 'production-page');
 

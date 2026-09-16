@@ -1,20 +1,20 @@
 /**
- * Google Play Console — finish the vc15 closed-alpha rollout
+ * Google Play Console — finish the vc16 closed-alpha rollout
  * ----------------------------------------------------------
- * The vc15 draft release exists on Closed testing -> alpha with the
- * timetrack-vc15.aab upload still being processed ("optimized for
+ * The vc16 draft release exists on Closed testing -> alpha with the
+ * timetrack-vc16.aab upload still being processed ("optimized for
  * distribution"), which leaves the editor's "Next" button disabled until
  * processing completes.
  *
  * This focused script:
  *  1) opens the draft editor,
  *  2) discards any duplicate-upload error state if present,
- *  3) re-attaches vc15 from the app bundle library ONLY if the bundle row is
+ *  3) re-attaches vc16 from the app bundle library ONLY if the bundle row is
  *     actually missing,
  *  4) completes Next -> Start rollout to Closed testing -> Confirm using
  *     actionability-aware clicks (waits up to 5 minutes for "Next" to enable).
  *
- * Log markers: FINISH15: DONE | FINISH15: GUIDED | FINISH15: ERROR
+ * Log markers: FINISH16: DONE | FINISH16: GUIDED | FINISH16: ERROR
  */
 import { chromium } from '@playwright/test';
 import path from 'path';
@@ -113,7 +113,7 @@ async function run() {
   }
   if (!entered) {
     await shot(page, 'no-draft-editor');
-    console.log('FINISH15: GUIDED — no draft editor link found; finish manually.');
+    console.log('FINISH16: GUIDED — no draft editor link found; finish manually.');
     await context.close();
     return;
   }
@@ -121,8 +121,8 @@ async function run() {
   await wait(6000);
   await shot(page, 'editor');
 
-  // ── 0) If the draft still carries the rejected vc14 bundle, discard the
-  //        whole draft. vc15 is already processed in the app bundle library,
+  // ── 0) If the draft still carries the rejected vc15 bundle, discard the
+  //        whole draft. vc16 is already processed in the app bundle library,
   //        so the update script can recreate the release cleanly afterwards.
   //        (Row-level ✕ buttons sit in a horizontally-scrolled table column
   //        and the version cell text is split across two lines, making
@@ -135,7 +135,7 @@ async function run() {
       5000,
     ));
   if (hasVc14Row) {
-    console.log('ℹ️  Draft carries the rejected vc14 bundle — discarding the draft release...');
+    console.log('ℹ️  Draft carries the rejected vc15 bundle — discarding the draft release...');
     await page
       .getByText('Discard draft release', { exact: false })
       .first()
@@ -151,7 +151,7 @@ async function run() {
       .catch(() => {});
     await wait(5000);
     await shot(page, 'after-discard');
-    console.log('FINISH15: DONE — draft discarded; rerun update-closed-alpha-vc15 next.');
+    console.log('FINISH16: DONE — draft discarded; rerun update-closed-alpha-vc16 next.');
     await context.close();
     return;
   }
@@ -163,7 +163,7 @@ async function run() {
   if (
     await isVisible(
       page,
-      /14 \(1\.0\.0\)|timetrack-vc14\.aab|has already been used|must target at least API level|We found some problems/i,
+      /15 \(1\.0\.0\)|timetrack-vc15\.aab|has already been used|must target at least API level|We found some problems/i,
       5000,
     )
   ) {
@@ -180,34 +180,34 @@ async function run() {
       () => page.locator('[aria-label*="remove" i], [aria-label*="delete" i]').first(),
       () =>
         page
-          .locator('xpath=//*[contains(text(),"timetrack-vc14.aab")]/following::button[1]')
+          .locator('xpath=//*[contains(text(),"timetrack-vc15.aab")]/following::button[1]')
           .first(),
       () => page.getByRole('button', { name: /remove|dismiss|delete|close/i }).first(),
     ];
     for (const mk of makers) {
-      if (!(await isVisible(page, /14 \(1\.0\.0\)|timetrack-vc14\.aab/i, 2000))) break;
+      if (!(await isVisible(page, /15 \(1\.0\.0\)|timetrack-vc15\.aab/i, 2000))) break;
       const btn = mk();
       if ((await btn.count()) > 0) {
         await btn.click({ timeout: 8000 }).catch(() => {});
         await wait(4000);
       }
     }
-    if (await isVisible(page, /14 \(1\.0\.0\)|timetrack-vc14\.aab/i, 2000)) {
-      // NOTE: never "Discard changes" here — that would drop vc15 too.
-      console.log('⚠️  vc14 row still present — remove it manually in the browser window.');
+    if (await isVisible(page, /15 \(1\.0\.0\)|timetrack-vc15\.aab/i, 2000)) {
+      // NOTE: never "Discard changes" here — that would drop vc16 too.
+      console.log('⚠️  vc15 row still present — remove it manually in the browser window.');
     }
     await shot(page, 'after-remove');
   } else {
     console.log('ℹ️  No errored-bundle state visible.');
   }
 
-  // ── 2) Ensure the vc15 bundle row is present ──
-  let hasBundle = await isVisible(page, /15 \(1\.0\.0\)/, 6000);
+  // ── 2) Ensure the vc16 bundle row is present ──
+  let hasBundle = await isVisible(page, /16 \(1\.0\.0\)/, 6000);
   if (!hasBundle) {
-    hasBundle = await isVisible(page, /timetrack-vc15\.aab/, 4000);
+    hasBundle = await isVisible(page, /timetrack-vc16\.aab/, 4000);
   }
   if (!hasBundle) {
-    console.log('ℹ️  Bundle row missing — attaching vc15 from the app bundle library...');
+    console.log('ℹ️  Bundle row missing — attaching vc16 from the app bundle library...');
     await page
       .getByText(/add from library/i)
       .first()
@@ -216,7 +216,7 @@ async function run() {
     await wait(4000);
     const row = page
       .locator('tr')
-      .filter({ has: page.locator('td').filter({ hasText: /^15$/ }) })
+      .filter({ has: page.locator('td').filter({ hasText: /^16$/ }) })
       .first();
     if ((await row.count()) > 0) {
       await row
@@ -233,7 +233,7 @@ async function run() {
     }
     await shot(page, 'after-library');
   } else {
-    console.log('✅ vc15 bundle row present in the draft.');
+    console.log('✅ vc16 bundle row present in the draft.');
   }
 
   // ── 3) Next (actionability-aware: waits until enabled; the bundle can
@@ -274,16 +274,16 @@ async function run() {
     20000,
   );
   if (done) {
-    console.log('✅ Release 15 rollout submitted on closed testing "alpha".');
-    console.log('FINISH15: DONE');
+    console.log('✅ Release 16 rollout submitted on closed testing "alpha".');
+    console.log('FINISH16: DONE');
   } else {
-    console.log('FINISH15: GUIDED — complete the rollout in the open browser window.');
+    console.log('FINISH16: GUIDED — complete the rollout in the open browser window.');
     const deadline = Date.now() + 8 * 60 * 1000;
     while (Date.now() < deadline && !page.isClosed()) {
       await wait(15000);
       if (await isVisible(page, /rollout started|in review|review in progress/i, 1000)) {
         console.log('✅ Guided completion detected.');
-        console.log('FINISH15: DONE');
+        console.log('FINISH16: DONE');
         break;
       }
     }
@@ -292,6 +292,6 @@ async function run() {
 }
 
 run().catch((e) => {
-  console.error('FINISH15: ERROR —', e);
+  console.error('FINISH16: ERROR —', e);
   process.exitCode = 1;
 });
