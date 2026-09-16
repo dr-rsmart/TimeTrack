@@ -17,13 +17,23 @@ requirement.
 - `User.pwdEpoch` bumps on every password change/reset and explicit
   logout; tokens signed with an older epoch are rejected (fail-closed
   caches + cluster-wide invalidation).
+- Self-service password rotation (`POST /auth/change-password`) re-mints
+  the acting session's cookie with the new epoch, so changing your own
+  password never ends your own session — the user logs in once and stays
+  in until they explicitly log out. Every OTHER pre-rotation token
+  (other devices, stolen copies) is still revoked immediately. Admin- and
+  master-initiated password resets deliberately keep revoking live
+  sessions (compromise/leaver protection); the follow-up forced rotation
+  then happens in-app without a kick-out.
 - Suspension, termination and role revocation are re-checked on every
   authenticated request.
 
 ## Consequences
 
 - Positive: no forced mid-shift logouts; revocation is immediate and
-  cluster-consistent.
+  cluster-consistent; self-service rotation keeps the rotating user
+  signed in (login-once-until-logout UX), so password changes no longer
+  produce support tickets about forgotten new passwords.
 - Negative: a stolen token stays valid until rotation — mitigations are
   httpOnly/SameSite cookies, short-lived native bearer tokens for the
   shell, and audit logging. Revisit with refresh-token rotation if threat

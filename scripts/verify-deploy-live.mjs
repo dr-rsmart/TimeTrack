@@ -6,7 +6,8 @@
  * https://time-track.tech by checking:
  *   1. /api/health uptime (detects the deployment swap),
  *   2. the served frontend bundle contains markers from the NEW code
- *      (`geofenceIds`, `weeklySchedule`),
+ *      (`geofenceIds`, `weeklySchedule`, plus per-release presence/absence
+ *      probes — see checkBundleMarkers),
  *   3. OPTIONAL: if VERIFY_EMAIL/VERIFY_PASSWORD are provided, logs in and
  *      checks the NEW `geofenceIds` field on GET /api/settings/geofences/my.
  *
@@ -48,6 +49,12 @@ async function checkBundleMarkers() {
     // monitor + native background backup). String literals survive
     // minification; verified ABSENT from the pre-hybrid production bundle.
     hybridAutoClock: js.includes('"hybrid"'),
+    // Session-surviving password rotation (2026-09-16): the voluntary
+    // post-rotation sign-out notice ("Your password was updated. Please sign
+    // in with your new password.") was REMOVED by this release — its absence
+    // proves the new bundle is live. Verified PRESENT in the pre-rotation
+    // production bundle (index-CqNpXfaH.js, uptime 2927s).
+    sessionSurvivingRotation: !js.includes('Please sign in with your new password'),
   };
 }
 
@@ -83,13 +90,19 @@ async function main() {
 
   const markers = await checkBundleMarkers();
   console.log(
-    `[verify-live] bundle ${markers.asset} → geofenceIds: ${markers.geofenceIds ? 'YES' : 'NO'}, weeklySchedule: ${markers.weeklySchedule ? 'YES' : 'NO'}, autoClockFix: ${markers.autoClockFix ? 'YES' : 'NO'}, autoClockObservability: ${markers.autoClockObservability ? 'YES' : 'NO'}, hybridAutoClock: ${markers.hybridAutoClock ? 'YES' : 'NO'}`,
+    `[verify-live] bundle ${markers.asset} → geofenceIds: ${markers.geofenceIds ? 'YES' : 'NO'}, weeklySchedule: ${markers.weeklySchedule ? 'YES' : 'NO'}, autoClockFix: ${markers.autoClockFix ? 'YES' : 'NO'}, autoClockObservability: ${markers.autoClockObservability ? 'YES' : 'NO'}, hybridAutoClock: ${markers.hybridAutoClock ? 'YES' : 'NO'}, sessionSurvivingRotation: ${markers.sessionSurvivingRotation ? 'YES' : 'NO'}`,
   );
 
   if (EMAIL && PASSWORD) {
     try {
       const ok = await checkAuthedEndpoints();
-      if (ok && markers.autoClockFix && markers.autoClockObservability && markers.hybridAutoClock) {
+      if (
+        ok &&
+        markers.autoClockFix &&
+        markers.autoClockObservability &&
+        markers.hybridAutoClock &&
+        markers.sessionSurvivingRotation
+      ) {
         console.log('[verify-live] ✅ NEW CODE IS LIVE (bundle + API verified)');
         process.exit(0);
       }
@@ -103,7 +116,8 @@ async function main() {
     markers.weeklySchedule &&
     markers.autoClockFix &&
     markers.autoClockObservability &&
-    markers.hybridAutoClock
+    markers.hybridAutoClock &&
+    markers.sessionSurvivingRotation
   ) {
     console.log('[verify-live] ✅ NEW CODE IS LIVE (bundle markers verified)');
     process.exit(0);

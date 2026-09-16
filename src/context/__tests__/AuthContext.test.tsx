@@ -63,7 +63,6 @@ function Probe() {
       <span data-testid="session-error">{auth.sessionError?.code ?? 'none'}</span>
       <button onClick={() => void auth.login('lerato@timetrack.com', 'Password123')}>login</button>
       <button onClick={() => void auth.logout()}>logout</button>
-      <button onClick={() => void auth.endSessionAfterPasswordChange()}>pw-change</button>
       <button onClick={auth.clearSessionError}>clear</button>
     </div>
   );
@@ -142,19 +141,6 @@ describe('AuthProvider — login / logout choreography', () => {
     await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('lerato@'));
     await userEvent.click(screen.getByRole('button', { name: 'logout' }));
     await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('none'));
-  });
-
-  it('endSessionAfterPasswordChange shows the friendly PASSWORD_CHANGED notice', async () => {
-    meMock.mockResolvedValue(employeeUser);
-    renderAuth();
-    await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('lerato@'));
-    await userEvent.click(screen.getByRole('button', { name: 'pw-change' }));
-    await waitFor(() =>
-      expect(screen.getByTestId('session-error')).toHaveTextContent('PASSWORD_CHANGED'),
-    );
-    expect(screen.getByTestId('user')).toHaveTextContent('none');
-    await userEvent.click(screen.getByRole('button', { name: 'clear' }));
-    expect(screen.getByTestId('session-error')).toHaveTextContent('none');
   });
 });
 

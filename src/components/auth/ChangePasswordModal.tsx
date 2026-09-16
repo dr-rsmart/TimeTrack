@@ -11,7 +11,6 @@ import { ShieldAlert, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { authApi, ApiError, suppressUnauthenticatedErrors } from '../../services/api';
 import { Button, Input, Label } from '../ui';
-import { useAuth } from '../../context/AuthContext';
 
 interface ChangePasswordModalProps {
   /** When true, the modal is mandatory (mustChangePassword flag). */
@@ -41,7 +40,6 @@ export default function ChangePasswordModal({
   onSuccess,
   onCancel,
 }: ChangePasswordModalProps) {
-  const { endSessionAfterPasswordChange } = useAuth();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -80,18 +78,21 @@ export default function ChangePasswordModal({
     }
 
     setSaving(true);
-    // Suppress 401 session banners around the rotation: on success the epoch
-    // bump makes this session's cookie stale (expected), and on failure the
+    // Suppress 401 session banners around the rotation: in-flight requests or
+    // SSE reconnects may briefly carry the pre-rotation epoch before the
+    // server-re-minted cookie takes effect, and on failure the
     // wrong-current-password reply must stay an inline modal error.
     const restore = suppressUnauthenticatedErrors();
+    let failed = false;
     try {
       await authApi.changePassword(currentPassword, newPassword);
       toast.success('Password updated successfully');
-      // End the revoked session voluntarily so the user lands on a friendly
-      // "sign in with your new password" notice instead of a raw kick-out.
-      await endSessionAfterPasswordChange();
+      // Session-surviving rotation: the server re-mints this session's cookie
+      // with the new epoch, so the user stays signed in after changing their
+      // password — no kick-out, no re-login with the just-chosen password.
       onSuccess();
     } catch (err) {
+      failed = true;
       if (err instanceof ApiError && err.details?.length) {
         setError(err.details.map((d) => d.message).join(' '));
       } else {
@@ -99,7 +100,13 @@ export default function ChangePasswordModal({
       }
     } finally {
       setSaving(false);
-      restore();
+      if (failed) {
+        restore();
+      } else {
+        // Let in-flight old-epoch 401s and SSE reconnects settle onto the
+        // fresh cookie before re-arming the global session-error banner.
+        setTimeout(restore, 1500);
+      }
     }
   };
 

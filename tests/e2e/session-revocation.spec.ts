@@ -110,6 +110,22 @@ test.describe.serial('Session revocation on password rotation (pwdEpoch)', () =>
     const meBody = await meRes.json();
     expect(meBody.code).toBe('SESSION_REVOKED');
 
+    // Session-surviving rotation: the rotation response re-mints the acting
+    // session's cookie with the new epoch, so the user who changed their own
+    // password stays signed in — no kick-out, no re-login.
+    const rotatedCookies = changeRes
+      .headersArray()
+      .filter((h) => h.name.toLowerCase() === 'set-cookie')
+      .map((h) => h.value);
+    expect(rotatedCookies.length).toBe(1);
+    expect(rotatedCookies[0]).toContain('tt_token=');
+    const freshCookie = rotatedCookies[0].split(';')[0];
+    const cookieMeRes = await request.get(`${API_BASE}/api/auth/me`, {
+      headers: { ...PERF_BYPASS, Cookie: freshCookie },
+    });
+    expect(cookieMeRes.status()).toBe(200);
+    expect((await cookieMeRes.json()).mustChangePassword).toBe(false);
+
     // The old password must no longer authenticate either.
     const staleLogin = await request.post(`${API_BASE}/api/auth/login`, {
       headers: PERF_BYPASS,

@@ -480,6 +480,9 @@ router.post('/keep-password', requireAuth, async (req, res) => {
 
 // ── POST /change-password ──
 // Authenticated password change with complexity enforcement (see changePasswordSchema).
+// Session-surviving rotation: the acting session's cookie is re-minted with the
+// new epoch so the user stays signed in after changing their own password;
+// every OTHER pre-rotation token (other devices, stolen copies) is revoked.
 router.post('/change-password', requireAuth, validate(changePasswordSchema), async (req, res) => {
   try {
     const authUser = req.authUser!;
@@ -509,6 +512,9 @@ router.post('/change-password', requireAuth, validate(changePasswordSchema), asy
     }
 
     const newHash = await bcrypt.hash(newPassword, 10);
+    // Explicit next epoch (same effect as `increment`, but we need the exact
+    // value to re-mint the acting session's cookie below).
+    const nextEpoch = (user.pwdEpoch ?? 0) + 1;
     await prisma.user.update({
       where: { id: user.id },
       // SECURITY: bump pwdEpoch (revocation-on-rotation). Every existing JWT
@@ -516,12 +522,26 @@ router.post('/change-password', requireAuth, validate(changePasswordSchema), asy
       // request — including a potentially stolen token. The session-state
       // cache is invalidated cluster-wide so the bump takes effect on every
       // replica immediately.
-      data: { passwordHash: newHash, mustChangePassword: false, pwdEpoch: { increment: 1 } },
+      data: { passwordHash: newHash, mustChangePassword: false, pwdEpoch: { set: nextEpoch } },
     });
+    // Drop the cached session state before responding: the very next request
+    // (or SSE reconnect) must observe the new epoch, not a stale cached one.
     invalidateLiveRoleCache(user.id);
-    // Close the user's live SSE streams on every replica; reconnects fail
-    // auth with SESSION_REVOKED and the client forces a re-login.
+    // Close the user's live SSE streams on every replica; the browser's
+    // EventSource retries with backoff and re-authenticates with the fresh
+    // cookie minted below, so the stream recovers without a re-login.
     disconnectUserClusterWide(user.id);
+
+    // ── Session-surviving rotation ──
+    // Re-mint the ACTING session's cookie with the new epoch. Every other
+    // pre-rotation token (other tabs/devices holding a Bearer copy, stolen
+    // tokens) stays revoked; only the session that performed the rotation
+    // survives. This is what lets a user change their password once (including
+    // the forced first-login rotation) and stay signed in until they
+    // explicitly log out — no mid-shift kick-out, no re-login with the
+    // just-chosen password.
+    const refreshedToken = signToken({ ...authUser, pwdEpoch: nextEpoch });
+    res.cookie(AUTH_COOKIE_NAME, refreshedToken, AUTH_COOKIE_OPTIONS);
 
     logAudit({
       entity: 'User',
