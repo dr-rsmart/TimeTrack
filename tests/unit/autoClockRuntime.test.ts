@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { getAutoClockRuntime } from '../../src/utils/autoClockRuntime';
 
 describe('automatic clock runtime ownership', () => {
-  it('uses the native background owner inside the React Native shell', () => {
-    expect(getAutoClockRuntime(true, true)).toBe('native');
+  it('uses the hybrid model inside the React Native shell (web foreground + native backup)', () => {
+    expect(getAutoClockRuntime(true, true)).toBe('hybrid');
   });
 
   it('uses the web owner in a normal browser', () => {

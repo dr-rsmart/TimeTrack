@@ -7,6 +7,12 @@
  * their assigned work location — even when the app is closed or the device
  * is locked.
  *
+ * Hybrid auto clock-in/out (2026-09): the hosted web app's own geofence
+ * monitor is the PRIMARY punch path while the WebView is open (foreground);
+ * the native background task below is the BACKUP that covers closed/locked/
+ * backgrounded states. Server-side dedupe (partial unique index +
+ * 409 ALREADY_CLOCKED_IN) makes the two paths safe to run simultaneously.
+ *
  * Background location strategy:
  *  - expo-location foreground + background location (startLocationUpdatesAsync)
  *  - expo-task-manager background task processes location fixes while suspended
@@ -118,12 +124,16 @@ const CLOCKED_IN_KEY = 'timetrack_clocked_in';
 const AUTO_CLOCK_ENABLED_KEY = 'timetrack_auto_clock_enabled';
 const TOKEN_KEY = 'timetrack_auth_token';
 const REFRESH_TOKEN_KEY = 'timetrack_native_refresh_token';
+/** Employee email of the current native session (per-user state guard). */
+const SESSION_EMAIL_KEY = 'timetrack_session_email';
 /** Persisted boundary state machine (zone, confirmation counters, cooldown). */
 const GEOFENCE_STATE_KEY = 'timetrack_geofence_state';
 /** Sanitised diagnostics only — never store tokens or API response bodies here. */
 const AUTO_CLOCK_DIAGNOSTICS_KEY = 'timetrack_auto_clock_diagnostics';
-/** One-shot flag: background-permission guidance already shown. */
+/** Timestamp of the last background-permission guidance alert (24 h throttle). */
 const BG_PERMISSION_PROMPTED_KEY = 'timetrack_bg_permission_prompted';
+/** Re-surface the background-permission guidance at most once per day. */
+const BG_PERMISSION_REPROMPT_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Read ALL monitored geofences. Prefers the multi-location list; falls back
@@ -610,9 +620,10 @@ async function ensureBackgroundLocationUpdates() {
 }
 
 // ── Native → WebView auto-clock observability bridge ──
-// Inside the WebView the web geofence monitor is deliberately stopped (the
-// native background task owns auto clock-in/out), so employee-facing screens
-// cannot see WHY nothing happened. Publish a compact status snapshot —
+// Hybrid model: the web geofence monitor is the PRIMARY foreground punch path
+// (even inside the WebView) and this native background task is the BACKUP for
+// closed/locked states. Employee-facing screens still need to see WHY a
+// background punch has not fired. Publish a compact status snapshot —
 // suppression flag, boundary zone, confirmation progress and whether the OS
 // background task is actually running — using the same injectJavaScript
 // pattern as the auth-token bridge. Observability only: failures are silent.
@@ -796,12 +807,21 @@ export default function App() {
           // clock out" — so surface clear guidance when it isn't granted.
           const { status: bg } = await Location.requestBackgroundPermissionsAsync();
           if (bg !== 'granted') {
-            const alreadyPrompted = await AsyncStorage.getItem(BG_PERMISSION_PROMPTED_KEY);
-            if (alreadyPrompted !== 'true') {
-              await AsyncStorage.setItem(BG_PERMISSION_PROMPTED_KEY, 'true');
+            // Hybrid model: the foreground web monitor covers punches while
+            // the app is OPEN, but the background task remains the only path
+            // when the app is closed/locked — so "Allow all the time" still
+            // matters. Re-surface the guidance at most once per 24 h; the
+            // previous once-per-install gate meant a single "Not now" tap
+            // silenced the guidance forever. (Legacy 'true' values parse as
+            // NaN → 0, so existing installs are re-prompted once and then
+            // throttled by the stored timestamp.)
+            const lastPromptedAt =
+              Number(await AsyncStorage.getItem(BG_PERMISSION_PROMPTED_KEY)) || 0;
+            if (Date.now() - lastPromptedAt >= BG_PERMISSION_REPROMPT_MS) {
+              await AsyncStorage.setItem(BG_PERMISSION_PROMPTED_KEY, String(Date.now()));
               Alert.alert(
-                'Auto clock-out needs background location',
-                'To clock you out automatically when you leave your work location, TimeTrack needs location access set to "Allow all the time" (Android) or "Always" (iOS). Without it, auto clock-out only works while the app is open.',
+                'Auto clock-in/out needs background location',
+                'TimeTrack clocks you automatically while the app is open. To also clock you in/out when the app is closed or the phone is locked, set location access to "Allow all the time" (Android) or "Always" (iOS).',
                 [
                   { text: 'Not now', style: 'cancel' },
                   { text: 'Open Settings', onPress: () => Linking.openSettings() },
@@ -985,6 +1005,16 @@ export default function App() {
             await updateAutoClockDiagnostics({ failure: null });
             st.clockedOutInside = false;
             st.clockedOutInsideSetAt = null;
+            // Hybrid model: the punch may have been performed by the FOREGROUND
+            // WEB MONITOR inside the WebView (the primary path). Drop any
+            // in-flight native entry confirmation so the background task does
+            // not fire a redundant punch on its next fix — the server 409
+            // would contain it, but this keeps the state machine coherent.
+            // Deliberately NOT forcing st.zone = 'inside': the clock-in could
+            // be remote (supervisor / bulk clock-in), and forcing the zone
+            // would mis-fire an auto clock-out on the first confirmed outside
+            // fix.
+            st.pendingEnter = 0;
           }
           st.lastClockedIn = msg.clockedIn;
           await AsyncStorage.setItem(GEOFENCE_STATE_KEY, JSON.stringify(st));
@@ -994,6 +1024,26 @@ export default function App() {
         }
       }
       if (msg.type === 'AUTH_TOKEN' && typeof msg.token === 'string' && msg.token.length > 0) {
+        // Per-user state guard: AsyncStorage is device-wide. If a DIFFERENT
+        // employee signs in on this device (shared device, or a previous
+        // session that never delivered SESSION_ENDED), the persisted boundary
+        // state (zone, pending counters, clockedOutInside suppression) belongs
+        // to the PREVIOUS user and must never leak into this session — a stale
+        // zone of 'inside' would permanently block the new employee's auto
+        // clock-in because the outside → inside transition could never fire.
+        const incomingEmail =
+          typeof msg.email === 'string' && msg.email.length > 0 ? msg.email.toLowerCase() : '';
+        const previousEmail = (await AsyncStorage.getItem(SESSION_EMAIL_KEY)) || '';
+        if (incomingEmail && previousEmail && incomingEmail !== previousEmail) {
+          await AsyncStorage.multiRemove([
+            GEOFENCE_STATE_KEY,
+            CLOCKED_IN_KEY,
+            AUTO_CLOCK_DIAGNOSTICS_KEY,
+          ]);
+        }
+        if (incomingEmail) {
+          await AsyncStorage.setItem(SESSION_EMAIL_KEY, incomingEmail);
+        }
         await AsyncStorage.setItem(TOKEN_KEY, msg.token);
         await updateAutoClockDiagnostics({ failure: null });
         if (typeof msg.refreshToken === 'string' && msg.refreshToken.length > 0) {
@@ -1015,6 +1065,7 @@ export default function App() {
         await AsyncStorage.multiRemove([
           TOKEN_KEY,
           REFRESH_TOKEN_KEY,
+          SESSION_EMAIL_KEY,
           GEOFENCE_KEY,
           GEOFENCE_LIST_KEY,
           CLOCKED_IN_KEY,

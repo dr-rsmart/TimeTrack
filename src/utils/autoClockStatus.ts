@@ -11,6 +11,12 @@
  * human-readable explanation, so the UI never shows an unexplained
  * "inside geofence + not clocked in" state.
  *
+ * Hybrid ownership: the web monitor is the primary foreground punch path
+ * (browsers AND the shell WebView); the native background task is the backup
+ * for closed/locked states. The native ladder only fully owns the explanation
+ * when the web monitor is not running inside the shell; otherwise native
+ * snapshots are consulted for hard failures of the backup path.
+ *
  * Pure functions only — no DOM, no React — so the ladder is unit-testable.
  */
 
@@ -198,73 +204,132 @@ export function resolveAutoClockStatus(
     };
   }
 
-  // Only the active runtime is authoritative. A stopped web monitor can retain
-  // state from before the native shell took ownership.
+  // ── Runtime ownership (hybrid model) ──
+  // Inside the shell the web monitor is the PRIMARY foreground punch path and
+  // the native background task is the BACKUP for closed/locked states. The
+  // native ladder fully owns the explanation only when the web monitor is not
+  // running inside the shell (WebView geolocation denied, older shell). When
+  // the web monitor IS running, a fresh native snapshot is still consulted for
+  // hard failures that silently break the backup path.
   const ns = input.nativeShell ? input.nativeStatus : null;
-  if (input.nativeShell && (!ns || !recent(ns.at))) {
-    return note(
-      'unknown',
-      'warning',
-      'Background status unavailable',
-      'The app has not supplied a recent auto-clock status. Foreground GPS does not confirm background monitoring. You can try manual clocking.',
-    );
-  }
-  if (ns?.enabled === false) {
-    return note(
-      'off',
-      'warning',
-      'Native automatic clocking is disabled',
-      'The app background setting is OFF. Reopen the app to sync settings; contact your administrator if this persists.',
-    );
-  }
-  if (ns?.backgroundPermission === 'denied' || ns?.backgroundPermission === 'undetermined') {
-    return note(
+  const nativeFresh = Boolean(ns && recent(ns.at));
+  const nativeOwns = input.nativeShell && !input.webMonitoringActive;
+
+  const permissionNote = (): ResolvedAutoClockStatus =>
+    note(
       'permission',
       'warning',
       'Background location permission needed',
       'In device settings, allow background location for TimeTrack ("Allow all the time" on Android or "Always" on iOS), then reopen the app.',
     );
-  }
-  if (ns?.hasToken === false || ns?.failure === 'auth') {
-    return note(
+  const authNote = (): ResolvedAutoClockStatus =>
+    note(
       'auth',
       'warning',
       'Background sign-in needs attention',
       'Background clocking has no usable sign-in credentials, or its last request remained unauthorised. Reopen the app or sign in again.',
     );
-  }
-  if (ns?.backgroundStarted === false || ns?.taskError) {
-    return note(
+  const backgroundNote = (): ResolvedAutoClockStatus =>
+    note(
       'background',
       'warning',
       'Background location not running reliably',
       'The app reports a stopped location task or a task error. Reopen TimeTrack and check device location settings. You can try manual clocking.',
     );
-  }
-  if (ns && (ns.backgroundStarted === null || ns.backgroundPermission == null)) {
+  const punchFailureNote = (
+    failure: NonNullable<NativeAutoClockStatus['failure']>,
+  ): ResolvedAutoClockStatus => {
+    const details = {
+      auth: 'Sign in again to restore background clocking.',
+      network:
+        'The last automatic punch could not reach the server. Check your connection; the app will retry on a later eligible location update.',
+      server:
+        'The server could not complete the last automatic punch. Check your attendance before retrying manually.',
+      rejected:
+        'The server did not accept the last automatic punch. Check your attendance and contact your administrator if this persists.',
+      reclock:
+        'The server blocked a repeat clock-in shortly after clock-out. The app will retry on a later eligible location update.',
+    };
     return note(
-      'unknown',
+      failure === 'reclock' ? 'cooldown' : 'punch-failed',
       'warning',
-      'Background service status incomplete',
-      'The app could not verify its background location service and permission. Reopen TimeTrack and check device settings.',
+      'Last automatic punch was not completed',
+      details[failure],
     );
-  }
-  if (ns?.monitoredCount === 0) {
-    return note(
-      'unassigned',
-      'warning',
-      'No background work location assigned',
-      'Company locations shown below are not necessarily monitored. Ask your administrator to check your active work-location assignment.',
-    );
+  };
+
+  if (nativeOwns) {
+    if (!ns || !recent(ns.at)) {
+      return note(
+        'unknown',
+        'warning',
+        'Background status unavailable',
+        'The app has not supplied a recent auto-clock status. Foreground GPS does not confirm background monitoring. You can try manual clocking.',
+      );
+    }
+    if (ns.enabled === false) {
+      return note(
+        'off',
+        'warning',
+        'Native automatic clocking is disabled',
+        'The app background setting is OFF. Reopen the app to sync settings; contact your administrator if this persists.',
+      );
+    }
+    if (ns.backgroundPermission === 'denied' || ns.backgroundPermission === 'undetermined') {
+      return permissionNote();
+    }
+    if (ns.hasToken === false || ns.failure === 'auth') {
+      return authNote();
+    }
+    if (ns.backgroundStarted === false || ns.taskError) {
+      return backgroundNote();
+    }
+    if (ns.backgroundStarted === null || ns.backgroundPermission == null) {
+      return note(
+        'unknown',
+        'warning',
+        'Background service status incomplete',
+        'The app could not verify its background location service and permission. Reopen TimeTrack and check device settings.',
+      );
+    }
+    if (ns.monitoredCount === 0) {
+      return note(
+        'unassigned',
+        'warning',
+        'No background work location assigned',
+        'Company locations shown below are not necessarily monitored. Ask your administrator to check your active work-location assignment.',
+      );
+    }
+  } else if (nativeFresh && ns) {
+    // Hybrid: hard failures of the native BACKUP still break clocking while
+    // the app is closed/locked, so surface them even though the foreground
+    // web monitor is healthy and can punch on its own.
+    if (ns.backgroundPermission === 'denied' || ns.backgroundPermission === 'undetermined') {
+      return permissionNote();
+    }
+    if (ns.hasToken === false || ns.failure === 'auth') {
+      return authNote();
+    }
+    if (ns.backgroundStarted === false || ns.taskError) {
+      return backgroundNote();
+    }
   }
 
-  const setAt = ns ? ns.suppressedSetAt : input.webAwaitingExitSetAt;
-  const suppressed = ns
-    ? ns.suppressed &&
-      typeof setAt === 'number' &&
-      setAt <= now &&
-      now - setAt <= SUPPRESSION_TTL_MS
-    : input.webAwaitingExit;
+  // Double clock-in suppression. The hybrid model runs BOTH state machines
+  // (the web awaiting-exit flag inside the monitor and the native
+  // clockedOutInside flag in the background task), so EITHER armed guard
+  // pauses auto clock-in until a confirmed exit (or the 12 h TTL) releases it.
+  const nativeSuppressedAt =
+    ns &&
+    ns.suppressed &&
+    typeof ns.suppressedSetAt === 'number' &&
+    ns.suppressedSetAt <= now &&
+    now - ns.suppressedSetAt <= SUPPRESSION_TTL_MS
+      ? ns.suppressedSetAt
+      : null;
+  const setAt =
+    nativeSuppressedAt ?? (input.webAwaitingExit ? (input.webAwaitingExitSetAt ?? null) : null);
+  const suppressed = nativeSuppressedAt !== null || input.webAwaitingExit;
   if (suppressed && !input.clockedIn) {
     const when = setAt ? ` (armed at ${formatTime(new Date(setAt))})` : '';
     return {
@@ -277,25 +342,9 @@ export function resolveAutoClockStatus(
     };
   }
 
-  if (ns) {
+  if (nativeOwns && ns) {
     if (ns.failure) {
-      const details = {
-        auth: 'Sign in again to restore background clocking.',
-        network:
-          'The last automatic punch could not reach the server. Check your connection; the app will retry on a later eligible location update.',
-        server:
-          'The server could not complete the last automatic punch. Check your attendance before retrying manually.',
-        rejected:
-          'The server did not accept the last automatic punch. Check your attendance and contact your administrator if this persists.',
-        reclock:
-          'The server blocked a repeat clock-in shortly after clock-out. The app will retry on a later eligible location update.',
-      };
-      return note(
-        ns.failure === 'reclock' ? 'cooldown' : 'punch-failed',
-        'warning',
-        'Last automatic punch was not completed',
-        details[ns.failure],
-      );
+      return punchFailureNote(ns.failure);
     }
     if (recent(ns.lastSampleAt) && ns.poorSignal) {
       return note(
@@ -342,7 +391,15 @@ export function resolveAutoClockStatus(
     );
   }
 
-  // Browser runtime (web monitor owns auto clocking).
+  // Hybrid: a failed BACKUP punch is still worth explaining even while the
+  // foreground monitor is healthy — the next punch while the app is closed
+  // would fail the same way.
+  if (nativeFresh && ns?.failure) {
+    return punchFailureNote(ns.failure);
+  }
+
+  // Browser / hybrid foreground runtime (the web monitor owns foreground
+  // punches in browsers and inside the shell WebView).
   if (input.webPermissionDenied) {
     return {
       kind: 'permission',

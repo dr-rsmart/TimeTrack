@@ -83,6 +83,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               type: 'AUTH_TOKEN',
               token: r.token,
               refreshToken: r.refreshToken,
+              // Identity of this session: the shell keeps per-device state and
+              // must reset it when a DIFFERENT employee signs in on this device.
+              email: me.email,
             }),
           )
           .catch(() => {
@@ -144,6 +147,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             type: 'AUTH_TOKEN',
             token: native.token,
             refreshToken: native.refreshToken,
+            // Identity of this session: the shell keeps per-device state and
+            // must reset it when a DIFFERENT employee signs in on this device.
+            email: res.user.email,
           }),
         )
         .catch(() => {

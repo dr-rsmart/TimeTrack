@@ -94,14 +94,21 @@ describe('resolveAutoClockStatus — reason ladder', () => {
     expect(s?.detail).toContain('device location settings');
   });
 
-  it('flags a native shell without any status snapshot yet', () => {
-    expect(resolveAutoClockStatus({ ...base, nativeShell: true })?.kind).toBe('unknown');
+  it('flags a native shell without any status snapshot yet (native-owned, web monitor stopped)', () => {
+    expect(
+      resolveAutoClockStatus({ ...base, nativeShell: true, webMonitoringActive: false })?.kind,
+    ).toBe('unknown');
   });
 
-  it('reports confirmation progress from the native snapshot', () => {
+  it('hybrid: a shell without a native snapshot still confirms via the foreground web monitor', () => {
+    expect(resolveAutoClockStatus({ ...base, nativeShell: true })?.kind).toBe('confirming');
+  });
+
+  it('reports confirmation progress from the native snapshot (native-owned)', () => {
     const s = resolveAutoClockStatus({
       ...base,
       nativeShell: true,
+      webMonitoringActive: false,
       nativeStatus: native({ pendingEnter: 1 }),
     });
     expect(s?.kind).toBe('confirming');
@@ -124,6 +131,71 @@ describe('resolveAutoClockStatus — reason ladder', () => {
 
   it('falls back to confirming on a healthy web monitor', () => {
     expect(resolveAutoClockStatus(base)?.kind).toBe('confirming');
+  });
+});
+
+describe('hybrid runtime (shell + foreground web monitor)', () => {
+  const hybrid = (over: Partial<NativeAutoClockStatus> | null, extra = {}) =>
+    resolveAutoClockStatus({
+      ...base,
+      nativeShell: true,
+      webMonitoringActive: true,
+      nativeStatus: over === null ? null : native(over),
+      ...extra,
+    });
+
+  it('confirms via the foreground web monitor when the native backup is healthy', () => {
+    expect(hybrid({})?.kind).toBe('confirming');
+  });
+
+  it.each([
+    [{ backgroundPermission: 'denied' }, 'permission'],
+    [{ backgroundPermission: 'undetermined' }, 'permission'],
+    [{ hasToken: false }, 'auth'],
+    [{ failure: 'auth' }, 'auth'],
+    [{ backgroundStarted: false }, 'background'],
+    [{ taskError: true }, 'background'],
+    [{ failure: 'network' }, 'punch-failed'],
+    [{ failure: 'rejected' }, 'punch-failed'],
+    [{ failure: 'reclock' }, 'cooldown'],
+  ] as const)(
+    'surfaces backup hard failure %j as %s even with a healthy foreground monitor',
+    (over, expected) => {
+      expect(hybrid(over)?.kind).toBe(expected);
+    },
+  );
+
+  it('ignores stale native snapshots instead of blocking the foreground explanation', () => {
+    expect(hybrid({ at: Date.now() - AUTO_CLOCK_STATUS_STALE_MS - 1, hasToken: false })?.kind).toBe(
+      'confirming',
+    );
+  });
+
+  it('treats incomplete native snapshots as confirming (the foreground monitor owns the punch)', () => {
+    expect(hybrid({ backgroundPermission: null, backgroundStarted: null })?.kind).toBe(
+      'confirming',
+    );
+  });
+
+  it('explains native suppression while the web monitor runs', () => {
+    const s = hybrid({ suppressed: true, suppressedSetAt: Date.now() - 60_000 });
+    expect(s?.kind).toBe('suppressed');
+    expect(s?.detail).toContain('armed at');
+  });
+
+  it('does not surface native waiting-state notes while the foreground monitor is healthy', () => {
+    expect(hybrid({ lastSampleAt: null, lastAcceptedAt: null })?.kind).toBe('confirming');
+    expect(hybrid({ pendingEnter: 2 })?.kind).toBe('confirming');
+  });
+
+  it('returns null for consistent hybrid states', () => {
+    expect(hybrid({}, { clockedIn: true })).toBeNull();
+    expect(hybrid({}, { inside: false })).toBeNull();
+  });
+
+  it('still reports web foreground problems inside the shell', () => {
+    expect(hybrid({}, { webPermissionDenied: true })?.kind).toBe('permission');
+    expect(hybrid({}, { webPoorSignal: true })?.kind).toBe('poor-signal');
   });
 });
 
@@ -155,11 +227,12 @@ describe('parseNativeAutoClockStatus', () => {
   });
 });
 
-describe('native diagnostic accuracy', () => {
+describe('native diagnostic accuracy (native-owned: web monitor stopped in the shell)', () => {
   const resolve = (over: Partial<NativeAutoClockStatus>, extra = {}) =>
     resolveAutoClockStatus({
       ...base,
       nativeShell: true,
+      webMonitoringActive: false,
       nativeStatus: native(over),
       ...extra,
     });
@@ -195,9 +268,13 @@ describe('native diagnostic accuracy', () => {
     expect(resolve({ at: Date.now() + 60_000 })?.kind).toBe('unknown');
   });
 
-  it('does not use stale web suppression in native mode, or native state in a browser', () => {
-    expect(resolve({}, { webAwaitingExit: true })?.kind).toBe('native-idle');
-    expect(resolve({ suppressed: true }, { nativeShell: false })?.kind).toBe('confirming');
+  it('counts either suppression guard in native mode, and ignores native state in a browser', () => {
+    // Hybrid runs both state machines: an armed WEB awaiting-exit flag is a
+    // real suppression even inside the shell (and vice versa).
+    expect(resolve({}, { webAwaitingExit: true })?.kind).toBe('suppressed');
+    expect(
+      resolve({ suppressed: true }, { nativeShell: false, webMonitoringActive: true })?.kind,
+    ).toBe('confirming');
   });
 
   it('ignores expired and legacy native suppression flags', () => {

@@ -240,7 +240,12 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
     enabled = true,
   } = options;
   const runtime = getAutoClockRuntime(enabled, isNativeShellPresent());
-  const webMonitoringEnabled = runtime === 'web';
+  // Hybrid ownership: the web monitor is the primary foreground punch path in
+  // browsers AND inside the native shell WebView; the native background task
+  // remains the backup for closed/locked states. Both paths are idempotent
+  // server-side (409 ALREADY_CLOCKED_IN / reclock guard), so they can safely
+  // race a punch. Only disabled (ineligible) sessions skip web monitoring.
+  const webMonitoringEnabled = runtime !== 'disabled';
 
   const [autoGeofenceEnabled, setAutoGeofenceEnabledState] = useState(() =>
     getAutoGeofenceEnabled(),
@@ -288,8 +293,8 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
     if (webMonitoringEnabled) {
       autoGeofenceService.syncClockedIn(isClockedIn);
     } else {
-      // The native shell owns location transitions inside the app. Stop any
-      // stale web watcher so the two implementations can never race a punch.
+      // Automatic clocking is disabled for this session (ineligible role).
+      // Stop any stale web watcher so no automatic punch can fire.
       autoGeofenceService.stopMonitoring();
     }
     // Keep the native background task's clock state and feature toggle in sync

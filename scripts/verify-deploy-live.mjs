@@ -1,8 +1,9 @@
 /**
  * Live production deployment verification (read-only, credential-free).
  * ---------------------------------------------------------------------
- * Confirms that the newest commit (multi-location geofencing, weekly shift
- * schedules) is live on https://time-track.tech by checking:
+ * Confirms that the newest commit (hybrid auto clock-in/out: web-first
+ * foreground monitor + native background backup) is live on
+ * https://time-track.tech by checking:
  *   1. /api/health uptime (detects the deployment swap),
  *   2. the served frontend bundle contains markers from the NEW code
  *      (`geofenceIds`, `weeklySchedule`),
@@ -42,6 +43,11 @@ async function checkBundleMarkers() {
     // added by 79d1de9) and the native bridge event name (aa099f3).
     autoClockFix: js.includes('noteSystemClockOut'),
     autoClockObservability: js.includes('timetrack-native-auto-clock'),
+    // Hybrid auto clock-in/out rollout: the runtime selector now returns the
+    // string literal "hybrid" inside the native shell (web-first foreground
+    // monitor + native background backup). String literals survive
+    // minification; verified ABSENT from the pre-hybrid production bundle.
+    hybridAutoClock: js.includes('"hybrid"'),
   };
 }
 
@@ -77,13 +83,13 @@ async function main() {
 
   const markers = await checkBundleMarkers();
   console.log(
-    `[verify-live] bundle ${markers.asset} → geofenceIds: ${markers.geofenceIds ? 'YES' : 'NO'}, weeklySchedule: ${markers.weeklySchedule ? 'YES' : 'NO'}, autoClockFix: ${markers.autoClockFix ? 'YES' : 'NO'}, autoClockObservability: ${markers.autoClockObservability ? 'YES' : 'NO'}`,
+    `[verify-live] bundle ${markers.asset} → geofenceIds: ${markers.geofenceIds ? 'YES' : 'NO'}, weeklySchedule: ${markers.weeklySchedule ? 'YES' : 'NO'}, autoClockFix: ${markers.autoClockFix ? 'YES' : 'NO'}, autoClockObservability: ${markers.autoClockObservability ? 'YES' : 'NO'}, hybridAutoClock: ${markers.hybridAutoClock ? 'YES' : 'NO'}`,
   );
 
   if (EMAIL && PASSWORD) {
     try {
       const ok = await checkAuthedEndpoints();
-      if (ok && markers.autoClockFix && markers.autoClockObservability) {
+      if (ok && markers.autoClockFix && markers.autoClockObservability && markers.hybridAutoClock) {
         console.log('[verify-live] ✅ NEW CODE IS LIVE (bundle + API verified)');
         process.exit(0);
       }
@@ -96,7 +102,8 @@ async function main() {
     markers.geofenceIds &&
     markers.weeklySchedule &&
     markers.autoClockFix &&
-    markers.autoClockObservability
+    markers.autoClockObservability &&
+    markers.hybridAutoClock
   ) {
     console.log('[verify-live] ✅ NEW CODE IS LIVE (bundle markers verified)');
     process.exit(0);
