@@ -36,9 +36,11 @@ async function checkBundleMarkers() {
     asset: assetMatch[1],
     geofenceIds: js.includes('geofenceIds'),
     weeklySchedule: js.includes('weeklySchedule'),
-    // Auto-clock suppression fix + native observability bridge (2026-09-16):
-    // string literals from 79d1de9 + aa099f3 that survive minification.
-    autoClockFix: js.includes('suppression expired'),
+    // Auto-clock suppression fix + native observability bridge (2026-09-16).
+    // NOTE: prod builds drop console.* (vite esbuild.drop), so probe code
+    // artifacts that survive minification: noteSystemClockOut (method name
+    // added by 79d1de9) and the native bridge event name (aa099f3).
+    autoClockFix: js.includes('noteSystemClockOut'),
     autoClockObservability: js.includes('timetrack-native-auto-clock'),
   };
 }
