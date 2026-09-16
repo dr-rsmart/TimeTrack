@@ -264,14 +264,20 @@ router.post('/logout', async (req, res) => {
 });
 
 // ── POST /native-token ──
-// Mints a short-lived (rolling 7-day TTL) JWT for the CURRENT session. Used
-// by the mobile app's native shell: the WebView authenticates with an
-// httpOnly cookie that native code cannot read, so the web app forwards this
-// token to the shell and the background geofence task uses it
-// (Authorization: Bearer) to clock in/out while the WebView is suspended.
-// The shell re-mints on every session refresh; rotating pwdEpoch still
-// revokes it. Phase 4 (2026-09-14): bounded lifetime so a leaked shell token
-// self-expires; full refresh-token rotation remains a tracked follow-up.
+// Mints a PERSISTENT JWT for the CURRENT session — the same lifetime policy
+// as the httpOnly web cookie (no `exp` claim). Used by the mobile app's
+// native shell: the WebView authenticates with an httpOnly cookie that
+// native code cannot read, so the web app forwards this token to the shell
+// and the background geofence task uses it (Authorization: Bearer) to clock
+// in/out while the WebView is suspended.
+// SECURITY: getAuthToken prefers Bearer over the cookie, so a short-lived
+// bearer minted here would hijack the permanent cookie session and kick
+// mobile users out every time the bearer expired (v1.3.0 incident, fixed in
+// v1.3.1). Revocation is server-side and unchanged: pwdEpoch rotation
+// (password change/reset, logout), tenant suspension, termination and live
+// role checks are enforced against bearer tokens on every request.
+// A rotating 30-day refresh token is still issued for shell cold-start
+// restore; consumed/expired rows are pruned daily by the cron runner.
 router.post('/native-token', requireAuth, async (req, res) => {
   try {
     const authUser = req.authUser!;
@@ -281,7 +287,7 @@ router.post('/native-token', requireAuth, async (req, res) => {
     });
     if (!user) return unauthorized(res, 'Session is no longer valid.');
 
-    const accessToken = signToken({ ...authUser, pwdEpoch: user.pwdEpoch }, { expiresIn: '15m' });
+    const accessToken = signToken({ ...authUser, pwdEpoch: user.pwdEpoch });
     const refreshToken = randomBytes(48).toString('base64url');
     await prisma.nativeRefreshToken.create({
       data: {
@@ -290,7 +296,7 @@ router.post('/native-token', requireAuth, async (req, res) => {
         expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60_000),
       },
     });
-    res.json({ token: accessToken, refreshToken, expiresIn: 900 });
+    res.json({ token: accessToken, refreshToken, expiresIn: null });
   } catch (err) {
     logger.error('[auth] Native token error:', err);
     internalError(res, 'minting native token');
@@ -321,7 +327,7 @@ router.post('/native-token/refresh', async (req, res) => {
       companyProfileId: stored.user.companyProfileId,
       pwdEpoch: stored.user.pwdEpoch,
     } as any;
-    const nextAccessToken = signToken(authUser, { expiresIn: '15m' });
+    const nextAccessToken = signToken(authUser);
     const nextRefreshToken = randomBytes(48).toString('base64url');
     await prisma.nativeRefreshToken.create({
       data: {
@@ -330,7 +336,7 @@ router.post('/native-token/refresh', async (req, res) => {
         expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60_000),
       },
     });
-    res.json({ token: nextAccessToken, refreshToken: nextRefreshToken, expiresIn: 900 });
+    res.json({ token: nextAccessToken, refreshToken: nextRefreshToken, expiresIn: null });
   } catch (err) {
     logger.error('[auth] Native token refresh error:', err);
     internalError(res, 'refreshing native token');

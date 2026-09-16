@@ -67,6 +67,8 @@ const emptyForm = {
   department: 'General',
   employeeNumber: '',
   phone: '',
+  /** Hourly rate (ZAR) — Cost of Late Coming feature; '' = not set. */
+  hourlyRate: '',
   managerId: '' as string,
 };
 
@@ -173,6 +175,8 @@ export default function Employees() {
       department: emp.department,
       employeeNumber: emp.employeeNumber ?? '',
       phone: emp.phone ?? '',
+      hourlyRate:
+        emp.hourlyRate !== null && emp.hourlyRate !== undefined ? String(emp.hourlyRate) : '',
       managerId: emp.managerId ?? '',
     });
     const assigned: string[] = [];
@@ -261,6 +265,13 @@ export default function Employees() {
         employeeNumber: form.employeeNumber || null,
         phone: form.phone || null,
       };
+      // Hourly rate (ZAR) for the Cost-of-Late-Coming report; blank clears it.
+      if (form.hourlyRate.trim() !== '') {
+        const rate = Number(form.hourlyRate);
+        if (Number.isFinite(rate) && rate >= 0) payload.hourlyRate = rate;
+      } else {
+        payload.hourlyRate = null;
+      }
       // Admin controls manager assignment (assign or move employee between managers)
       if (isAdmin) {
         payload.managerId = form.managerId || null;
@@ -656,6 +667,24 @@ export default function Employees() {
                 onChange={(e) => setForm({ ...form, employeeNumber: e.target.value })}
               />
             </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="f-hourly-rate">Hourly Rate (R/hr)</Label>
+              <Input
+                id="f-hourly-rate"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="e.g. 85.50"
+                value={form.hourlyRate}
+                onChange={(e) => setForm({ ...form, hourlyRate: e.target.value })}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Used by the Cost of Late report to show hours and Rand lost.
+              </p>
+            </div>
+            <div />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">

@@ -559,3 +559,44 @@ not_null` ran before `5_time_entry_integer_minutes` on any fresh database
   `pg_restore --clean --if-exists --no-owner --no-privileges` (as with
   entries 006/009 the archive carries no grants/RLS — reprovision per the
   documented order), or re-insert the single geofence row from the archive.
+
+## 013 — Migration 19: Employee.hourlyRate (Cost of Late Coming)
+
+- **Date:** 2026-09-16
+- **Author:** Cline (feature batch: owner backlog items 1/3/4/5/6/9)
+- **Target:** local `timetrack_prod` clone on `localhost:5433`. Production
+  application rides the normal deploy path (`db:migrate:deploy:elevated` /
+  guarded preflight) — the SQL is idempotent (`ADD COLUMN IF NOT EXISTS`).
+- **What changed:** `ALTER TABLE "Employee" ADD COLUMN IF NOT EXISTS
+"hourlyRate" DECIMAL(10,2)` — metadata-only, nullable, no default, no table
+  rewrite, no modification of existing rows. Prisma schema aligned
+  (`hourlyRate Decimal? @db.Decimal(10, 2)`); Prisma Client regenerated.
+- **Why:** the Cost of Late Coming report converts late clock-in / early
+  clock-out minutes into hours lost and Rand lost using a per-employee hourly
+  rate (ZAR). Written by POST/PUT `/employees`; read by
+  GET `/reports/attendance-cost` and GET `/reports/payroll`.
+- **Applied with:** the elevated `MIGRATE_DATABASE_URL` role via
+  `prisma db execute --file prisma/migrations/19_employee_hourly_rate/migration.sql`
+  ("Script executed successfully."). The runtime `timetrack_app` role cannot
+  ALTER tables by design (least privilege) — a plain `db push` was attempted
+  first, aborted safely on a pre-existing local drift (DropForeignKey step)
+  and changed nothing; the targeted `db execute` avoided touching that drift.
+- **Staff-hours impact:** none. Zero existing rows modified; the column is
+  NULL for every employee until a rate is set on the profile.
+- **Rollback path:** `ALTER TABLE "Employee" DROP COLUMN IF EXISTS
+"hourlyRate";` (elevated role) + revert the schema line and regenerate the
+  client. No data outside the column is affected.
+- **Addendum (same day, migration-history booking):** the strict migration
+  preflight (predeploy step 2/4) surfaced that migrations 18 AND 19 were
+  unbooked in `_prisma_migrations` — and that migration 18's column
+  (`TimeEntry.isOfflineSynced`) had never actually been applied to this
+  database (pre-existing drift from the db-push workflow, not from this
+  entry). Resolution: `prisma migrate deploy` run with the elevated
+  `MIGRATE_DATABASE_URL` role — applied 18 (plain ADD COLUMN, column was
+  absent), re-ran 19 idempotently (`IF NOT EXISTS` no-op), and booked BOTH
+  in `_prisma_migrations`. Post-state verified: both columns present
+  (information_schema probe), `prisma migrate status` clean, full
+  `npm run predeploy` pipeline green end-to-end including the new step 4/4
+  OpenAPI Contract Drift Guard. Production note: the same `migrate deploy`
+  (elevated) is the deploy-path action; 19 is idempotent, 18 is NOT — run
+  deploy rather than db push so history stays booked.

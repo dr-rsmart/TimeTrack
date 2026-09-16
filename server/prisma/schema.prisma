@@ -97,6 +97,9 @@ model Employee {
   department       String             @default("General")
   hireDate         DateTime?
   salaryInfo       Json?
+  // Hourly rate (ZAR) used by the Cost-of-Late-Coming report: late clock-ins
+  // and early clock-outs are converted to hours lost × this rate.
+  hourlyRate       Decimal?           @db.Decimal(10, 2)
   jurisdiction     String?
   taxId            String?
   employmentType   String?
@@ -214,6 +217,9 @@ model TimeEntry {
   geofenceRadius     Int?
   geofenceId         String?
   isAutoGeofence     Boolean         @default(false)
+  // True when the punch was captured OFFLINE and synced later from the client
+  // outbox within the bounded acceptance window (application/attendance.ts).
+  isOfflineSynced    Boolean         @default(false)
   // Retry-safe mutation keys. Nullable for legacy rows; unique indexes are
   // created by migration 3_attendance_idempotency.
   clockInIdempotencyKey  String?       @unique

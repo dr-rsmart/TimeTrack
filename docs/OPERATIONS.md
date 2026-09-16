@@ -226,10 +226,20 @@ explicit operational task.
 
 ### 8.4 Native shell token lifetime
 
-`POST /api/auth/native-token` now mints a rolling 7-day TTL bearer token
-(Phase 4). Kiosk devices must open the app at least once per 7 days so
-the WebView refresh re-mints; full refresh-token rotation is a tracked
-follow-up (Open-05 in `docs/AUDIT_REGISTER.md`).
+`POST /api/auth/native-token` mints a PERSISTENT bearer token (no `exp`
+claim), matching the httpOnly web cookie policy: the session lives until
+explicit logout or a server-side revocation (password rotation, tenant
+suspension, termination, role change) — all re-checked on every request.
+The 15-minute TTL shipped in v1.3.0 was removed in v1.3.1: because the
+server prefers Bearer over the cookie, the short-lived bearer overrode the
+permanent cookie and kicked mobile users out every 15 minutes.
+
+The WebView mints the token ONCE per session (no re-mint while a bridged
+token is stored), so kiosk devices do not depend on any re-mint window and
+there is no mint/inject loop with the shell bridge. The rotating 30-day
+refresh token remains for shell cold-start restore; consumed or expired
+`NativeRefreshToken` rows older than 24h are pruned daily by the cron runner
+(`native-refresh-token-prune` distributed lock), so the table stays bounded.
 
 ### 8.6 Runtime role & RLS operations (armed 2026-09-14)
 
@@ -310,8 +320,10 @@ third-party asset requires an explicit CSP update in `server/src/index.ts`.
   can no longer abort the deploy (DATA_CHANGES 011).
 - Web sessions are unaffected: cookie policy and pwdEpoch are unchanged, so no
   user is logged out by the deploy.
-- Existing 7-day native bearer tokens remain valid until expiry; new native
-  sessions receive 15-minute access tokens with rotating refresh tokens.
+- Native bearer tokens remain valid across the deploy (v1.3.1+: persistent
+  tokens, revoked only by pwdEpoch rotation and the live account checks —
+  see §8.4); new native sessions receive a persistent access token with a
+  rotating refresh token.
 - The only behaviour change that can touch live sessions is the new
   company-default end-of-day auto clock-out for employees with neither an open
   shift nor an assigned location. It closes such entries at the configured end

@@ -149,8 +149,8 @@ describe('hybrid runtime (shell + foreground web monitor)', () => {
   });
 
   it.each([
-    [{ backgroundPermission: 'denied' }, 'permission'],
-    [{ backgroundPermission: 'undetermined' }, 'permission'],
+    [{ backgroundPermission: 'denied' }, 'foreground-only'],
+    [{ backgroundPermission: 'undetermined' }, 'foreground-only'],
     [{ hasToken: false }, 'auth'],
     [{ failure: 'auth' }, 'auth'],
     [{ backgroundStarted: false }, 'background'],
@@ -188,14 +188,35 @@ describe('hybrid runtime (shell + foreground web monitor)', () => {
     expect(hybrid({ pendingEnter: 2 })?.kind).toBe('confirming');
   });
 
-  it('returns null for consistent hybrid states', () => {
-    expect(hybrid({}, { clockedIn: true })).toBeNull();
-    expect(hybrid({}, { inside: false })).toBeNull();
+  it('confirms active background auto clocking for consistent hybrid states', () => {
+    expect(hybrid({}, { clockedIn: true })?.kind).toBe('background-active');
+    expect(hybrid({}, { inside: false })?.kind).toBe('background-active');
   });
 
   it('still reports web foreground problems inside the shell', () => {
     expect(hybrid({}, { webPermissionDenied: true })?.kind).toBe('permission');
     expect(hybrid({}, { webPoorSignal: true })?.kind).toBe('poor-signal');
+  });
+
+  it('degrades to a hard permission failure when the web monitor is also blocked', () => {
+    expect(hybrid({ backgroundPermission: 'denied' }, { webPermissionDenied: true })?.kind).toBe(
+      'permission',
+    );
+    expect(
+      hybrid({ backgroundPermission: 'undetermined' }, { webMonitoringActive: false })?.kind,
+    ).toBe('permission');
+  });
+
+  it('reports queued offline punches from either outbox', () => {
+    expect(resolveAutoClockStatus({ ...base, pendingOfflinePunches: 2 })?.kind).toBe(
+      'offline-pending',
+    );
+    expect(hybrid({ outboxCount: 1 })?.kind).toBe('offline-pending');
+    // The queue outranks even suppression — the punch happened, it just has
+    // not reached the server yet.
+    expect(hybrid({ suppressed: true, suppressedSetAt: Date.now(), outboxCount: 1 })?.kind).toBe(
+      'offline-pending',
+    );
   });
 });
 
@@ -213,6 +234,7 @@ describe('parseNativeAutoClockStatus', () => {
       suppressedSetAt: 'x',
       zone: 'sideways',
       pendingEnter: '2',
+      outboxCount: 3,
       backgroundStarted: false,
       at: 123,
     });

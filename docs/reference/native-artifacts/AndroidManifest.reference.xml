@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- ⛔ QUARANTINED REFERENCE ARTIFACT — NOT USED BY ANY BUILD (see README.md).
+     EAS/CNG generates the real manifest from the root app.json. This file
+     references classes that do not exist (.services.GeofenceBackgroundService,
+     .receivers.GeofenceBroadcastReceiver) and requests BIND_DEVICE_ADMIN,
+     which would trigger Google Play policy review. DO NOT COPY INTO A BUILD. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.timetrack.workforce">
 

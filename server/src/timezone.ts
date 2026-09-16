@@ -89,6 +89,30 @@ export function isPastGraceDeadline(opts: {
   return opts.nowMinutesOfDay > deadline - 1440;
 }
 
+/**
+ * Decide whether a reminder that should fire `leadMinutes` before an event at
+ * `eventMinutes` (minutes-of-day, business timezone) is DUE NOW, given the
+ * 60-second cron cadence.
+ *
+ * The reminder window is [event - lead, event - lead + windowMinutes). The
+ * window (default 2 minutes > the 60s tick) guarantees the reminder fires
+ * exactly once even with tick jitter, as long as callers dedupe by event key.
+ * Events whose reminder time falls before 00:00 (i.e. event < lead, e.g. a
+ * 00:03 shift start with a 5-minute lead) are handled by callers querying the
+ * next day's rows; this function only classifies same-day wall-clock times.
+ */
+export function isReminderDue(opts: {
+  nowMinutesOfDay: number;
+  eventMinutes: number;
+  leadMinutes: number;
+  windowMinutes?: number;
+}): boolean {
+  const window = opts.windowMinutes ?? 2;
+  const reminderAt = opts.eventMinutes - opts.leadMinutes;
+  if (reminderAt < 0) return false; // crosses midnight — caller queries next-day rows
+  return opts.nowMinutesOfDay >= reminderAt && opts.nowMinutesOfDay < reminderAt + window;
+}
+
 /** Parse a YYYY-MM-DD business date string into UTC-midnight epoch millis. */
 function dateStrToUtcMs(dateStr: string): number {
   const [y, m, d] = dateStr.split('-').map((v) => parseInt(v, 10));

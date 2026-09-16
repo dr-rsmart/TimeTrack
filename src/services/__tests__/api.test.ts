@@ -134,3 +134,62 @@ describe('api client — session-state interceptor', () => {
     expect(sessionHandler).not.toHaveBeenCalled();
   });
 });
+
+describe('api client — bridged bearer hygiene (native shell)', () => {
+  function encodeSegment(value: unknown): string {
+    return btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  /** Build an unsigned JWT-shaped token carrying the given payload claims. */
+  function makeJwt(payload: Record<string, unknown>): string {
+    return `${encodeSegment({ alg: 'HS256', typ: 'JWT' })}.${encodeSegment(payload)}.test-sig`;
+  }
+
+  beforeEach(() => {
+    (window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView = {};
+    fetchMock.mockResolvedValue(jsonResponse(200, {}));
+  });
+
+  it('drops an expired legacy bearer, removes it from storage and falls back to the cookie', async () => {
+    const expired = makeJwt({ exp: Math.floor(Date.now() / 1000) - 60 });
+    sessionStorage.setItem('timetrack_native_token', expired);
+    await api.get('/x');
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers.Authorization).toBeUndefined();
+    expect(init.credentials).toBe('include');
+    expect(sessionStorage.getItem('timetrack_native_token')).toBeNull();
+  });
+
+  it('keeps and sends a persistent bearer (no exp claim)', async () => {
+    const persistent = makeJwt({ id: 'u1' });
+    sessionStorage.setItem('timetrack_native_token', persistent);
+    await api.get('/x');
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers.Authorization).toBe(`Bearer ${persistent}`);
+    expect(sessionStorage.getItem('timetrack_native_token')).toBe(persistent);
+  });
+
+  it('keeps and sends a bearer whose exp is still in the future', async () => {
+    const valid = makeJwt({ exp: Math.floor(Date.now() / 1000) + 600 });
+    sessionStorage.setItem('timetrack_native_token', valid);
+    await api.get('/x');
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers.Authorization).toBe(`Bearer ${valid}`);
+    expect(sessionStorage.getItem('timetrack_native_token')).toBe(valid);
+  });
+
+  it('passes a malformed stored value through for the server to reject', async () => {
+    sessionStorage.setItem('timetrack_native_token', 'not-a-jwt');
+    await api.get('/x');
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers.Authorization).toBe('Bearer not-a-jwt');
+    expect(sessionStorage.getItem('timetrack_native_token')).toBe('not-a-jwt');
+  });
+
+  it('clears the stored bearer when logout settles', async () => {
+    sessionStorage.setItem('timetrack_native_token', 'native-tok');
+    fetchMock.mockResolvedValue(jsonResponse(200, { success: true }));
+    await authApi.logout();
+    expect(sessionStorage.getItem('timetrack_native_token')).toBeNull();
+  });
+});

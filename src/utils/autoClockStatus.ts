@@ -38,6 +38,8 @@ export interface NativeAutoClockStatus {
   zone: 'inside' | 'outside' | null;
   /** Consecutive inside samples collected toward the next confirmation. */
   pendingEnter: number;
+  /** Punches queued in the native offline outbox awaiting sync. */
+  outboxCount?: number;
   /** True when the OS background location task is running. */
   backgroundStarted: boolean | null;
   requestId?: string | null;
@@ -68,6 +70,10 @@ export function parseNativeAutoClockStatus(detail: unknown): NativeAutoClockStat
     pendingEnter:
       typeof d.pendingEnter === 'number' && Number.isFinite(d.pendingEnter)
         ? Math.max(0, Math.floor(d.pendingEnter))
+        : 0,
+    outboxCount:
+      typeof d.outboxCount === 'number' && Number.isFinite(d.outboxCount)
+        ? Math.max(0, Math.floor(d.outboxCount))
         : 0,
     backgroundStarted: typeof d.backgroundStarted === 'boolean' ? d.backgroundStarted : null,
     requestId: typeof d.requestId === 'string' ? d.requestId : null,
@@ -113,6 +119,9 @@ function timestamp(value: unknown): number | null {
 export type AutoClockStatusKind =
   | 'ineligible'
   | 'off'
+  | 'offline-pending'
+  | 'foreground-only'
+  | 'background-active'
   | 'suppressed'
   | 'background'
   | 'native-idle'
@@ -153,6 +162,8 @@ export interface AutoClockStatusInput {
   webAwaitingExit: boolean;
   webPermissionDenied: boolean;
   webPoorSignal: boolean;
+  /** Punches queued in the WEB offline outbox awaiting sync. */
+  pendingOfflinePunches?: number;
   /** Latest native shell snapshot (null until the first publish). */
   nativeStatus: NativeAutoClockStatus | null;
   /** Consecutive samples required to confirm a crossing (GEOFENCE_CONFIRMATIONS). */
@@ -214,6 +225,21 @@ export function resolveAutoClockStatus(
   const ns = input.nativeShell ? input.nativeStatus : null;
   const nativeFresh = Boolean(ns && recent(ns.at));
   const nativeOwns = input.nativeShell && !input.webMonitoringActive;
+
+  // Offline punch outboxes (web queue + native queue via the bridge snapshot).
+  // A queued punch is the most actionable explanation: the employee DID punch,
+  // it just has not reached the server yet.
+  const pendingOffline =
+    (input.pendingOfflinePunches ?? 0) + (nativeFresh && ns?.outboxCount ? ns.outboxCount : 0);
+  if (pendingOffline > 0) {
+    return note(
+      'offline-pending',
+      'info',
+      'Punches waiting to sync',
+      `${pendingOffline} automatic punch${pendingOffline === 1 ? '' : 'es'} queued while offline. ` +
+        `It syncs with the original timestamp${pendingOffline === 1 ? '' : 's'} as soon as the connection returns.`,
+    );
+  }
 
   const permissionNote = (): ResolvedAutoClockStatus =>
     note(
@@ -305,6 +331,20 @@ export function resolveAutoClockStatus(
     // the app is closed/locked, so surface them even though the foreground
     // web monitor is healthy and can punch on its own.
     if (ns.backgroundPermission === 'denied' || ns.backgroundPermission === 'undetermined') {
+      // Foreground-only permission tier ("While Using the App" / "Allow only
+      // while using the app" / one-time grants): the web monitor still punches
+      // while the app is OPEN — explain the degraded-but-working mode with an
+      // upgrade hint instead of a hard permission failure. The danger note is
+      // reserved for a full denial (web monitor blocked too) below.
+      if (input.webMonitoringActive && !input.webPermissionDenied) {
+        return note(
+          'foreground-only',
+          'warning',
+          'Auto clocking works while the app is open',
+          'Background location is not enabled, so automatic punches only happen while TimeTrack is open. ' +
+            'For hands-free clocking when the app is closed or locked, set location to "Allow all the time" (Android) or "Always" (iOS) in device settings.',
+        );
+      }
       return permissionNote();
     }
     if (ns.hasToken === false || ns.failure === 'auth') {
@@ -426,7 +466,26 @@ export function resolveAutoClockStatus(
       detail: 'Unstable readings are ignored — waiting for a reliable fix before auto clock-in.',
     };
   }
-  if (input.clockedIn || !input.inside) return null;
+  if (input.clockedIn || !input.inside) {
+    // Positive confirmation ("Always" / "Allow all the time" tier): inside the
+    // shell with a healthy background task, tell the employee that automatic
+    // clocking also works while the app is closed — instead of showing nothing.
+    if (
+      nativeFresh &&
+      ns &&
+      ns.backgroundPermission === 'granted' &&
+      ns.backgroundStarted === true &&
+      ns.enabled !== false
+    ) {
+      return note(
+        'background-active',
+        'muted',
+        'Background auto clocking is active',
+        'TimeTrack can clock you in and out automatically even when the app is closed or the phone is locked.',
+      );
+    }
+    return null;
+  }
   return {
     kind: 'confirming',
     tone: 'info',

@@ -22,6 +22,11 @@ const dateStrSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const timeStrSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const latSchema = z.number().min(-90).max(90);
 const lngSchema = z.number().min(-180).max(180);
+// ISO-8601 instant claimed by offline outbox replays (parsed to Date in the
+// route adapter and validated against the acceptance window in the use case).
+const isoDateTimeSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/);
 
 // ── Auth ──
 export const loginSchema = z.object({
@@ -59,6 +64,8 @@ export const createEmployeeSchema = z.object({
   department: z.string().max(100).default('General'),
   hireDate: dateStrSchema.nullish(),
   salaryInfo: z.record(z.string(), z.unknown()).nullish(),
+  /** Hourly rate (ZAR) for the Cost-of-Late-Coming report. null = not set. */
+  hourlyRate: z.number().nonnegative().max(100000).nullish(),
   jurisdiction: z.string().max(50).nullish(),
   taxId: z.string().max(50).nullish(),
   employmentType: z.string().max(50).nullish(),
@@ -80,6 +87,7 @@ export const updateEmployeeSchema = createEmployeeSchema
  */
 export const bulkEmployeeRowSchema = createEmployeeSchema.omit({
   salaryInfo: true,
+  hourlyRate: true,
   jurisdiction: true,
   taxId: true,
   employmentType: true,
@@ -287,6 +295,9 @@ export const clockInSchema = z.object({
   longitude: lngSchema.nullish(),
   employee_email: emailSchema.optional(),
   justification: z.string().max(500).optional(),
+  // Offline outbox replay (bounded acceptance window — see attendance use case).
+  capturedAt: isoDateTimeSchema.optional(),
+  offline: z.boolean().optional(),
 });
 
 export const clockOutSchema = z.object({
@@ -294,6 +305,9 @@ export const clockOutSchema = z.object({
   employee_email: emailSchema.optional(),
   latitude: latSchema.optional(),
   longitude: lngSchema.optional(),
+  // Offline outbox replay (bounded acceptance window — see attendance use case).
+  capturedAt: isoDateTimeSchema.optional(),
+  offline: z.boolean().optional(),
 });
 
 export const manualTimeEntrySchema = z.object({

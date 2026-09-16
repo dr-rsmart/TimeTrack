@@ -94,3 +94,5 @@ eas/ios-builds-latest.json
 eas/ios-builds-latest.err
 eas/submission-status.json
 eas/submission-status.err
+# TypeScript incremental build info
+*.tsbuildinfo

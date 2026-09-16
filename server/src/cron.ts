@@ -6,6 +6,7 @@
  * - Shift-end auto clock-out (closes active entries at scheduled shift end)
  * - Stale active time-entry auto-close (forgotten clock-outs)
  * - Retention purge (AuditLog is NEVER purged; no purgeable entities currently registered)
+ * - NativeRefreshToken hygiene prune (consumed/expired rows deleted after 24h)
  * - Stale SSE connection pruning
  *
  * Uses CronLock table with atomic SQL lease validation for distributed locking.
@@ -21,9 +22,11 @@ import {
   timeStrToMinutes,
   isPastGraceDeadline,
   isShiftEndReached,
+  isReminderDue,
   addBusinessDays,
   businessTimeToDate,
 } from './timezone.js';
+import { notifyEmployeePush } from './push.js';
 import { parseDate } from './overlap.js';
 import { singleEmployeeIdentityFilter } from './domain/employeeIdentity.js';
 import { resolveLocationWorkingEnd } from './locationWorkingHours.js';
@@ -113,6 +116,38 @@ async function archiveAuditLogs(): Promise<void> {
     logger.error('[cron] AuditLog archival error:', err);
   } finally {
     await releaseLock('audit-log-archive');
+  }
+}
+
+// ── NativeRefreshToken hygiene ──────────────────────────────────────────
+// The native shell rotates its refresh token on every use (revokedAt is
+// stamped) and tokens expire after 30 days. Without pruning, the table grows
+// unbounded with dead rows. Daily job with a 24h grace period (so recent rows
+// remain visible for debugging): delete rows consumed or expired >24h ago.
+const NATIVE_TOKEN_PRUNE_INTERVAL_MS = 24 * 3_600_000;
+const NATIVE_TOKEN_PRUNE_GRACE_MS = 24 * 3_600_000;
+let lastNativeTokenPruneRunMs = 0;
+
+async function pruneNativeRefreshTokens(): Promise<void> {
+  const now = Date.now();
+  if (now - lastNativeTokenPruneRunMs < NATIVE_TOKEN_PRUNE_INTERVAL_MS) return;
+  if (!(await acquireLock('native-refresh-token-prune', 10 * 60_000))) return;
+
+  try {
+    lastNativeTokenPruneRunMs = now;
+    const cutoff = new Date(now - NATIVE_TOKEN_PRUNE_GRACE_MS);
+    const deleted = await prisma.nativeRefreshToken.deleteMany({
+      where: {
+        OR: [{ revokedAt: { not: null, lt: cutoff } }, { expiresAt: { lt: cutoff } }],
+      },
+    });
+    if (deleted.count > 0) {
+      logger.info(`[cron] Pruned ${deleted.count} consumed/expired NativeRefreshToken row(s).`);
+    }
+  } catch (err) {
+    logger.error('[cron] NativeRefreshToken prune error:', err);
+  } finally {
+    await releaseLock('native-refresh-token-prune');
   }
 }
 
@@ -444,6 +479,208 @@ async function detectNoShows(): Promise<void> {
   }
 }
 
+// ── Shift reminders (Feature #1) ─────────────────────────────────────────
+// Push a notification ~5 minutes BEFORE the beginning and the ending of every
+// scheduled shift. Employees with NO shift assigned fall back to their
+// company's normal business hours (CompanySettings.defaultWorking*), matching
+// the auto clock-out fallback semantics. Dedupe is per-instance in memory:
+// the CronLock guarantees only one instance runs the job per tick, and keys
+// are pruned after 3 hours so the map stays bounded.
+const SHIFT_REMINDER_LEAD_MINUTES = 5;
+const SHIFT_REMINDER_WINDOW_MINUTES = 2; // > 60s tick so jitter cannot skip a window
+const sentShiftReminders = new Map<string, number>();
+
+function pruneShiftReminderKeys(nowMs: number): void {
+  for (const [key, sentAt] of sentShiftReminders) {
+    if (nowMs - sentAt > 3 * 3_600_000) sentShiftReminders.delete(key);
+  }
+}
+
+function fireShiftReminderOnce(key: string, email: string, title: string, body: string): void {
+  if (sentShiftReminders.has(key)) return;
+  sentShiftReminders.set(key, Date.now());
+  void notifyEmployeePush(email, title, body, { type: 'shift_reminder' });
+}
+
+const WORKING_SHIFT_TYPES = new Set(['full_day', 'half_day']);
+
+function weekdayName(dateStr: string): string {
+  return new Date(`${dateStr}T12:00:00Z`).toLocaleDateString('en-US', {
+    weekday: 'long',
+    timeZone: 'UTC',
+  });
+}
+
+async function sendShiftReminders(): Promise<void> {
+  const jobName = 'shift-reminders';
+  if (!(await acquireLock(jobName, 90_000))) return;
+
+  try {
+    const now = new Date();
+    pruneShiftReminderKeys(now.getTime());
+    const tz = getBusinessTimezone();
+    const biz = businessNow(tz, now);
+    const yesterdayBiz = businessNow(tz, new Date(now.getTime() - 24 * 60 * 60_000));
+
+    // ── Shift-based reminders (today + yesterday for midnight-crossing ends) ──
+    const shifts = await prisma.shift.findMany({
+      where: {
+        status: { in: ['scheduled', 'active'] },
+        date: { in: [parseDate(biz.dateStr), parseDate(yesterdayBiz.dateStr)] },
+      },
+      select: {
+        id: true,
+        date: true,
+        startTime: true,
+        endTime: true,
+        shiftType: true,
+        employeeEmail: true,
+      },
+    });
+
+    for (const shift of shifts) {
+      if (!shift.employeeEmail) continue;
+      if (!WORKING_SHIFT_TYPES.has(shift.shiftType)) continue; // leave types: no reminders
+      const shiftDateStr = shift.date.toISOString().slice(0, 10);
+
+      // Start reminder — only for shifts dated today (a reminder before a
+      // start that already passed yesterday is noise).
+      const startMinutes = timeStrToMinutes(shift.startTime);
+      if (
+        shiftDateStr === biz.dateStr &&
+        startMinutes !== null &&
+        isReminderDue({
+          nowMinutesOfDay: biz.minutesOfDay,
+          eventMinutes: startMinutes,
+          leadMinutes: SHIFT_REMINDER_LEAD_MINUTES,
+          windowMinutes: SHIFT_REMINDER_WINDOW_MINUTES,
+        })
+      ) {
+        fireShiftReminderOnce(
+          `start:${shift.id}`,
+          shift.employeeEmail,
+          'Shift Starting Soon',
+          `Your shift starts at ${shift.startTime} — ${SHIFT_REMINDER_LEAD_MINUTES} minutes to go.`,
+        );
+      }
+
+      // End reminder — the effective end day may be tomorrow for overnight
+      // shifts (e.g. 22:00–06:00), so yesterday's rows are included above.
+      const endMinutes = timeStrToMinutes(shift.endTime);
+      if (endMinutes !== null) {
+        const crossesMidnight = startMinutes !== null && endMinutes <= startMinutes;
+        const effectiveEndDateStr = crossesMidnight
+          ? addBusinessDays(shiftDateStr, 1)
+          : shiftDateStr;
+        if (
+          effectiveEndDateStr === biz.dateStr &&
+          isReminderDue({
+            nowMinutesOfDay: biz.minutesOfDay,
+            eventMinutes: endMinutes,
+            leadMinutes: SHIFT_REMINDER_LEAD_MINUTES,
+            windowMinutes: SHIFT_REMINDER_WINDOW_MINUTES,
+          })
+        ) {
+          fireShiftReminderOnce(
+            `end:${shift.id}`,
+            shift.employeeEmail,
+            'Shift Ending Soon',
+            `Your shift ends at ${shift.endTime} — ${SHIFT_REMINDER_LEAD_MINUTES} minutes to go.`,
+          );
+        }
+      }
+    }
+    // ── Business-hours fallback: employees with NO shift assigned today ──
+    // Normal business hours apply (CompanySettings.defaultWorking*), mirroring
+    // the auto clock-out fallback. The employee query only runs when a company's
+    // default start/end reminder window is actually due (≤2×/day/company).
+    const dayName = weekdayName(biz.dateStr);
+    const companySettings = await prisma.companySettings.findMany({
+      where: { companyProfileId: { not: null } },
+      select: {
+        companyProfileId: true,
+        defaultWorkingStartTime: true,
+        defaultWorkingEndTime: true,
+        defaultWorkingDays: true,
+      },
+    });
+
+    for (const settings of companySettings) {
+      if (!settings.companyProfileId) continue;
+      if (!settings.defaultWorkingDays.includes(dayName)) continue;
+
+      const startDue =
+        timeStrToMinutes(settings.defaultWorkingStartTime) !== null &&
+        isReminderDue({
+          nowMinutesOfDay: biz.minutesOfDay,
+          eventMinutes: timeStrToMinutes(settings.defaultWorkingStartTime)!,
+          leadMinutes: SHIFT_REMINDER_LEAD_MINUTES,
+          windowMinutes: SHIFT_REMINDER_WINDOW_MINUTES,
+        });
+      const endDue =
+        timeStrToMinutes(settings.defaultWorkingEndTime) !== null &&
+        isReminderDue({
+          nowMinutesOfDay: biz.minutesOfDay,
+          eventMinutes: timeStrToMinutes(settings.defaultWorkingEndTime)!,
+          leadMinutes: SHIFT_REMINDER_LEAD_MINUTES,
+          windowMinutes: SHIFT_REMINDER_WINDOW_MINUTES,
+        });
+      if (!startDue && !endDue) continue;
+
+      // Employees of this company WITHOUT a working shift today.
+      const scheduledToday = await prisma.shift.findMany({
+        where: {
+          companyProfileId: settings.companyProfileId,
+          status: { in: ['scheduled', 'active'] },
+          date: parseDate(biz.dateStr),
+          shiftType: { in: ['full_day', 'half_day'] },
+        },
+        select: { employeeId: true, employeeEmail: true },
+      });
+      const scheduledKeys = new Set(
+        scheduledToday.flatMap((s) =>
+          [
+            s.employeeId ? `id:${s.employeeId}` : null,
+            s.employeeEmail ? `email:${s.employeeEmail.toLowerCase()}` : null,
+          ].filter((v): v is string => v !== null),
+        ),
+      );
+      const unscheduled = await prisma.employee.findMany({
+        where: { companyProfileId: settings.companyProfileId, status: 'active' },
+        select: { id: true, email: true },
+      });
+
+      for (const emp of unscheduled) {
+        if (
+          scheduledKeys.has(`id:${emp.id}`) ||
+          scheduledKeys.has(`email:${emp.email.toLowerCase()}`)
+        )
+          continue;
+        if (startDue) {
+          fireShiftReminderOnce(
+            `default-start:${settings.companyProfileId}:${biz.dateStr}:${emp.id}`,
+            emp.email,
+            'Workday Starting Soon',
+            `Your workday starts at ${settings.defaultWorkingStartTime} — ${SHIFT_REMINDER_LEAD_MINUTES} minutes to go.`,
+          );
+        }
+        if (endDue) {
+          fireShiftReminderOnce(
+            `default-end:${settings.companyProfileId}:${biz.dateStr}:${emp.id}`,
+            emp.email,
+            'Workday Ending Soon',
+            `Your workday ends at ${settings.defaultWorkingEndTime} — ${SHIFT_REMINDER_LEAD_MINUTES} minutes to go.`,
+          );
+        }
+      }
+    }
+  } catch (err) {
+    logger.error('[cron] Shift reminder error:', err);
+  } finally {
+    await releaseLock(jobName);
+  }
+}
+
 let cronInterval: ReturnType<typeof setInterval> | null = null;
 
 /**
@@ -460,11 +697,13 @@ export function startCron(): void {
     await runUnrestricted(async () => {
       await autoClockOutAtShiftEnd();
       await detectNoShows();
+      await sendShiftReminders();
       await purgeRetentionPolicies();
       await closeStaleActiveTimeEntries();
       await reconcileOverdueActiveEntries();
       await sampleAuditLogGrowth();
       await archiveAuditLogs();
+      await pruneNativeRefreshTokens();
       pruneStaleConnections();
     });
   };

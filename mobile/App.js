@@ -48,6 +48,7 @@ import {
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
+import * as BackgroundFetch from 'expo-background-fetch';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
@@ -184,7 +185,7 @@ function distanceMetres(a, b) {
 }
 
 // ── API helpers: actually clock in/out against the TimeTrack backend ──
-async function requestClock(kind, pos, idempotencyKey) {
+async function requestClock(kind, pos, idempotencyKey, offlineInfo) {
   const token = await AsyncStorage.getItem(TOKEN_KEY);
   if (!token) return { status: 401, data: {} };
 
@@ -198,6 +199,13 @@ async function requestClock(kind, pos, idempotencyKey) {
   const body = isClockIn
     ? { latitude: pos.latitude, longitude: pos.longitude }
     : { breakMinutes: 0, latitude: pos.latitude, longitude: pos.longitude };
+  if (offlineInfo && typeof offlineInfo.capturedAt === 'number') {
+    // Offline outbox replay: the server stamps the entry at the ORIGINAL
+    // capture instant within its bounded acceptance window and flags it
+    // isOfflineSynced (422 OFFLINE_PUNCH_EXPIRED beyond the window).
+    body.offline = true;
+    body.capturedAt = new Date(offlineInfo.capturedAt).toISOString();
+  }
 
   let res = await fetch(url, {
     method: 'POST',
@@ -236,9 +244,9 @@ async function updateAutoClockDiagnostics(patch) {
   }
 }
 
-async function apiClock(kind, pos, idempotencyKey) {
+async function apiClock(kind, pos, idempotencyKey, offlineInfo) {
   try {
-    const result = await requestClock(kind, pos, idempotencyKey);
+    const result = await requestClock(kind, pos, idempotencyKey, offlineInfo);
     const failure =
       result.status === 401
         ? 'auth'
@@ -253,6 +261,18 @@ async function apiClock(kind, pos, idempotencyKey) {
     return result;
   } catch {
     await updateAutoClockDiagnostics({ failure: 'network' });
+    // Offline punch outbox: the punch could not reach the server. Queue it
+    // with its idempotency key and capture time so it replays (server-side
+    // deduped) when connectivity returns — punches are never silently lost.
+    await enqueuePunchOutbox({
+      kind,
+      pos: { latitude: pos.latitude, longitude: pos.longitude },
+      capturedAt:
+        offlineInfo && typeof offlineInfo.capturedAt === 'number'
+          ? offlineInfo.capturedAt
+          : Date.now(),
+      key: idempotencyKey || `native-${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    });
     return { status: 0, data: {} };
   }
 }
@@ -337,6 +357,10 @@ async function processBackgroundLocation({ data, error }) {
     return;
   }
   if (!data?.locations?.length) return;
+
+  // Opportunistically drain the offline punch outbox on every location wake
+  // (no-op when the queue is empty; serialized by punchOutboxReplaying).
+  void replayPunchOutbox();
 
   try {
     // The WebView owns the user-facing setting. The native task must honor the
@@ -671,6 +695,10 @@ async function syncAutoClockStatusToWebview(requestId) {
       poorSignal: diagnostics.poorSignal === true,
       taskError: diagnostics.taskError === true,
       failure: diagnostics.failure ?? null,
+      outboxCount:
+        typeof diagnostics.outboxCount === 'number' && diagnostics.outboxCount >= 0
+          ? Math.min(Math.floor(diagnostics.outboxCount), PUNCH_OUTBOX_MAX_ITEMS)
+          : 0,
       cooldownUntil: st?.lastEventAt ? st.lastEventAt + EVENT_COOLDOWN_MS : null,
       at: Date.now(),
     };
@@ -683,6 +711,145 @@ async function syncAutoClockStatusToWebview(requestId) {
     `);
   } catch {
     /* observability only — never break the background pipeline */
+  }
+}
+
+// ── Offline punch outbox ─────────────────────────────────────────────────
+// Punches that could not reach the server (offline / DNS failure) are queued
+// here with their ORIGINAL capture timestamp and idempotency key. Replayed on
+// reconnect / app resume / next background location wake with offline:true so
+// the server stamps the entry at capturedAt within its bounded acceptance
+// window. Terminal server responses (expired window, already clocked, reclock
+// guard, rejected) DROP the item; only network/5xx failures keep it queued.
+const PUNCH_OUTBOX_KEY = 'timetrack_punch_outbox';
+const PUNCH_OUTBOX_MAX_ITEMS = 20;
+// Mirrors the server OFFLINE_PUNCH_WINDOW_HOURS default (4h). Older items are
+// dropped locally — the server would reject them with OFFLINE_PUNCH_EXPIRED.
+const PUNCH_OUTBOX_TTL_MS = 4 * 60 * 60 * 1000;
+let punchOutboxReplaying = false;
+
+async function readPunchOutbox() {
+  try {
+    const raw = await AsyncStorage.getItem(PUNCH_OUTBOX_KEY);
+    const items = raw ? JSON.parse(raw) : [];
+    return Array.isArray(items) ? items : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writePunchOutbox(items) {
+  try {
+    await AsyncStorage.setItem(PUNCH_OUTBOX_KEY, JSON.stringify(items));
+  } catch {
+    // Storage failure must never interrupt attendance processing.
+  }
+}
+
+async function enqueuePunchOutbox(item) {
+  if (!item || typeof item.key !== 'string' || !item.pos) return;
+  const items = await readPunchOutbox();
+  if (items.some((i) => i && i.key === item.key)) return; // already queued
+  items.push(item);
+  while (items.length > PUNCH_OUTBOX_MAX_ITEMS) items.shift();
+  await writePunchOutbox(items);
+  await updateAutoClockDiagnostics({ outboxCount: items.length });
+  void syncAutoClockStatusToWebview();
+}
+
+async function replayPunchOutbox() {
+  if (punchOutboxReplaying) return;
+  punchOutboxReplaying = true;
+  try {
+    const queued = await readPunchOutbox();
+    if (queued.length === 0) return;
+    const now = Date.now();
+    const fresh = queued.filter(
+      (i) => i && typeof i.capturedAt === 'number' && now - i.capturedAt <= PUNCH_OUTBOX_TTL_MS,
+    );
+    const remaining = [];
+    for (const item of fresh) {
+      const { status } = await apiClock(item.kind, item.pos, item.key, {
+        capturedAt: item.capturedAt,
+      });
+      if (status === 0 || status >= 500 || status === 401) {
+        // Network / server / transient-auth failure: keep queued for the next
+        // replay opportunity (reconnect, resume, next background wake).
+        remaining.push(item);
+        continue;
+      }
+      if (status === 200 || status === 201) {
+        const clockedInNow = item.kind === 'in';
+        await AsyncStorage.setItem(CLOCKED_IN_KEY, String(clockedInNow));
+        await updateAutoClockDiagnostics({ failure: null, taskError: false });
+        const title = clockedInNow ? 'Clocked in (synced)' : 'Clocked out (synced)';
+        const body = clockedInNow
+          ? 'Your offline auto clock-in was recorded with its original timestamp.'
+          : 'Your offline auto clock-out was recorded with its original timestamp.';
+        await notify(title, body);
+        if (!clockedInNow) {
+          // Mirror the voluntary clock-out double-punch guard: the offline
+          // clock-out may have happened while still on site, so suppress an
+          // instant re-clock-in until a confirmed exit (12h TTL applies).
+          try {
+            const stateRaw = await AsyncStorage.getItem(GEOFENCE_STATE_KEY);
+            const st = stateRaw ? JSON.parse(stateRaw) : {};
+            st.clockedOutInside = true;
+            st.clockedOutInsideSetAt = Date.now();
+            await AsyncStorage.setItem(GEOFENCE_STATE_KEY, JSON.stringify(st));
+          } catch {
+            // State repair is best-effort.
+          }
+        }
+      }
+      // Any other 4xx (OFFLINE_PUNCH_EXPIRED, ALREADY_CLOCKED_IN, RECLOCK_GUARD,
+      // GEOFENCE_VIOLATION, NO_ACTIVE_SESSION, ...) is terminal: drop the item.
+    }
+    await writePunchOutbox(remaining);
+    await updateAutoClockDiagnostics({ outboxCount: remaining.length });
+    void syncAutoClockStatusToWebview();
+  } catch {
+    // Replay is best-effort; the next wake retries.
+  } finally {
+    punchOutboxReplaying = false;
+  }
+}
+
+// ── iOS BGTaskScheduler watchdog ───────────────────────────────────────────
+// Even with "Always" location permission, iOS can terminate the app and stop
+// the location task (memory pressure, OS updates, long idle). This
+// BGAppRefreshTask periodically wakes the app in the background to RE-ARM
+// startLocationUpdatesAsync and drain the offline punch outbox. The identifier
+// is whitelisted in app.json (BGTaskSchedulerPermittedIdentifiers). Android is
+// covered by the location foreground service + AppState retries, so the
+// watchdog is registered on iOS only. Requires a native build (EAS) to run.
+const BACKGROUND_SYNC_TASK = 'com.timetrack.workforce.background-sync';
+
+TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
+  try {
+    await ensureBackgroundLocationUpdates().catch(() => undefined);
+    await replayPunchOutbox();
+    await syncAutoClockStatusToWebview();
+    return BackgroundFetch.BackgroundFetchResult.NewData;
+  } catch {
+    return BackgroundFetch.BackgroundFetchResult.Failed;
+  }
+});
+
+async function registerBackgroundSyncWatchdog() {
+  if (Platform.OS !== 'ios') return;
+  try {
+    const registered = await BackgroundFetch.isRegisteredAsync(BACKGROUND_SYNC_TASK);
+    if (!registered) {
+      await BackgroundFetch.registerTaskAsync(BACKGROUND_SYNC_TASK, {
+        minimumInterval: 15 * 60, // 15 min requested; iOS owns the real cadence
+        stopOnTerminate: false,
+        startOnBoot: true,
+      });
+    }
+  } catch {
+    // Watchdog is best-effort: the primary background task, the AppState
+    // retry loop and the location-wake outbox drain all remain active.
   }
 }
 
@@ -755,6 +922,11 @@ export default function App() {
       // Device just came back online while an error screen is up -> reload now
       if (connected && wasConnected === false && webErrorRef.current) {
         reloadWebView();
+      }
+      // Offline punch outbox: replay queued punches the moment the device
+      // reconnects, independent of the WebView error state.
+      if (connected && wasConnected === false) {
+        void replayPunchOutbox();
       }
     });
     return () => unsubscribe();
@@ -883,12 +1055,16 @@ export default function App() {
     };
 
     start();
+    // iOS: register the BGAppRefreshTask watchdog that re-arms the background
+    // location task after the OS kills the app (no-op on Android).
+    void registerBackgroundSyncWatchdog();
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         start();
         void retryPendingNotification();
         void restoreNativeSession();
         void syncAutoClockStatusToWebview();
+        void replayPunchOutbox();
       }
     });
 
@@ -902,6 +1078,12 @@ export default function App() {
   const processWebViewMessage = async (event) => {
     try {
       const msg = JSON.parse(event.nativeEvent.data || '{}');
+      if (msg.type === 'OPEN_NATIVE_SETTINGS') {
+        // Web UI deep-link into the OS permission screens — the recovery path
+        // for "Never"/"Don't allow": the OS never lets the app re-prompt.
+        Linking.openSettings().catch(() => undefined);
+        return;
+      }
       if (msg.type === 'AUTO_CLOCK_STATUS_REQUEST' && typeof msg.requestId === 'string') {
         await syncAutoClockStatusToWebview(msg.requestId);
         return;
@@ -1050,10 +1232,14 @@ export default function App() {
           await AsyncStorage.setItem(REFRESH_TOKEN_KEY, msg.refreshToken);
         }
         if (webviewRef.current) {
+          // Inject WITHOUT dispatching 'timetrack-native-token': the web app
+          // just handed us this token, so its session is already live and a
+          // re-probe would only churn (mint → inject → probe → mint loop).
+          // The event is reserved for cold restore (restoreNativeSession),
+          // where the WebView must re-probe with the recovered bearer.
           webviewRef.current.injectJavaScript(`
             try {
               sessionStorage.setItem('timetrack_native_token', ${JSON.stringify(msg.token)});
-              window.dispatchEvent(new Event('timetrack-native-token'));
             } catch (_) {}
             true;
           `);

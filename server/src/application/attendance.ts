@@ -23,6 +23,7 @@ import { assertTenantMatch } from '../tenantContext.js';
 import { tenantWhere } from '../tenantPolicy.js';
 import { ATTENDANCE_STATUS } from '../domain/attendance.js';
 import { calculateWorkedDuration } from '../domain/duration.js';
+import { recordAutoClockOutcome } from '../metrics.js';
 import {
   normalizeEmployeeEmail,
   singleEmployeeIdentityFilter,
@@ -63,6 +64,10 @@ export interface ClockInCommand {
   targetEmail?: string;
   position: GeoPosition | null;
   justification?: string;
+  /** Offline outbox replay: ORIGINAL device capture instant of the punch. */
+  capturedAt?: Date | null;
+  /** True when the punch was queued offline and replayed on reconnect. */
+  offline?: boolean;
   idempotencyKey?: string | null;
   clientIp: string;
 }
@@ -72,6 +77,10 @@ export interface ClockOutCommand {
   targetEmail?: string;
   position: GeoPosition | null;
   breakMinutes: number;
+  /** Offline outbox replay: ORIGINAL device capture instant of the punch. */
+  capturedAt?: Date | null;
+  /** True when the punch was queued offline and replayed on reconnect. */
+  offline?: boolean;
   idempotencyKey?: string | null;
   clientIp: string;
 }
@@ -198,6 +207,60 @@ function assertChronologicalTimes(clockIn: Date, clockOut: Date): void {
   }
 }
 
+// ── Offline punch acceptance policy ─────────────────────────────────────
+// Clients (native shell + web monitor) queue automatic punches that could not
+// reach the server and replay them on reconnect with `offline: true` and the
+// ORIGINAL capture instant. Acceptance is bounded so stale back-dating can
+// never silently enter payroll: beyond the window (or implausibly in the
+// future) the punch is rejected with a terminal OFFLINE_PUNCH_EXPIRED error
+// and the client drops it from its outbox.
+
+/**
+ * Acceptance window (hours) for offline-queued punches.
+ * Configurable via OFFLINE_PUNCH_WINDOW_HOURS (default 4).
+ */
+export function getOfflinePunchWindowHours(): number {
+  const raw = process.env.OFFLINE_PUNCH_WINDOW_HOURS;
+  if (raw === undefined || raw === null || raw === '') return 4;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 4;
+}
+
+/** Clock-skew tolerance for queued punches claiming a future capture time. */
+const OFFLINE_FUTURE_SKEW_MS = 5 * 60_000;
+
+/**
+ * Validate an offline punch's capturedAt claim. Returns the accepted capture
+ * instant for `offline: true` punches inside the bounded sync window, null for
+ * normal (online) punches, and throws OFFLINE_PUNCH_EXPIRED when the claim is
+ * too old or implausibly future-dated (payload integrity / payroll safety).
+ */
+export function resolveOfflineCapturedAt(command: {
+  offline?: boolean;
+  capturedAt?: Date | null;
+}): Date | null {
+  if (!command.offline) return null;
+  const capturedAt = command.capturedAt ?? null;
+  if (!capturedAt || Number.isNaN(capturedAt.getTime())) return null;
+  const now = Date.now();
+  const windowMs = getOfflinePunchWindowHours() * 3_600_000;
+  if (
+    capturedAt.getTime() > now + OFFLINE_FUTURE_SKEW_MS ||
+    now - capturedAt.getTime() > windowMs
+  ) {
+    throw new AttendanceUseCaseError('This offline punch is outside the accepted sync window.', {
+      status: 422,
+      code: 'OFFLINE_PUNCH_EXPIRED',
+      details: {
+        captured_at: capturedAt.toISOString(),
+        window_hours: getOfflinePunchWindowHours(),
+      },
+      suggestions: ['Clock in/out manually now, or ask your manager to adjust the time entry.'],
+    });
+  }
+  return capturedAt;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -260,6 +323,10 @@ export async function clockIn(command: ClockInCommand): Promise<AttendanceMutati
       return { entry: replay, replayed: true };
     }
   }
+
+  // Offline queue replay: accept only within the bounded sync window and stamp
+  // the entry at the ORIGINAL capture instant so payroll reflects real time.
+  const offlineCapturedAt = resolveOfflineCapturedAt(command);
 
   let employee = await prisma.employee.findFirst({
     where: {
@@ -326,7 +393,11 @@ export async function clockIn(command: ClockInCommand): Promise<AttendanceMutati
       const systemClosed = lastCompleted?.updatedBy === 'system:cron';
       if (
         !systemClosed &&
-        isWithinReclockWindow(lastCompleted?.clockOut ?? null, new Date(), guardSeconds)
+        isWithinReclockWindow(
+          lastCompleted?.clockOut ?? null,
+          offlineCapturedAt ?? new Date(),
+          guardSeconds,
+        )
       ) {
         throw new AttendanceUseCaseError(
           `You clocked out less than ${guardSeconds} seconds ago. To prevent duplicate records, please wait a moment before clocking in again, or ask a manager to clock you in.`,
@@ -362,7 +433,9 @@ export async function clockIn(command: ClockInCommand): Promise<AttendanceMutati
       }
     : {};
 
-  const now = new Date();
+  // Offline replays stamp the entry at the accepted capture instant; the
+  // business date derives from the same instant (correct shift-day attribution).
+  const now = offlineCapturedAt ?? new Date();
   let entry: TimeEntry;
   try {
     entry = await prisma.$transaction(async (tx) => {
@@ -389,6 +462,7 @@ export async function clockIn(command: ClockInCommand): Promise<AttendanceMutati
           department: employee.department,
           clockIn: now,
           date: parseDate(toBusinessDateStr(now)),
+          ...(offlineCapturedAt ? { isOfflineSynced: true } : {}),
           status: ATTENDANCE_STATUS.ACTIVE,
           totalMinutes: 0,
           ...(command.idempotencyKey ? { clockInIdempotencyKey: command.idempotencyKey } : {}),
@@ -453,6 +527,8 @@ export async function clockIn(command: ClockInCommand): Promise<AttendanceMutati
     department: entry.department,
   });
 
+  if (offlineCapturedAt) recordAutoClockOutcome('offline_synced');
+
   return { entry, replayed: false };
 }
 
@@ -469,6 +545,9 @@ export async function clockOut(command: ClockOutCommand): Promise<AttendanceMuta
       return { entry: replay, replayed: true };
     }
   }
+
+  // Offline queue replay — bounded acceptance window (resolveOfflineCapturedAt).
+  const offlineCapturedAt = resolveOfflineCapturedAt(command);
 
   const requestedEmail = command.targetEmail
     ? normalizeEmployeeEmail(command.targetEmail)
@@ -529,13 +608,20 @@ export async function clockOut(command: ClockOutCommand): Promise<AttendanceMuta
     if (!geoResult.passed) throwGeofenceViolation(geoResult);
   }
 
-  const now = new Date();
+  // An offline clock-out can never precede its session start; clamp to the
+  // clock-in instant (zero duration) if the queue ordering was disturbed.
+  const now = offlineCapturedAt
+    ? offlineCapturedAt > active.clockIn
+      ? offlineCapturedAt
+      : active.clockIn
+    : new Date();
   const duration = calculateWorkedDuration(active.clockIn, now, command.breakMinutes);
   const entry = await prisma.timeEntry.update({
     where: { id: active.id },
     data: {
       clockOut: now,
       status: ATTENDANCE_STATUS.COMPLETED,
+      ...(offlineCapturedAt ? { isOfflineSynced: true } : {}),
       ...(command.idempotencyKey ? { clockOutIdempotencyKey: command.idempotencyKey } : {}),
       breakMinutes: command.breakMinutes,
       totalMinutes: duration.totalMinutes,
@@ -543,6 +629,8 @@ export async function clockOut(command: ClockOutCommand): Promise<AttendanceMuta
       updatedBy: actor.id,
     },
   });
+
+  if (offlineCapturedAt) recordAutoClockOutcome('offline_synced');
 
   const changes = isForceClockOut
     ? {

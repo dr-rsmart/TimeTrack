@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- ⛔ QUARANTINED REFERENCE ARTIFACT — NOT USED BY ANY BUILD (see README.md).
+     EAS/CNG generates the real Info.plist from app.json (expo.ios.infoPlist).
+     This file declares armv7 in UIRequiredDeviceCapabilities (App Store upload
+     rejection class) and CFBundleVersion 1 (conflicts with EAS remote
+     versioning). DO NOT COPY INTO A BUILD. -->
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>

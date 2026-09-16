@@ -176,8 +176,9 @@ const authLimiter = rateLimit({
   message: { error: 'Too many authentication attempts, please try again later.' },
 });
 
-// Rate limiting is applied to the API routers below (authLimiter on the
-// auth subtree, apiLimiter on everything else, for BOTH /api and /api/v1).
+// Rate limiting is applied to the API routers below (authLimiter on the auth
+// subtree's CREDENTIAL endpoints only, apiLimiter on everything else, for
+// BOTH /api and /api/v1).
 
 // ── Health, Liveness & Readiness Probes (mounted on root & /api) ──
 app.use('/health', healthRoutes);
@@ -275,7 +276,26 @@ app.get('/api/events', (req, res, next) => {
 // OpenAPI docs and future breaking changes land there; /api stays
 // backward-compatible for existing clients. ──
 const apiRouter = express.Router();
-apiRouter.use('/auth', authLimiter, authRoutes);
+// The strict auth limiter is IP-keyed and runs BEFORE authentication, so
+// applying it to the whole /auth subtree let login abuse from a shared
+// work-site NAT lock the ENTIRE site out of session traffic (/me, /logout,
+// /native-token). Scope it to the credential-verification endpoints; the
+// rest of the auth subtree stays protected by the general apiLimiter
+// mounted at /api.
+const CREDENTIAL_ENDPOINTS = new Set(['/login', '/forgot-password', '/native-token/refresh']);
+const credentialAuthLimiter = (
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+): void => {
+  const path = req.path.replace(/\/+$/, '') || '/';
+  if (CREDENTIAL_ENDPOINTS.has(path)) {
+    authLimiter(req, res, next);
+    return;
+  }
+  next();
+};
+apiRouter.use('/auth', credentialAuthLimiter, authRoutes);
 apiRouter.use('/employees', employeeRoutes);
 apiRouter.use('/shifts', shiftRoutes);
 apiRouter.use('/time-entries', timeEntryRoutes);

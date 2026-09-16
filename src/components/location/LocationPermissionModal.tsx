@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { isNativeShellPresent, openNativeSettings } from '../../hooks/useAutoGeofence';
 
 interface LocationPermissionModalProps {
   open: boolean;
@@ -33,6 +33,20 @@ export function LocationPermissionModal({
                 Location access has been <strong>blocked</strong> for this site. TimeTrack needs
                 your GPS location to validate clock-in/out at your work geofence.
               </p>
+              {isNativeShellPresent() && (
+                <div className="mb-4">
+                  <button
+                    onClick={openNativeSettings}
+                    className="w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Open Device Settings
+                  </button>
+                  <p className="mt-2 text-xs text-slate-500">
+                    In the TimeTrack app settings, set Location to “Allow all the time” (Android) or
+                    “Always” (iOS), then return here and tap Retry.
+                  </p>
+                </div>
+              )}
               <div className="rounded-lg bg-slate-50 p-4 border border-slate-100">
                 <h4 className="font-semibold mb-2 text-sm text-slate-900">
                   To enable location access:

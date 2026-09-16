@@ -86,17 +86,86 @@ function notifySessionError(code: SessionErrorCode, message: string): void {
   if (sessionHandler) sessionHandler(code, message);
 }
 
+// ── Native shell bridged bearer ──────────────────────────────────────────
+// The shell bridge stores its bearer token in sessionStorage. Current tokens
+// are persistent (no `exp` claim), but LEGACY builds stored 15-minute tokens.
+// Attaching an expired bearer would override the still-valid httpOnly cookie
+// (the server prefers Bearer), kicking the user out of a live session — so
+// expired stored tokens are dropped on read.
+const NATIVE_TOKEN_KEY = 'timetrack_native_token';
+
+function isNativeShell(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof (window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView !==
+      'undefined'
+  );
+}
+
+/** Decode a JWT payload WITHOUT verification (client-side expiry check only). */
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+    return JSON.parse(atob(padded)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/** True when the shell bridge has a bearer token stored for this WebView. */
+export function hasStoredNativeToken(): boolean {
+  if (!isNativeShell()) return false;
+  try {
+    return Boolean(sessionStorage.getItem(NATIVE_TOKEN_KEY));
+  } catch {
+    return false;
+  }
+}
+
+/** Drop the bridged bearer (login, logout, server-forced session end). */
+export function clearStoredNativeToken(): void {
+  try {
+    sessionStorage.removeItem(NATIVE_TOKEN_KEY);
+  } catch {
+    /* storage unavailable — nothing to clear */
+  }
+}
+
+/**
+ * Read the bridged bearer for a request. Returns null — and deletes the
+ * stored value — when the token is a LEGACY short-lived JWT past its `exp`,
+ * so the request falls back to the httpOnly cookie. Malformed/opaque values
+ * are passed through for the server to reject.
+ */
+function readNativeToken(): string | null {
+  if (!isNativeShell()) return null;
+  let token: string | null = null;
+  try {
+    token = sessionStorage.getItem(NATIVE_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+  if (!token) return null;
+  const payload = decodeJwtPayload(token);
+  const exp = payload?.exp;
+  if (typeof exp === 'number' && exp * 1000 <= Date.now()) {
+    clearStoredNativeToken();
+    return null;
+  }
+  return token;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const { headers: optionHeaders, ...requestOptions } = options;
   // The native shell supplies its bearer token through the bridge only. Never
   // read the fallback token from browser localStorage: that would turn an
-  // httpOnly-cookie session into an XSS-readable credential.
-  const nativeToken =
-    typeof window !== 'undefined' &&
-    typeof (window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView !==
-      'undefined'
-      ? sessionStorage.getItem('timetrack_native_token')
-      : null;
+  // httpOnly-cookie session into an XSS-readable credential. Expired LEGACY
+  // bearers are dropped (readNativeToken) so they can never override a valid
+  // cookie session.
+  const nativeToken = readNativeToken();
   const res = await fetch(`/api${path}`, {
     credentials: 'include',
     headers: {
@@ -173,19 +242,18 @@ export const api = {
 export const authApi = {
   login: (email: string, password: string) =>
     api.post<{ user: CurrentUser; token: string }>('/auth/login', { email, password }),
-  logout: () =>
-    api.post<{ success: boolean }>('/auth/logout').finally(() => {
-      try {
-        sessionStorage.removeItem('timetrack_native_token');
-      } catch {
-        /* ignore */
-      }
-    }),
-  /** Re-mint a fresh non-expiring bearer token for the current session (mobile native shell bridge). */
+  logout: () => api.post<{ success: boolean }>('/auth/logout').finally(clearStoredNativeToken),
+  /**
+   * Mint a persistent bearer token for the current session (mobile native
+   * shell bridge). `expiresIn` is null: the token carries no `exp` claim and
+   * lives until server-side revocation, exactly like the httpOnly cookie.
+   */
   nativeToken: () =>
-    api.post<{ token: string; refreshToken: string; expiresIn: number }>('/auth/native-token'),
+    api.post<{ token: string; refreshToken: string; expiresIn: number | null }>(
+      '/auth/native-token',
+    ),
   refreshNativeToken: (refreshToken: string) =>
-    api.post<{ token: string; refreshToken: string; expiresIn: number }>(
+    api.post<{ token: string; refreshToken: string; expiresIn: number | null }>(
       '/auth/native-token/refresh',
       {
         refreshToken,
@@ -354,6 +422,8 @@ export interface Employee {
   employeeNumber: string | null;
   phone: string | null;
   hireDate: string | null;
+  /** Hourly rate (ZAR) used by the Cost-of-Late-Coming report. */
+  hourlyRate?: number | null;
   managerId: string | null;
   geofenceId: string | null;
   geofenceIds?: string[];
@@ -546,6 +616,7 @@ export const timeEntryApi = {
     longitude?: number,
     employeeEmail?: string,
     justification?: string,
+    offlineOpts?: { capturedAt?: number; idempotencyKey?: string },
   ) =>
     api.post<TimeEntry>(
       '/time-entries/clock-in',
@@ -554,14 +625,22 @@ export const timeEntryApi = {
         longitude,
         employee_email: employeeEmail,
         justification,
+        // Offline outbox replay: the server stamps the entry at capturedAt
+        // within its bounded acceptance window (see punchOutbox.ts).
+        ...(offlineOpts?.capturedAt
+          ? { offline: true, capturedAt: new Date(offlineOpts.capturedAt).toISOString() }
+          : {}),
       },
-      { 'Idempotency-Key': createIdempotencyKey('clock-in') },
+      {
+        'Idempotency-Key': offlineOpts?.idempotencyKey ?? createIdempotencyKey('clock-in'),
+      },
     ),
   clockOut: (
     breakMinutes?: number,
     latitude?: number,
     longitude?: number,
     employeeEmail?: string,
+    offlineOpts?: { capturedAt?: number; idempotencyKey?: string },
   ) =>
     api.post<TimeEntry>(
       '/time-entries/clock-out',
@@ -570,8 +649,14 @@ export const timeEntryApi = {
         latitude,
         longitude,
         employee_email: employeeEmail,
+        // Offline outbox replay (see punchOutbox.ts).
+        ...(offlineOpts?.capturedAt
+          ? { offline: true, capturedAt: new Date(offlineOpts.capturedAt).toISOString() }
+          : {}),
       },
-      { 'Idempotency-Key': createIdempotencyKey('clock-out') },
+      {
+        'Idempotency-Key': offlineOpts?.idempotencyKey ?? createIdempotencyKey('clock-out'),
+      },
     ),
   manual: (data: import('../../contracts/index.js').ManualTimeEntryRequest) =>
     api.post<TimeEntry>('/time-entries/manual', data),
@@ -597,6 +682,8 @@ export interface PayrollRow {
   department: string;
   position: string | null;
   employeeNumber: string | null;
+  /** Hourly rate (ZAR) — null when not set on the employee profile. */
+  hourlyRate?: number | null;
   daysWorked: number;
   ordinaryHours: number;
   dailyOvertimeHours: number;
@@ -608,6 +695,61 @@ export interface PayrollRow {
   holidayWeightedOvertime: number;
   totalWeightedOvertime: number;
   totalHours: number;
+}
+
+// ── Cost of Late Coming (Feature #9) ──
+export interface AttendanceCostDay {
+  date: string;
+  lateMinutes: number;
+  earlyMinutes: number;
+  randLost: number;
+}
+
+export interface AttendanceCostRow {
+  employeeId: string;
+  name: string;
+  email: string;
+  branch: string;
+  department: string;
+  position: string | null;
+  employeeNumber: string | null;
+  hourlyRate: number | null;
+  lateMinutes: number;
+  earlyMinutes: number;
+  totalLostMinutes: number;
+  hoursLost: number;
+  randLost: number;
+  days: AttendanceCostDay[];
+}
+
+export interface AttendanceCostResponse {
+  from: string;
+  to: string;
+  currency: string;
+  rows: AttendanceCostRow[];
+  totals: { lateMinutes: number; earlyMinutes: number; hoursLost: number; randLost: number };
+}
+
+// ── Attendance Alerts — in-app Notification Centre (Feature #3) ──
+export interface AttendanceAlert {
+  id: string;
+  type: 'late_clock_in' | 'early_clock_out' | 'no_show' | 'absence';
+  severity: 'info' | 'warning' | 'critical';
+  employeeEmail: string;
+  employeeName: string;
+  branch: string | null;
+  department: string | null;
+  date: string;
+  message: string;
+  minutes?: number;
+}
+
+export interface AttendanceAlertsResponse {
+  days: number;
+  graceMinutes: number;
+  today: string;
+  count: number;
+  alerts: AttendanceAlert[];
 }
 
 export const reportApi = {
@@ -639,6 +781,23 @@ export const reportApi = {
     api.get<{ entries: Array<Record<string, unknown>> }>(
       `/reports/attendance?from=${from}&to=${to}`,
     ),
+  /** Cost of Late Coming: hours + Rand lost per employee for the range. */
+  attendanceCost: (params: {
+    from: string;
+    to: string;
+    branch?: string;
+    department?: string;
+    employeeEmail?: string;
+  }) => {
+    const qs = new URLSearchParams({ from: params.from, to: params.to });
+    if (params.branch) qs.set('branch', params.branch);
+    if (params.department) qs.set('department', params.department);
+    if (params.employeeEmail) qs.set('employeeEmail', params.employeeEmail);
+    return api.get<AttendanceCostResponse>(`/reports/attendance-cost?${qs.toString()}`);
+  },
+  /** Manager notification-centre feed: late-ins, early-outs, no-shows, absences. */
+  attendanceAlerts: (days = 7, grace = 5) =>
+    api.get<AttendanceAlertsResponse>(`/reports/attendance-alerts?days=${days}&grace=${grace}`),
   createPayrollSnapshot: (from: string, to: string) =>
     api.post<{ success: boolean; snapshots: number; from: string; to: string }>(
       '/reports/payroll/snapshot',

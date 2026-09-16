@@ -14,7 +14,8 @@ import {
   type AutoGeofenceEvent,
   type AutoGeofenceState,
 } from '../services/AutoGeofenceService';
-import { authApi, employeeApi, timeEntryApi, settingsApi } from '../services/api';
+import { ApiError, timeEntryApi, settingsApi } from '../services/api';
+import { enqueueOfflinePunch } from '../services/punchOutbox';
 import { getCurrentPosition } from '../utils/clockInHelper';
 import { useSSE } from './useSSE';
 import { getAutoClockRuntime } from '../utils/autoClockRuntime';
@@ -171,6 +172,16 @@ export function isNativeShellPresent(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Deep-link into the OS app-settings screen (native shell only). Recovery
+ * path for hard-denied location access ("Never" / "Don't allow"): the OS
+ * never lets the app re-prompt, so the user must change it in system
+ * settings. Silent no-op in a plain browser.
+ */
+export function openNativeSettings(): void {
+  postToNativeShell({ type: 'OPEN_NATIVE_SETTINGS' });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -510,6 +521,25 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
             );
           }
         } catch (err: unknown) {
+          if (!(err instanceof ApiError)) {
+            // NETWORK failure — queue the punch in the offline outbox; it
+            // replays with its original timestamp when connectivity returns
+            // (server-side dedupe makes the replay safe).
+            if (event.position) {
+              enqueueOfflinePunch({
+                kind: 'in',
+                latitude: event.position.latitude,
+                longitude: event.position.longitude,
+                capturedAt: Date.now(),
+              });
+            }
+            showToast(
+              'info',
+              'Offline — clock-in saved',
+              'No connection. Your auto clock-in was saved and will sync automatically when you are back online.',
+            );
+            return;
+          }
           const msg = err instanceof Error ? err.message : 'Unknown error';
           if (!msg.toLowerCase().includes('already clocked')) {
             if (
@@ -535,6 +565,25 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
             `~${event.distanceMetres ?? 0}m from centre.`,
           );
         } catch (err: unknown) {
+          if (!(err instanceof ApiError)) {
+            // NETWORK failure — queue the clock-out in the offline outbox; it
+            // replays with its original timestamp when connectivity returns.
+            if (event.position) {
+              enqueueOfflinePunch({
+                kind: 'out',
+                latitude: event.position.latitude,
+                longitude: event.position.longitude,
+                breakMinutes: 0,
+                capturedAt: Date.now(),
+              });
+            }
+            showToast(
+              'info',
+              'Offline — clock-out saved',
+              'No connection. Your auto clock-out was saved and will sync automatically when you are back online.',
+            );
+            return;
+          }
           const msg = err instanceof Error ? err.message : 'Unknown error';
           if (msg.toLowerCase().includes('no active')) {
             // Session was already closed server-side — most commonly the

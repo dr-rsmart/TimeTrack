@@ -30,6 +30,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useSSEStatus, useSSEConnection } from '../../hooks/useSSE';
 import { cn } from '../../lib/utils';
 import BrandLogo from './BrandLogo';
+import NotificationBell from './NotificationBell';
 import { masterApi } from '../../services/api';
 import { toast } from 'sonner';
 
@@ -228,6 +229,9 @@ export default function AppLayout() {
                   )}
                 </div>
               )}
+
+              {/* Notification Centre — in-app attendance alerts for managers */}
+              <NotificationBell />
 
               {/* Theme Toggle */}
               <button

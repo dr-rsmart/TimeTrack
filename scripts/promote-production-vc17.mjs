@@ -1,15 +1,15 @@
 /**
- * Google Play Console — PRODUCTION rollout for release 16 (1.0.0)
+ * Google Play Console — PRODUCTION rollout for release 17 (1.0.0)
  * ---------------------------------------------------------------
- * Ships the vc16 app bundle (EAS build #16, targets API 36 per the Google
+ * Ships the vc17 app bundle (EAS build #17, targets API 36 per the Google
  * Play Aug-2026 policy — already live on Closed testing "alpha") to the
  * Production track with upbeat release notes.
  *
- * Conventions match scripts/update-closed-alpha-vc16.mjs:
+ * Conventions match scripts/update-closed-alpha-vc17.mjs:
  *  - Persistent Chromium profile (.playwright-google-profile/) keeps the
  *    Google sign-in alive across runs.
  *  - If a sign-in / 2FA challenge appears the script waits for the human.
- *  - Prefers attaching the already-uploaded vc16 bundle from the Play
+ *  - Prefers attaching the already-uploaded vc17 bundle from the Play
  *    Console app bundle library; falls back to uploading the .aab.
  *
  * Log markers (for automation watchers):
@@ -24,8 +24,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const AAB_PATH = path.resolve(ROOT, 'timetrack-vc16.aab');
-const RELEASE_NAME = '16'; // production row then reads "Release: 16 (1.0.0)"
+const AAB_PATH = path.resolve(ROOT, 'timetrack-vc17.aab');
+const RELEASE_NAME = '17'; // production row then reads "Release: 17 (1.0.0)"
 const PROFILE_DIR = path.resolve(ROOT, '.playwright-google-profile');
 // Verified 2026-09-16 from the Play Console URL of "TimeTrack: Workforce &
 // Payroll" (the account hosts several apps; app-list row clicks proved
@@ -35,12 +35,12 @@ const APP_ID = '4976072281005342488';
 
 // "What's new" copy — enthusiastic and appreciative (Play limit: 500 chars).
 const RELEASE_NOTES = [
-  '🚀 TimeTrack 1.0.0 — Release 16',
-  '📍 Auto clock-in/out fixed: automatic attendance now works reliably again, including after shift-end auto clock-outs',
-  '🩺 New auto-clock status card: see exactly why a punch has not fired yet (permission, GPS signal, confirmation progress)',
-  '⚡ Improved background location monitoring and diagnostics',
+  '🚀 TimeTrack 1.0.0 — Release 17',
+  '📍 Auto clock-in/out is now hybrid: attendance punches automatically the moment you open TimeTrack on site',
+  '🔒 Background clocking keeps working when the app is closed or the phone is locked',
+  '👥 Switching accounts on a shared device now auto-clocks correctly',
   '🛠 Stability improvements and polish',
-  'Thank you for your feedback — this one fixes auto clocking for good! 💙',
+  'Thank you for your feedback — auto clocking just got even more reliable! 💙',
 ].join('\n');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -111,6 +111,18 @@ async function submitRelease(page) {
     8000,
   );
   await wait(3000);
+  // 2026 UI: the review step persists via "Save" first; the rollout button
+  // only appears once the draft is saved and validation is clean.
+  await clickVisible(
+    page,
+    '"Save" (review step)',
+    [
+      (p) => p.getByRole('button', { name: /^save$/i }),
+      (p) => p.getByText('Save', { exact: true }),
+    ],
+    20000,
+  );
+  await wait(6000);
   await clickVisible(
     page,
     '"Review release"',
@@ -146,7 +158,7 @@ async function submitRelease(page) {
 }
 
 // Attach version code 16 INSIDE the release editor (library first, then upload).
-async function attachBundleVc16(page) {
+async function attachBundleVc17(page) {
   const fromLibrary = await clickVisible(
     page,
     '"Add from library"',
@@ -162,11 +174,11 @@ async function attachBundleVc16(page) {
     await wait(4000);
     const picked = await clickVisible(
       page,
-      'vc16 row checkbox in library chooser',
+      'vc17 row checkbox in library chooser',
       [
         (p) =>
           p.locator(
-            'xpath=(//*[normalize-space(text())="16"]/preceding::*[self::input[@type="checkbox"] or @role="checkbox"])[last()]',
+            'xpath=(//*[normalize-space(text())="17"]/preceding::*[self::input[@type="checkbox"] or @role="checkbox"])[last()]',
           ),
         (p) =>
           p
@@ -175,17 +187,17 @@ async function attachBundleVc16(page) {
         (p) =>
           p
             .locator('tr')
-            .filter({ has: p.locator('td').filter({ hasText: /^16$/ }) })
+            .filter({ has: p.locator('td').filter({ hasText: /^17$/ }) })
             .getByRole('checkbox'),
         (p) =>
           p
             .locator('tr')
-            .filter({ hasText: /App bundle\s+16\s+1\.0\.0/ })
+            .filter({ hasText: /App bundle\s+17\s+1\.0\.0/ })
             .getByRole('checkbox'),
       ],
       20000,
     );
-    if (!picked) await shot(page, 'library-no-vc16');
+    if (!picked) await shot(page, 'library-no-vc17');
     await wait(1500);
     const added = await clickVisible(
       page,
@@ -198,7 +210,7 @@ async function attachBundleVc16(page) {
       15000,
     );
     if (picked && added) {
-      console.log('✅ Attached vc16 from the app bundle library.');
+      console.log('✅ Attached vc17 from the app bundle library.');
       await wait(30000);
       return true;
     }
@@ -237,19 +249,19 @@ async function attachBundleVc16(page) {
     await wait(60000);
     return true;
   } catch {
-    console.log('⚠️  Could not attach the vc16 bundle automatically.');
+    console.log('⚠️  Could not attach the vc17 bundle automatically.');
     await shot(page, 'attach-failed');
     return false;
   }
 }
 
-// ── Release name box: ensure it reflects release 16 ──
+// ── Release name box: ensure it reflects release 17 ──
 async function ensureReleaseName(page) {
   try {
     const nameBox = page.getByLabel(/release name/i).first();
     if ((await nameBox.count()) > 0) {
       const current = await nameBox.inputValue().catch(() => '');
-      if (!current || !/^\s*16\b/.test(current)) {
+      if (!current || !/^\s*17\b/.test(current)) {
         await nameBox.fill(RELEASE_NAME);
         console.log(`✅ Release name set to "${RELEASE_NAME}".`);
       } else {
@@ -311,6 +323,38 @@ async function fillReleaseNotes(page) {
     ],
     6000,
   );
+}
+
+// ── Previous-release preload guard (2026 Console) ──
+// New drafts preload the live track's bundle ("Previous release → Included");
+// a release containing both the preloaded bundle and 17 fails validation
+// ("completely shadowed"). Rows carry a per-row Include/Exclude toggle button
+// (aria-label flips); the row stays listed when excluded, so the button state
+// is the source of truth. Click every "Exclude" until none remain.
+async function excludePreviousRelease(page) {
+  for (let i = 0; i < 4; i++) {
+    const btn = page.getByRole('button', { name: /^exclude$/i }).first();
+    if (!(await btn.isVisible().catch(() => false))) return true;
+    await btn.click().catch(() => {});
+    await wait(4000);
+    await clickVisible(
+      page,
+      'exclude confirm dialog (if any)',
+      [
+        (p) =>
+          p
+            .locator('[role="dialog"]')
+            .getByRole('button', { name: /(remove|exclude|confirm|yes|ok)/i }),
+      ],
+      4000,
+    );
+    await wait(3000);
+  }
+  return !(await page
+    .getByRole('button', { name: /^exclude$/i })
+    .first()
+    .isVisible()
+    .catch(() => false));
 }
 
 async function run() {
@@ -446,7 +490,7 @@ async function run() {
   }
 
   // ── Detect current production state ──
-  const hasVc16 = await isVisible(page, /16 \(1\.0\.0\)/, 6000);
+  const hasVc17 = await isVisible(page, /17 \(1\.0\.0\)/, 6000);
   const alreadyLive = await isVisible(
     page,
     /rollout started|in review|review in progress|fully live|staged rollout|published/i,
@@ -457,12 +501,12 @@ async function run() {
     (await isVisible(page, /^\s*Untitled release\s*$/i, 4000)) ||
     (await isVisible(page, /\bDraft\b/, 4000));
   console.log(
-    `ℹ️  production state: hasVc16=${hasVc16} alreadyLive=${alreadyLive} hasDraft=${hasDraft}`,
+    `ℹ️  production state: hasVc17=${hasVc17} alreadyLive=${alreadyLive} hasDraft=${hasDraft}`,
   );
 
   let submitted = false;
-  if (hasVc16 && alreadyLive && !hasDraft) {
-    console.log('ℹ️  Production already carries release 16 (1.0.0) — nothing to do.');
+  if (hasVc17 && alreadyLive && !hasDraft) {
+    console.log('ℹ️  Production already carries release 17 (1.0.0) — nothing to do.');
     submitted = true;
   } else {
     let inEditor = false;
@@ -495,11 +539,22 @@ async function run() {
     if (inEditor) {
       await wait(6000);
       await shot(page, 'release-editor');
-      const bundleAlready = await isVisible(page, /16 \(1\.0\.0\)/, 5000);
+      // Drop the preloaded previous-production bundle (shadow guard).
+      const excluded = await excludePreviousRelease(page);
+      if (!excluded) {
+        console.log('⚠️  Could not exclude the preloaded previous bundle — aborting to GUIDED.');
+        await shot(page, 'exclude-failed');
+        console.log('PLAY_CONSOLE_RESULT: GUIDED');
+        await wait(5000);
+        await context.close();
+        return;
+      }
+      console.log('✅ Previous-release bundle excluded from this draft.');
+      const bundleAlready = await isVisible(page, /17 \(1\.0\.0\)/, 5000);
       if (bundleAlready) {
-        console.log('ℹ️  vc16 already attached to this release.');
+        console.log('ℹ️  vc17 already attached to this release.');
       } else {
-        await attachBundleVc16(page);
+        await attachBundleVc17(page);
       }
       await ensureReleaseName(page);
       await fillReleaseNotes(page);
@@ -531,7 +586,7 @@ async function run() {
   await shot(page, 'final');
 
   if (done) {
-    console.log('✅ Release 16 (1.0.0) submitted to PRODUCTION (Google review pending).');
+    console.log('✅ Release 17 (1.0.0) submitted to PRODUCTION (Google review pending).');
     console.log('PLAY_CONSOLE_RESULT: DONE');
   } else if (submitted) {
     console.log('ℹ️  Rollout clicked but final status not yet visible (may take review time).');
@@ -540,7 +595,7 @@ async function run() {
     console.log('======================================================');
     console.log('🟢 GUIDED MODE — finish in the open browser window:');
     console.log('   1. Releases -> Production -> "Create new release"');
-    console.log('   2. Attach vc16 from the app bundle library (or upload');
+    console.log('   2. Attach vc17 from the app bundle library (or upload');
     console.log(`      ${AAB_PATH})`);
     console.log(`   3. Release name: ${RELEASE_NAME}; add the positive release notes`);
     console.log('   4. "Review release" -> "Start rollout to Production" -> Confirm');

@@ -17,6 +17,8 @@ import {
   authApi,
   registerSessionHandler,
   suppressUnauthenticatedErrors,
+  hasStoredNativeToken,
+  clearStoredNativeToken,
   type CurrentUser,
   type SessionErrorCode,
 } from '../services/api';
@@ -63,12 +65,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const me = await authApi.me();
       hadSessionRef.current = true;
       setUser(me);
-      // Running inside the mobile native shell: hand it a fresh bearer token
-      // so its background geofence task can clock in/out while the WebView
-      // is suspended. Cookie auth is httpOnly and unreadable by native code.
+      // Running inside the mobile native shell: hand it a bearer token so
+      // its background geofence task can clock in/out while the WebView is
+      // suspended. Cookie auth is httpOnly and unreadable by native code.
+      // MINT ONCE per session: only while the bridge has NO stored token.
+      // The shell re-injects the stored token on app resume; re-minting on
+      // every refresh() created an unbounded mint/inject ping-pong with the
+      // shell bridge (every injected token re-triggered this probe).
       // Never mint for master/demo/impersonation sessions — auto clock-in/out
       // does not apply to master accounts.
-      if (isNativeShellPresent() && isAutoClockEligible(me)) {
+      if (isNativeShellPresent() && isAutoClockEligible(me) && !hasStoredNativeToken()) {
         authApi
           .nativeToken()
           .then((r) =>
@@ -103,6 +109,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (code === 'UNAUTHENTICATED' && loggingOutRef.current) return;
       setSessionError({ code, message });
       postToNativeShell({ type: 'SESSION_ENDED' });
+      // Drop the bridged bearer so the first requests after the next login
+      // never carry a revoked token (the server prefers Bearer over cookie).
+      clearStoredNativeToken();
       hadSessionRef.current = false;
       setUser(null);
     });
@@ -125,6 +134,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const res = await authApi.login(email, password);
+    // Drop any bridged bearer left over from a PREVIOUS session: the server
+    // prefers Bearer over the cookie, so a stale/revoked token riding along
+    // would override the freshly-issued cookie session.
+    clearStoredNativeToken();
     hadSessionRef.current = true;
     setSessionError(null);
     setUser(res.user);

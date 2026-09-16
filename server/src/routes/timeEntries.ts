@@ -208,10 +208,17 @@ router.post('/clock-in', requireAuth, clockRateLimit, validate(clockInSchema), a
       typeof body.latitude === 'number' && typeof body.longitude === 'number'
         ? { latitude: body.latitude, longitude: body.longitude }
         : null;
+    // Offline outbox replay: the client supplies the ORIGINAL capture instant.
+    const capturedAtRaw = typeof body.capturedAt === 'string' ? new Date(body.capturedAt) : null;
+    const capturedAt =
+      capturedAtRaw && Number.isFinite(capturedAtRaw.getTime()) ? capturedAtRaw : null;
+    const offline = body.offline === true && capturedAt !== null;
     const result = await clockInUseCase({
       actor: authUser,
       targetEmail: typeof body.employee_email === 'string' ? body.employee_email : undefined,
       position,
+      capturedAt,
+      offline,
       justification: typeof body.justification === 'string' ? body.justification : undefined,
       idempotencyKey: scopeIdempotencyKeyForRoute(
         'clock_in',
@@ -246,10 +253,17 @@ router.post(
         typeof body.latitude === 'number' && typeof body.longitude === 'number'
           ? { latitude: body.latitude, longitude: body.longitude }
           : null;
+      // Offline outbox replay: the client supplies the ORIGINAL capture instant.
+      const capturedAtRaw = typeof body.capturedAt === 'string' ? new Date(body.capturedAt) : null;
+      const capturedAt =
+        capturedAtRaw && Number.isFinite(capturedAtRaw.getTime()) ? capturedAtRaw : null;
+      const offline = body.offline === true && capturedAt !== null;
       const result = await clockOutUseCase({
         actor: authUser,
         targetEmail: typeof body.employee_email === 'string' ? body.employee_email : undefined,
         position,
+        capturedAt,
+        offline,
         breakMinutes: typeof body.breakMinutes === 'number' ? body.breakMinutes : 0,
         idempotencyKey: scopeIdempotencyKeyForRoute(
           'clock_out',

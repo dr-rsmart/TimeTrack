@@ -26,8 +26,13 @@ import { MapPin, Navigation, Radio, Plus } from 'lucide-react';
 import { Button, Card, CardContent, CardHeader, CardTitle, EmptyState, Spinner } from '../ui';
 import { useSSE } from '../../hooks/useSSE';
 import { useAuth } from '../../context/AuthContext';
-import { useAutoGeofenceState, isAutoClockEligible } from '../../hooks/useAutoGeofence';
+import {
+  useAutoGeofenceState,
+  isAutoClockEligible,
+  openNativeSettings,
+} from '../../hooks/useAutoGeofence';
 import { resolveAutoClockStatus } from '../../utils/autoClockStatus';
+import { usePunchOutboxCount } from '../../services/punchOutbox';
 import { workLocationSummary } from '../../utils/workLocationSummary';
 import { GEOFENCE_CONFIRMATIONS } from '../../constants/geofence';
 import { AutoClockStatusNote } from './AutoClockStatusNote';
@@ -119,6 +124,8 @@ export function MyWorkLocation({ canAddLocation = true, clockedIn }: MyWorkLocat
   // Read-only auto-geofence state: explains why an auto clock-in has not
   // fired while the distance card shows the employee inside the geofence.
   const autoGeo = useAutoGeofenceState(user ? `${user.email}:${user.role}` : undefined);
+  // Offline punch outbox (web queue) — feeds the 'offline-pending' status.
+  const pendingOfflinePunches = usePunchOutboxCount();
   const [allGeofences, setAllGeofences] = useState<Geofence[]>([]);
   const [assignedGeofenceIds, setAssignedGeofenceIds] = useState<string[]>([]);
   const [distanceResults, setDistanceResults] = useState<DistanceResult[]>([]);
@@ -424,6 +431,7 @@ export function MyWorkLocation({ canAddLocation = true, clockedIn }: MyWorkLocat
           webPoorSignal: autoGeo.monitorState?.poorSignal === true,
           nativeStatus: autoGeo.nativeStatus,
           confirmations: GEOFENCE_CONFIRMATIONS,
+          pendingOfflinePunches,
         });
 
   return (
@@ -522,7 +530,18 @@ export function MyWorkLocation({ canAddLocation = true, clockedIn }: MyWorkLocat
           )}
 
           {/* Auto-geofence status — explains why auto clock-in has not fired */}
-          {autoClockStatus && <AutoClockStatusNote status={autoClockStatus} />}
+          {autoClockStatus && (
+            <AutoClockStatusNote
+              status={autoClockStatus}
+              action={
+                autoGeo.nativeShell &&
+                (autoClockStatus.kind === 'permission' ||
+                  autoClockStatus.kind === 'foreground-only')
+                  ? { label: 'Open Device Settings', onClick: openNativeSettings }
+                  : undefined
+              }
+            />
+          )}
 
           {/*
             Allowed geofences with distances.

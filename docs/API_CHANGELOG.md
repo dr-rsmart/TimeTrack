@@ -8,6 +8,63 @@ committed at `server/docs/openapi.json`.
 Versions follow the `/api/v1` contract surface. The legacy `/api`
 surface remains available and backward-compatible.
 
+## v1.4.0 - 2026-09-16 (attendance cost, alerts, reminders, export formats)
+
+### Added
+
+- GET /reports/attendance-cost?from&to[&branch&department&employeeEmail] —
+  Cost of Late Coming: per-employee late-in / early-out minutes vs the
+  scheduled shift (business-timezone aware, midnight-crossing shifts
+  supported, leave/half-day shifts excluded), converted to hours lost and
+  Rand lost via `Employee.hourlyRate`. Response: `{ from, to, currency:
+"ZAR", rows[], totals }` with per-day detail on each row.
+- GET /reports/attendance-alerts?days=7[&grace=5] — in-app Notification
+  Centre feed for admin/manager/master: late clock-ins, early clock-outs,
+  no-shows and absences over the trailing window, newest-first, capped at 200. Employees get 403.
+- `Employee.hourlyRate` (Decimal(10,2), nullable; migration 19) — accepted by
+  POST /employees and PUT /employees/:id (`hourlyRate: number | null`), and
+  returned on payroll report rows. Excluded from the bulk-import schema
+  (manage-once-imported, like salaryInfo).
+- Cron `shift-reminders` job — Expo push ~5 minutes before the beginning and
+  the ending of every scheduled working shift; employees with no shift that
+  day fall back to their company's `defaultWorkingStartTime` /
+  `defaultWorkingEndTime` / `defaultWorkingDays` (normal business hours).
+
+### Changed
+
+- GET /reports/payroll rows now include `hourlyRate` (null when unset) so the
+  payroll report can price overtime/lateness without a second call.
+- Web payroll summary CSV export is now format-pluggable
+  (`src/utils/payrollExportFormats.ts`): "TimeTrack Standard" (unchanged
+  column set) and "Generic Payroll (Normal / OT / PH)" ship today; customer
+  payroll-system formats register declaratively via `defineColumnFormat`.
+
+## v1.3.1 - 2026-09-16 (native session-lifecycle hotfix)
+
+### Changed
+
+- POST /api/auth/native-token and POST /api/auth/native-token/refresh now sign
+  PERSISTENT access tokens (no `exp` claim), matching the httpOnly web cookie
+  lifetime policy; the response `expiresIn` field is now `null` (previously
+  `900`). Revocation is unchanged: pwdEpoch bumps (password change/reset,
+  logout), tenant suspension, termination and live role checks are enforced
+  against bearer tokens on every request.
+- The 15-minute access-token lifetime introduced in v1.3.0 is REMOVED: the
+  server prefers Bearer over the cookie, so the short-lived bearer overrode
+  the permanent cookie session and forced mobile users to re-authenticate
+  every 15 minutes / on every app resume.
+- The rotating 30-day refresh token is still issued and rotated on use (kept
+  for shell cold-start restore); consumed or expired rows older than 24h are
+  pruned daily by the cron runner (`native-refresh-token-prune`).
+- The strict auth rate limiter (100/15min, IP-keyed) now applies only to the
+  credential endpoints (/auth/login, /auth/forgot-password,
+  /auth/native-token/refresh). The rest of the /auth subtree uses the general
+  API limiter, so login abuse from a shared work-site NAT can no longer lock
+  the whole site out of session traffic.
+- The 401 SESSION_REVOKED error message no longer asserts a password change
+  as the only cause (a logout/rotation on another device produces the same
+  revocation).
+
 ## v1.3.0 - 2026-09-15 (QA remediation release)
 
 ### Added

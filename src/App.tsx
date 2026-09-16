@@ -24,6 +24,8 @@ import Register from './pages/Register';
 import Demo from './pages/Demo';
 import ProfilePage from './pages/Profile';
 import FAQ from './pages/FAQ';
+import Privacy from './pages/Privacy';
+import Support from './pages/Support';
 import ChangePasswordModal from './components/auth/ChangePasswordModal';
 import AutoGeofenceMonitor from './components/location/AutoGeofenceMonitor';
 import { Spinner } from './components/ui';
@@ -198,6 +200,10 @@ export default function App() {
           <Toaster position="top-right" richColors closeButton />
           <Routes>
             <Route path="/login" element={<Login />} />
+            {/* Public store-required pages (Apple review + Play Data Safety
+                reference these URLs; they must render without authentication). */}
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/support" element={<Support />} />
             <Route
               path="*"
               element={

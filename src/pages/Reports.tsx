@@ -9,12 +9,21 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { CalendarDays, Clock, Download, FileBarChart, Pencil } from 'lucide-react';
+import {
+  CalendarDays,
+  Clock,
+  Coins,
+  Download,
+  FileBarChart,
+  ListChecks,
+  Pencil,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import {
   employeeApi,
   reportApi,
   timeEntryApi,
+  type AttendanceCostRow,
   type Employee,
   type PayrollRow,
   type TimeEntry,
@@ -42,6 +51,7 @@ import {
   Tabs,
 } from '../components/ui';
 import { toDateStr, downloadCsv, formatHours, formatDate, formatTime } from '../lib/utils';
+import { PAYROLL_EXPORT_FORMATS, getPayrollExportFormat } from '../utils/payrollExportFormats';
 
 export default function Reports() {
   const { user } = useAuth();
@@ -63,6 +73,20 @@ export default function Reports() {
   const [loadingEntries, setLoadingEntries] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [entriesLoaded, setEntriesLoaded] = useState(false);
+
+  // ── Cost of Late Coming (Feature #9) ──
+  const [costRows, setCostRows] = useState<AttendanceCostRow[]>([]);
+  const [costTotals, setCostTotals] = useState({
+    lateMinutes: 0,
+    earlyMinutes: 0,
+    hoursLost: 0,
+    randLost: 0,
+  });
+  const [loadingCost, setLoadingCost] = useState(false);
+  const [costLoaded, setCostLoaded] = useState(false);
+
+  // ── Payroll export format (Feature #4) ──
+  const [exportFormatId, setExportFormatId] = useState(PAYROLL_EXPORT_FORMATS[0].id);
 
   // ── Edit time entry modal (admin/manager corrections) ──
   const [editEntry, setEditEntry] = useState<TimeEntry | null>(null);
@@ -121,6 +145,28 @@ export default function Reports() {
     }
   }, [branch, department]);
 
+  // Cost of Late Coming — hours and Rand lost per employee (Feature #9).
+  const loadCost = useCallback(async () => {
+    setLoadingCost(true);
+    try {
+      const res = await reportApi.attendanceCost({
+        from,
+        to,
+        branch: branch || undefined,
+        department: department || undefined,
+        employeeEmail: employeeEmail || undefined,
+      });
+      setCostRows(res.rows);
+      setCostTotals(res.totals);
+      setCostLoaded(true);
+    } catch (err) {
+      toast.error('Failed to load cost of late report');
+      console.error(err);
+    } finally {
+      setLoadingCost(false);
+    }
+  }, [from, to, branch, department, employeeEmail]);
+
   useEffect(() => {
     load();
   }, [load]);
@@ -132,6 +178,10 @@ export default function Reports() {
   useEffect(() => {
     loadDirectory();
   }, [loadDirectory]);
+
+  useEffect(() => {
+    loadCost();
+  }, [loadCost]);
 
   const branches = [...new Set(rows.map((r) => r.branch))];
   const departments = [...new Set(rows.map((r) => r.department))];
@@ -167,45 +217,16 @@ export default function Reports() {
     }
   }
 
+  // Payroll Summary export uses the pluggable format registry (Feature #4):
+  // the selected format decides headers, row mapping and filename.
   const handleExportSummary = () => {
-    const headers = [
-      'Employee Number',
-      'Employee',
-      'Position',
-      'Email',
-      'Branch',
-      'Geofence Location',
-      'Department',
-      'Days Worked',
-      'Ordinary Hours',
-      'Daily OT',
-      'Sunday OT',
-      'Holiday OT',
-      'Monthly OT',
-      'Total OT',
-      'Weighted OT',
-      'Total Hours',
-    ];
-    const data = rows.map((r) => [
-      r.employeeNumber ?? '',
-      r.name,
-      r.position ?? '',
-      r.email,
-      r.branch,
-      geofenceLocationsByEmail.get(r.email) ?? '',
-      r.department,
-      r.daysWorked,
-      r.ordinaryHours,
-      r.dailyOvertimeHours,
-      r.sundayOvertimeHours,
-      r.holidayOvertimeHours,
-      r.monthlyOvertimeHours,
-      r.totalOvertimeHours,
-      r.totalWeightedOvertime,
-      r.totalHours,
-    ]);
-    downloadCsv(`payroll-summary-${from}-to-${to}.csv`, headers, data);
-    toast.success('Summary CSV exported');
+    const format = getPayrollExportFormat(exportFormatId);
+    downloadCsv(
+      format.filename(from, to),
+      format.headers(),
+      format.rows(rows, { from, to, geofenceLocationsByEmail }),
+    );
+    toast.success(`Payroll CSV exported (${format.label})`);
   };
 
   const handleExportEntries = () => {
@@ -308,6 +329,98 @@ export default function Reports() {
     toast.success('Grouped daily totals CSV exported');
   };
 
+  // ── Daily Breakdown (Features #5/#6): per-employee daily clocking listed
+  // A–Z, each day's hours shown, plus the period breakdown line
+  // "Normal Hours = X / Overtime = Y / Public Holiday = Z" per employee. ──
+  const breakdownByEmployee = [...rows]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((r) => {
+      const dayEntries = timeEntries
+        .filter((e) => e.employeeEmail.toLowerCase() === r.email.toLowerCase())
+        .sort((a, b) => a.date.localeCompare(b.date) || a.clockIn.localeCompare(b.clockIn));
+      return {
+        row: r,
+        dayEntries,
+        normal: r.ordinaryHours,
+        overtime: r.dailyOvertimeHours + r.monthlyOvertimeHours + r.sundayOvertimeHours,
+        publicHoliday: r.holidayOvertimeHours,
+      };
+    });
+
+  const handleExportBreakdown = () => {
+    const headers = [
+      'Employee',
+      'Date',
+      'Clock In',
+      'Clock Out',
+      'Day Hours',
+      'Normal Hours',
+      'Overtime Hours',
+      'Public Holiday Hours',
+    ];
+    const data: (string | number)[][] = [];
+    for (const b of breakdownByEmployee) {
+      for (const e of b.dayEntries) {
+        data.push([
+          b.row.name,
+          formatDate(e.date),
+          formatTime(e.clockIn),
+          e.clockOut ? formatTime(e.clockOut) : '',
+          e.totalHours ?? 0,
+          '',
+          '',
+          '',
+        ]);
+      }
+      // Per-employee breakdown line (e.g. Normal = 195 / Overtime = 20 / PH = 9).
+      data.push([b.row.name, 'Breakdown', '', '', '', b.normal, b.overtime, b.publicHoliday]);
+    }
+    downloadCsv(`daily-breakdown-${from}-to-${to}.csv`, headers, data);
+    toast.success('Daily breakdown CSV exported');
+  };
+
+  // ── Cost of Late Coming export (Feature #9) ──
+  const handleExportCost = () => {
+    const headers = [
+      'Employee Number',
+      'Employee',
+      'Email',
+      'Branch',
+      'Department',
+      'Hourly Rate (ZAR)',
+      'Late Minutes',
+      'Early Minutes',
+      'Hours Lost',
+      'Rand Lost (ZAR)',
+    ];
+    const data: (string | number)[][] = costRows.map((r) => [
+      r.employeeNumber ?? '',
+      r.name,
+      r.email,
+      r.branch,
+      r.department,
+      r.hourlyRate ?? '',
+      r.lateMinutes,
+      r.earlyMinutes,
+      r.hoursLost,
+      r.randLost,
+    ]);
+    data.push([
+      '',
+      'TOTALS',
+      '',
+      '',
+      '',
+      '',
+      costTotals.lateMinutes,
+      costTotals.earlyMinutes,
+      costTotals.hoursLost,
+      costTotals.randLost,
+    ]);
+    downloadCsv(`cost-of-late-${from}-to-${to}.csv`, headers, data);
+    toast.success('Cost of late CSV exported');
+  };
+
   // Totals for time entries
   const entryTotals = timeEntries.reduce(
     (acc, e) => ({
@@ -322,7 +435,11 @@ export default function Reports() {
       ? rows.length === 0
       : activeTab === 'entries'
         ? timeEntries.length === 0
-        : dailyTotals.length === 0;
+        : activeTab === 'breakdown'
+          ? rows.length === 0
+          : activeTab === 'cost'
+            ? costRows.length === 0
+            : dailyTotals.length === 0;
 
   return (
     <div className="space-y-6">
@@ -337,19 +454,40 @@ export default function Reports() {
             Precision overtime computation · {rows.length} employees in range
           </p>
         </div>
-        <Button
-          onClick={
-            activeTab === 'summary'
-              ? handleExportSummary
-              : activeTab === 'entries'
-                ? handleExportEntries
-                : handleExportDailyTotals
-          }
-          disabled={exportDisabled}
-          className="bg-brand hover:bg-brand-dark text-white shadow-lg shadow-brand/20 rounded-xl"
-        >
-          <Download className="h-4 w-4" /> Export CSV
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Payroll export format selector (Feature #4) */}
+          {activeTab === 'summary' && (
+            <Select
+              aria-label="Payroll export format"
+              className="w-56"
+              value={exportFormatId}
+              onChange={(e) => setExportFormatId(e.target.value)}
+            >
+              {PAYROLL_EXPORT_FORMATS.map((f) => (
+                <option key={f.id} value={f.id} title={f.description}>
+                  {f.label}
+                </option>
+              ))}
+            </Select>
+          )}
+          <Button
+            onClick={
+              activeTab === 'summary'
+                ? handleExportSummary
+                : activeTab === 'entries'
+                  ? handleExportEntries
+                  : activeTab === 'breakdown'
+                    ? handleExportBreakdown
+                    : activeTab === 'cost'
+                      ? handleExportCost
+                      : handleExportDailyTotals
+            }
+            disabled={exportDisabled}
+            className="bg-brand hover:bg-brand-dark text-white shadow-lg shadow-brand/20 rounded-xl"
+          >
+            <Download className="h-4 w-4" /> Export CSV
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -395,7 +533,11 @@ export default function Reports() {
               ))}
             </Select>
           </div>
-          {(activeTab === 'summary' || activeTab === 'entries' || activeTab === 'daily') && (
+          {(activeTab === 'summary' ||
+            activeTab === 'entries' ||
+            activeTab === 'daily' ||
+            activeTab === 'breakdown' ||
+            activeTab === 'cost') && (
             <div className="space-y-1">
               <Label htmlFor="r-employee">Employee</Label>
               <Select
@@ -426,6 +568,12 @@ export default function Reports() {
             label: 'Grouped Daily Totals',
             icon: <CalendarDays className="w-4 h-4" />,
           },
+          {
+            id: 'breakdown',
+            label: 'Daily Breakdown',
+            icon: <ListChecks className="w-4 h-4" />,
+          },
+          { id: 'cost', label: 'Cost of Late', icon: <Coins className="w-4 h-4" /> },
         ]}
         active={activeTab}
         onChange={setActiveTab}
@@ -675,6 +823,193 @@ export default function Reports() {
                   <TableRow className="bg-muted/50 font-semibold">
                     <TableCell colSpan={3}>Period total</TableCell>
                     <TableCell className="text-right">{formatHours(entryTotals.hours)}</TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Daily Breakdown Tab — per-employee daily clocking A–Z + Normal/OT/PH breakdown */}
+      {activeTab === 'breakdown' && (
+        <Card className="border-border/50 overflow-hidden">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <ListChecks className="w-4 h-4 text-brand" />
+                Daily Breakdown ({from} → {to})
+              </CardTitle>
+              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                <span>{breakdownByEmployee.length} employees</span>
+                <span className="font-semibold text-foreground">
+                  {formatHours(totals.total)} total
+                </span>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {loading || loadingEntries ? (
+              <div className="flex h-48 items-center justify-center">
+                <Spinner className="h-8 w-8" />
+              </div>
+            ) : breakdownByEmployee.length === 0 ? (
+              <EmptyState message={loaded ? 'No payroll data for this period' : 'Loading…'} />
+            ) : (
+              <div className="space-y-8">
+                {breakdownByEmployee.map((b) => (
+                  <div key={b.row.employeeId}>
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-2">
+                      <p className="text-sm font-semibold">
+                        {b.row.name}
+                        <span className="text-muted-foreground font-normal">
+                          {' '}
+                          · {b.row.branch} · {b.row.department}
+                        </span>
+                      </p>
+                      <p
+                        data-testid={`breakdown-line-${b.row.employeeId}`}
+                        className="text-xs font-semibold text-brand"
+                      >
+                        Normal Hours = {formatHours(b.normal)} / Overtime ={' '}
+                        {formatHours(b.overtime)} / Public Holiday = {formatHours(b.publicHoliday)}
+                      </p>
+                    </div>
+                    {b.dayEntries.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        No clocking recorded in this period.
+                      </p>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Clock In</TableHead>
+                            <TableHead>Clock Out</TableHead>
+                            <TableHead className="text-right">Break (min)</TableHead>
+                            <TableHead className="text-right">Day Hours</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {b.dayEntries.map((e) => (
+                            <TableRow key={e.id}>
+                              <TableCell>{formatDate(e.date)}</TableCell>
+                              <TableCell>{formatTime(e.clockIn)}</TableCell>
+                              <TableCell>{e.clockOut ? formatTime(e.clockOut) : '—'}</TableCell>
+                              <TableCell className="text-right">{e.breakMinutes ?? 0}</TableCell>
+                              <TableCell className="text-right font-medium">
+                                {formatHours(e.totalHours ?? 0)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          <TableRow className="bg-muted/50 font-semibold">
+                            <TableCell colSpan={4}>Period total</TableCell>
+                            <TableCell className="text-right">
+                              {formatHours(b.row.totalHours)}
+                            </TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Cost of Late Tab — hours and Rand lost to late-ins / early-outs (Feature #9) */}
+      {activeTab === 'cost' && (
+        <Card className="border-border/50 overflow-hidden">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Coins className="w-4 h-4 text-brand" />
+                Cost of Late Coming ({from} → {to})
+              </CardTitle>
+              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                <span>{costRows.length} employees</span>
+                <span className="font-semibold text-foreground">
+                  {formatHours(costTotals.hoursLost)} lost · R {costTotals.randLost.toFixed(2)}
+                </span>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {loadingCost ? (
+              <div className="flex h-48 items-center justify-center">
+                <Spinner className="h-8 w-8" />
+              </div>
+            ) : costRows.length === 0 ? (
+              <EmptyState
+                message={
+                  costLoaded
+                    ? 'No late clock-ins or early clock-outs in this period 🎉'
+                    : 'Loading…'
+                }
+              />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Employee</TableHead>
+                    <TableHead>Branch</TableHead>
+                    <TableHead className="text-right">Rate (R/hr)</TableHead>
+                    <TableHead className="text-right">Late (min)</TableHead>
+                    <TableHead className="text-right">Early (min)</TableHead>
+                    <TableHead className="text-right">Hours Lost</TableHead>
+                    <TableHead className="text-right">Rand Lost</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {costRows.map((r) => (
+                    <TableRow key={r.employeeId}>
+                      <TableCell>
+                        <div className="font-medium">{r.name}</div>
+                        <div className="text-xs text-muted-foreground">{r.email}</div>
+                      </TableCell>
+                      <TableCell>{r.branch}</TableCell>
+                      <TableCell className="text-right">
+                        {r.hourlyRate !== null ? (
+                          `R ${r.hourlyRate.toFixed(2)}`
+                        ) : (
+                          <span
+                            className="text-muted-foreground"
+                            title="Set an hourly rate on the employee profile to see Rand lost"
+                          >
+                            —
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {r.lateMinutes > 0 ? <Badge variant="warning">{r.lateMinutes}</Badge> : '0'}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {r.earlyMinutes > 0 ? (
+                          <Badge variant="warning">{r.earlyMinutes}</Badge>
+                        ) : (
+                          '0'
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatHours(r.hoursLost)}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold text-red-600">
+                        {r.hourlyRate !== null ? `R ${r.randLost.toFixed(2)}` : '—'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow className="bg-muted/50 font-semibold">
+                    <TableCell colSpan={3}>Totals ({costRows.length} employees)</TableCell>
+                    <TableCell className="text-right">{costTotals.lateMinutes}</TableCell>
+                    <TableCell className="text-right">{costTotals.earlyMinutes}</TableCell>
+                    <TableCell className="text-right">
+                      {formatHours(costTotals.hoursLost)}
+                    </TableCell>
+                    <TableCell className="text-right text-red-600">
+                      R {costTotals.randLost.toFixed(2)}
+                    </TableCell>
                   </TableRow>
                 </TableBody>
               </Table>

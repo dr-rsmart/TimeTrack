@@ -409,6 +409,17 @@ export default function Login() {
               </div>
             </>
           )}
+
+          {/* Public legal/support links — always visible (store requirement) */}
+          <div className="mt-4 text-center text-[11px] text-slate-400">
+            <a href="/privacy" className="hover:text-slate-200 hover:underline underline-offset-2">
+              Privacy Policy
+            </a>
+            <span className="mx-2">·</span>
+            <a href="/support" className="hover:text-slate-200 hover:underline underline-offset-2">
+              Support
+            </a>
+          </div>
         </motion.div>
       </div>
     </div>

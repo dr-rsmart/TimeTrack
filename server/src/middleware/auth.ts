@@ -159,11 +159,14 @@ declare global {
 }
 
 export function signToken(user: AuthUser, options?: jwt.SignOptions): string {
-  // Deliberately no `expiresIn` for session cookies: the product session
+  // Deliberately no `expiresIn` for session credentials: the product session
   // remains valid until explicit logout or another server-side revocation
   // event (password change, account termination/suspension, or role change).
-  // Callers MAY pass options to bound a token's lifetime (e.g. the native
-  // shell bearer token, which uses a rolling 7-day TTL).
+  // BOTH the httpOnly cookie and the native shell bearer token use this
+  // persistent policy — getAuthToken prefers Bearer over the cookie, so the
+  // two MUST share the same lifetime or a short-lived bearer would override
+  // (and effectively shorten) the permanent cookie session.
+  // Callers MAY still pass options to bound a token's lifetime explicitly.
   return jwt.sign(
     {
       id: user.id,
@@ -231,7 +234,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
   if (isTokenEpochStale(user.pwdEpoch, sessionState.pwdEpoch)) {
     res.status(401).json({
-      error: 'Your session was revoked because your password changed. Please sign in again.',
+      error:
+        'Your session was revoked — you were signed out on another device or your password changed. Please sign in again.',
       code: 'SESSION_REVOKED',
     });
     return;

@@ -3,16 +3,31 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // ── Mocks ────────────────────────────────────────────────────────────────
-const { meMock, loginMock, logoutMock, registerMock, suppressMock, nativeTokenMock } = vi.hoisted(
-  () => ({
-    meMock: vi.fn(),
-    loginMock: vi.fn(),
-    logoutMock: vi.fn(),
-    registerMock: vi.fn(),
-    suppressMock: vi.fn(() => () => undefined),
-    nativeTokenMock: vi.fn(),
-  }),
-);
+const {
+  meMock,
+  loginMock,
+  logoutMock,
+  registerMock,
+  suppressMock,
+  nativeTokenMock,
+  hasTokenMock,
+  clearTokenMock,
+  postToShellMock,
+  shellPresentMock,
+  eligibleMock,
+} = vi.hoisted(() => ({
+  meMock: vi.fn(),
+  loginMock: vi.fn(),
+  logoutMock: vi.fn(),
+  registerMock: vi.fn(),
+  suppressMock: vi.fn(() => () => undefined),
+  nativeTokenMock: vi.fn(),
+  hasTokenMock: vi.fn(() => false),
+  clearTokenMock: vi.fn(),
+  postToShellMock: vi.fn(),
+  shellPresentMock: vi.fn(() => false),
+  eligibleMock: vi.fn(() => false),
+}));
 
 vi.mock('../../services/api', () => ({
   authApi: {
@@ -23,12 +38,14 @@ vi.mock('../../services/api', () => ({
   },
   registerSessionHandler: registerMock,
   suppressUnauthenticatedErrors: suppressMock,
+  hasStoredNativeToken: hasTokenMock,
+  clearStoredNativeToken: clearTokenMock,
 }));
 
 vi.mock('../../hooks/useAutoGeofence', () => ({
-  postToNativeShell: vi.fn(),
-  isNativeShellPresent: () => false,
-  isAutoClockEligible: () => false,
+  postToNativeShell: postToShellMock,
+  isNativeShellPresent: shellPresentMock,
+  isAutoClockEligible: eligibleMock,
 }));
 
 import { AuthProvider, useAuth } from '../AuthContext';
@@ -84,6 +101,14 @@ beforeEach(() => {
   });
   suppressMock.mockReturnValue(() => undefined);
   logoutMock.mockResolvedValue({ success: true });
+  hasTokenMock.mockReturnValue(false);
+  shellPresentMock.mockReturnValue(false);
+  eligibleMock.mockReturnValue(false);
+  nativeTokenMock.mockResolvedValue({
+    token: 'native-tok',
+    refreshToken: 'refresh-tok',
+    expiresIn: null,
+  });
 });
 
 describe('AuthProvider — session probe', () => {
@@ -161,6 +186,64 @@ describe('AuthProvider — forced session end (server-driven)', () => {
     await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
     act(() => capturedHandler!('UNAUTHENTICATED', 'Session expired'));
     expect(screen.getByTestId('session-error')).toHaveTextContent('none');
+  });
+});
+
+describe('AuthProvider — native shell bearer lifecycle', () => {
+  beforeEach(() => {
+    shellPresentMock.mockReturnValue(true);
+    eligibleMock.mockReturnValue(true);
+  });
+
+  it('mints a native token once while the bridge stores none', async () => {
+    meMock.mockResolvedValue(employeeUser);
+    hasTokenMock.mockReturnValue(false);
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('lerato@'));
+    await waitFor(() => expect(nativeTokenMock).toHaveBeenCalledTimes(1));
+    expect(postToShellMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'AUTH_TOKEN',
+        token: 'native-tok',
+        refreshToken: 'refresh-tok',
+        email: 'lerato@timetrack.com',
+      }),
+    );
+  });
+
+  it('does NOT re-mint when the bridge already stores a token (no mint/inject loop)', async () => {
+    meMock.mockResolvedValue(employeeUser);
+    hasTokenMock.mockReturnValue(true);
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('lerato@'));
+    // Shell cold restore: the bridge event triggers another session probe.
+    act(() => {
+      window.dispatchEvent(new Event('timetrack-native-token'));
+    });
+    await waitFor(() => expect(meMock).toHaveBeenCalledTimes(2));
+    expect(nativeTokenMock).not.toHaveBeenCalled();
+  });
+
+  it('clears the bridged bearer on a server-forced session end', async () => {
+    meMock.mockResolvedValue(employeeUser);
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('lerato@'));
+    expect(capturedHandler).toBeTypeOf('function');
+    act(() => capturedHandler!('ROLE_REVOKED', 'Role revoked'));
+    expect(screen.getByTestId('session-error')).toHaveTextContent('ROLE_REVOKED');
+    expect(postToShellMock).toHaveBeenCalledWith({ type: 'SESSION_ENDED' });
+    expect(clearTokenMock).toHaveBeenCalled();
+  });
+
+  it('clears a stale bridged bearer on login before minting a fresh one', async () => {
+    meMock.mockRejectedValue(new Error('401'));
+    loginMock.mockResolvedValue({ user: employeeUser, token: 'tok' });
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+    await userEvent.click(screen.getByRole('button', { name: 'login' }));
+    await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('lerato@'));
+    expect(clearTokenMock).toHaveBeenCalled();
+    await waitFor(() => expect(nativeTokenMock).toHaveBeenCalledTimes(1));
   });
 });
 

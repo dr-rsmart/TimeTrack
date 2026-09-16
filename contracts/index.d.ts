@@ -68,6 +68,7 @@ export type ApiErrorCode =
   | 'INTERNAL_ERROR'
   | 'NO_ACTIVE_SESSION'
   | 'NOT_FOUND'
+  | 'OFFLINE_PUNCH_EXPIRED'
   | 'OUT_OF_SCOPE'
   | 'PASSWORD_CHANGED'
   | 'RATE_LIMITED'
@@ -153,6 +154,10 @@ export interface ClockInRequest {
   longitude?: number;
   employee_email?: string;
   justification?: string;
+  /** Offline outbox replay: device capture instant (ISO-8601) of the punch. */
+  capturedAt?: string;
+  /** True when this punch was queued offline and replayed on reconnect. */
+  offline?: boolean;
 }
 
 export interface ClockOutRequest {
@@ -160,6 +165,10 @@ export interface ClockOutRequest {
   latitude?: number;
   longitude?: number;
   employee_email?: string;
+  /** Offline outbox replay: device capture instant (ISO-8601) of the punch. */
+  capturedAt?: string;
+  /** True when this punch was queued offline and replayed on reconnect. */
+  offline?: boolean;
 }
 
 export interface ManualTimeEntryRequest {

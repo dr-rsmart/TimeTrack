@@ -19,8 +19,9 @@ Railway edge (TLS, Force HTTPS, www→apex 301)
 Express 5 API (single process)
   ├─ requestId → metrics counters → canonical-host/HTTPS guards
   ├─ CORS (explicit origins) · 1MB body cap · security headers
-  ├─ Rate limits: /api 500/min, /api/auth 100/15min (Redis sliding window
-  │  with in-memory fallback; perf bypass DISABLED in production)
+  ├─ Rate limits: /api 500/min · /api/auth credential endpoints 100/15min
+  │  (Redis sliding window with in-memory fallback; perf bypass DISABLED in
+  │  production)
   ├─ Auth: non-expiring JWT (persistent httpOnly cookie-first) · pwdEpoch
   │  logout/password revocation · fail-closed company-active / employee-status /
   │  session-state caches

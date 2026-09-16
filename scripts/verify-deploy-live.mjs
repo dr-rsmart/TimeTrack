@@ -55,6 +55,12 @@ async function checkBundleMarkers() {
     // proves the new bundle is live. Verified PRESENT in the pre-rotation
     // production bundle (index-CqNpXfaH.js, uptime 2927s).
     sessionSurvivingRotation: !js.includes('Please sign in with your new password'),
+    // Offline punch outbox + permission-tier UX + settings bridge (2026-09-16):
+    // storage-key and status-kind STRING LITERALS survive minification; all
+    // three verified ABSENT from the pre-offline production bundle.
+    offlinePunchOutbox: js.includes('timetrack_web_punch_outbox'),
+    permissionTiers: js.includes('foreground-only') && js.includes('background-active'),
+    settingsBridge: js.includes('OPEN_NATIVE_SETTINGS'),
   };
 }
 
@@ -90,7 +96,7 @@ async function main() {
 
   const markers = await checkBundleMarkers();
   console.log(
-    `[verify-live] bundle ${markers.asset} → geofenceIds: ${markers.geofenceIds ? 'YES' : 'NO'}, weeklySchedule: ${markers.weeklySchedule ? 'YES' : 'NO'}, autoClockFix: ${markers.autoClockFix ? 'YES' : 'NO'}, autoClockObservability: ${markers.autoClockObservability ? 'YES' : 'NO'}, hybridAutoClock: ${markers.hybridAutoClock ? 'YES' : 'NO'}, sessionSurvivingRotation: ${markers.sessionSurvivingRotation ? 'YES' : 'NO'}`,
+    `[verify-live] bundle ${markers.asset} → geofenceIds: ${markers.geofenceIds ? 'YES' : 'NO'}, weeklySchedule: ${markers.weeklySchedule ? 'YES' : 'NO'}, autoClockFix: ${markers.autoClockFix ? 'YES' : 'NO'}, autoClockObservability: ${markers.autoClockObservability ? 'YES' : 'NO'}, hybridAutoClock: ${markers.hybridAutoClock ? 'YES' : 'NO'}, sessionSurvivingRotation: ${markers.sessionSurvivingRotation ? 'YES' : 'NO'}, offlinePunchOutbox: ${markers.offlinePunchOutbox ? 'YES' : 'NO'}, permissionTiers: ${markers.permissionTiers ? 'YES' : 'NO'}, settingsBridge: ${markers.settingsBridge ? 'YES' : 'NO'}`,
   );
 
   if (EMAIL && PASSWORD) {
@@ -101,7 +107,10 @@ async function main() {
         markers.autoClockFix &&
         markers.autoClockObservability &&
         markers.hybridAutoClock &&
-        markers.sessionSurvivingRotation
+        markers.sessionSurvivingRotation &&
+        markers.offlinePunchOutbox &&
+        markers.permissionTiers &&
+        markers.settingsBridge
       ) {
         console.log('[verify-live] ✅ NEW CODE IS LIVE (bundle + API verified)');
         process.exit(0);
@@ -117,7 +126,10 @@ async function main() {
     markers.autoClockFix &&
     markers.autoClockObservability &&
     markers.hybridAutoClock &&
-    markers.sessionSurvivingRotation
+    markers.sessionSurvivingRotation &&
+    markers.offlinePunchOutbox &&
+    markers.permissionTiers &&
+    markers.settingsBridge
   ) {
     console.log('[verify-live] ✅ NEW CODE IS LIVE (bundle markers verified)');
     process.exit(0);

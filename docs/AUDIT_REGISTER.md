@@ -48,6 +48,54 @@ Prometheus alerts (`timetrack-production-capacity` group in
 restore drill (`.github/workflows/restore-drill.yml`, Mondays 03:00 UTC);
 Open-09 `max-lines` ratchet armed in both eslint configs.
 
+**Feature batch (2026-09-16, owner backlog items 1/3/4/5/6/9):** Cost of Late
+Coming shipped end-to-end — `Employee.hourlyRate` (migration 19, applied to
+the local prod-clone via the elevated `MIGRATE_DATABASE_URL` role; runtime
+role cannot ALTER by design), pure engine `server/src/domain/attendanceCost.ts`
+(late-in/early-out minutes incl. midnight-crossing shifts, leave/half-day
+exclusion), `GET /reports/attendance-cost` (hours + Rand lost per employee,
+ZAR), Reports "Cost of Late" tab + CSV, hourly-rate field on the employee
+profile form. In-app Notification Centre for managers (no separate
+notification channel): `GET /reports/attendance-alerts` (late-ins, early-outs,
+no-shows, absences over a trailing window) + `NotificationBell` header
+dropdown with localStorage unread badge and 60s polling. Shift reminders:
+new `shift-reminders` cron job pushes 5 minutes before shift start AND end
+(Expo push via DevicePushToken), with company default-working-hours fallback
+for employees with no shift that day (`isReminderDue` window + per-instance
+dedupe). Reports gained a "Daily Breakdown" tab (per-employee daily clocking
+A–Z + `Normal Hours = X / Overtime = Y / Public Holiday = Z` lines) and the
+payroll summary export became format-pluggable
+(`src/utils/payrollExportFormats.ts`; customer payroll-system formats are a
+data-only addition once specs are supplied). Verified: typecheck (web+server),
+49 suites / 467 tests, production build, eslint 0 errors.
+
+**Contract-drift closure (2026-09-16, rev 2):** the v1.4.0 report endpoints
+were registered in `server/src/openapi.ts` and `server/docs/openapi.json`
+regenerated (53 paths, generation verified deterministic). `predeploy-check.mjs`
+gained a fail-closed step 4/4 (OpenAPI Contract Drift Guard): it regenerates
+the spec and byte-compares against the committed file, aborting the deploy on
+any drift and leaving the regenerated spec in place for review. Detection path
+verified with a simulated stale spec. Architect review persisted at
+`docs/COMPONENT_COMPARISON_MATRIX.md`.
+
+**Deployment-readiness remediation (2026-09-16, audit P0/P2/P4):** store
+blocker closed — `https://time-track.tech/privacy` and `/support` (declared in
+`scripts/submit-to-app-store.mjs` metadata) previously rendered an empty SPA
+shell (live-probed); real public pages `src/pages/Privacy.tsx` (POPIA/GDPR-
+aligned, grounded in documented practices: geofence location processing,
+IP redaction, append-only audit, RLS, retention) and `src/pages/Support.tsx`
+now route OUTSIDE the auth guard, are linked from the Login footer and listed
+in `sitemap.xml`. Stale native landmines quarantined: `mobile/android/
+AndroidManifest.xml` (nonexistent service/receiver classes, BIND_DEVICE_ADMIN)
+and `mobile/ios/Info.plist` (`armv7`, CFBundleVersion 1) moved to
+`docs/reference/native-artifacts/` with a DO-NOT-USE README — `app.json` is
+the native SSOT (EAS CNG). Railway: duplicate `railway.toml` deleted
+(`railway.json` single source), buildCommand now prunes ROOT devDependencies
+after build (server devDeps intentionally kept: `prisma` CLI is required by
+`production-start.mjs` at boot); PWA manifest gained a maskable icon entry.
+Remaining audit items are owner/account-gated: Sentry adoption (needs DSN),
+secret rotation (runbook steps 1–3), mobile CI (EAS remote credentials).
+
 ## Open findings (tracked)
 
 | ID      | Finding                                                                                                                                                                                                                                                                                                                                                                                                                                    | Owner                    | Target                                        |

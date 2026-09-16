@@ -16,11 +16,27 @@ const toneClasses: Record<AutoClockStatusTone, string> = {
   danger: 'bg-red-50 border-red-200 text-red-700',
 };
 
-export function AutoClockStatusNote({ status }: { status: ResolvedAutoClockStatus }) {
+export function AutoClockStatusNote({
+  status,
+  action,
+}: {
+  status: ResolvedAutoClockStatus;
+  /** Optional inline recovery action (e.g. open the OS permission settings). */
+  action?: { label: string; onClick: () => void };
+}) {
   return (
     <div className={`rounded-lg border p-2.5 ${toneClasses[status.tone]}`} role="status">
       <p className="text-xs font-semibold">{status.title}</p>
       <p className="text-xs mt-0.5 opacity-90">{status.detail}</p>
+      {action && (
+        <button
+          type="button"
+          onClick={action.onClick}
+          className="mt-1.5 text-xs font-semibold underline underline-offset-2"
+        >
+          {action.label}
+        </button>
+      )}
     </div>
   );
 }

@@ -363,6 +363,33 @@ registry.registerPath({
   ...tag('Reports'),
   responses: { ...json200({ type: 'object' }), ...commonErrors },
 });
+registry.registerPath({
+  method: 'get',
+  path: '/reports/attendance-cost',
+  ...tag('Reports'),
+  request: {
+    query: z.object({
+      from: z.string(),
+      to: z.string(),
+      branch: z.string().optional(),
+      department: z.string().optional(),
+      employeeEmail: z.string().optional(),
+    }),
+  },
+  responses: { ...json200({ type: 'object' }), ...commonErrors },
+});
+registry.registerPath({
+  method: 'get',
+  path: '/reports/attendance-alerts',
+  ...tag('Reports'),
+  request: {
+    query: z.object({
+      days: z.string().optional(),
+      grace: z.string().optional(),
+    }),
+  },
+  responses: { ...json200({ type: 'object' }), ...commonErrors },
+});
 
 // ── Settings ──
 registry.registerPath({
