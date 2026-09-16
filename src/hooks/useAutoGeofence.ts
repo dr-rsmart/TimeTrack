@@ -9,6 +9,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   autoGeofenceService,
+  SYSTEM_CLOSE_NOTE_TTL_MS,
   type GeofenceDefinition,
   type AutoGeofenceEvent,
   type AutoGeofenceState,
@@ -267,9 +268,15 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
   const autoGeofenceEnabledRef = useRef(autoGeofenceEnabled);
   autoGeofenceEnabledRef.current = autoGeofenceEnabled;
   const reclockBlockedUntilRef = useRef(0);
+  /** When a system (cron) auto clock-out for this user was last observed via SSE. */
+  const systemCloseNotedAtRef = useRef(0);
 
   // ── Sync active clocked-in state with background service + native shell ──
   useEffect(() => {
+    if (isClockedIn) {
+      // A genuine clock-in makes any pending system-close note irrelevant.
+      systemCloseNotedAtRef.current = 0;
+    }
     if (webMonitoringEnabled) {
       autoGeofenceService.syncClockedIn(isClockedIn);
     } else {
@@ -286,7 +293,18 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
       enabled: enabled && autoGeofenceEnabled,
     });
     if (enabled) {
-      postToNativeShell({ type: 'CLOCK_STATE', clockedIn: isClockedIn });
+      postToNativeShell({
+        type: 'CLOCK_STATE',
+        clockedIn: isClockedIn,
+        // A system (cron) auto close (e.g. shift-end) must NOT arm the native
+        // double clock-in guard — a shift-end close is not a voluntary
+        // on-site clock-out and arming on it would block the next shift's
+        // auto clock-in while the employee remains on site.
+        bySystem:
+          !isClockedIn &&
+          systemCloseNotedAtRef.current > 0 &&
+          Date.now() - systemCloseNotedAtRef.current <= SYSTEM_CLOSE_NOTE_TTL_MS,
+      });
     }
   }, [isClockedIn, enabled, webMonitoringEnabled, autoGeofenceEnabled]);
 
@@ -379,6 +397,13 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
       payload?.autoClockOut &&
       payload.employeeEmail?.toLowerCase() === userEmail?.toLowerCase()
     ) {
+      // Record the close as a SYSTEM (cron) auto-close BEFORE the clock state
+      // flips (the active-session reload resolves after this handler runs), so
+      // neither the web awaiting-exit suppression nor the native
+      // clockedOutInside guard arms on it — a shift-end close must never
+      // block the next shift's auto clock-in.
+      systemCloseNotedAtRef.current = Date.now();
+      autoGeofenceService.noteSystemClockOut();
       void sendNotification(
         'Automatic Clock Out',
         payload.autoClockOutAtShiftEnd

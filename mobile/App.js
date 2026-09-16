@@ -152,6 +152,8 @@ const EXIT_BUFFER_METERS = 200; // grace distance outside radius before clock-ou
 const MAX_ACCURACY_METERS = 150; // fixes worse than this are ignored
 const CONFIRMATIONS = 2; // consecutive samples required to confirm a crossing
 const EVENT_COOLDOWN_MS = 60_000; // minimum time between clock events
+/** Safety expiry for the clockedOutInside suppression (mirrors web AWAITING_EXIT_TTL_MS). */
+const CLOCKED_OUT_INSIDE_TTL_MS = 12 * 60 * 60 * 1000;
 
 // Haversine distance in metres
 function distanceMetres(a, b) {
@@ -276,7 +278,9 @@ async function retryPendingNotification() {
 // DOUBLE CLOCK-IN GUARD (mirrors the web "awaiting exit" flag): when the
 // boundary state says the employee clocked out while still on site
 // (st.clockedOutInside), auto clock-in is suppressed until a fix proves they
-// left every assigned location.
+// left every assigned location. The suppression is only armed by VOLUNTARY
+// clock-outs — system (cron) auto-closes arrive with CLOCK_STATE bySystem and
+// are exempt — and it expires automatically after CLOCKED_OUT_INSIDE_TTL_MS.
 async function processBackgroundLocation({ data, error }) {
   if (error) return;
   if (!data?.locations?.length) return;
@@ -299,10 +303,25 @@ async function processBackgroundLocation({ data, error }) {
           pendingExit: 0,
           lastEventAt: 0,
           clockedOutInside: false,
+          clockedOutInsideSetAt: null,
           pendingAction: null,
           pendingNotification: null,
         };
     if (typeof st.clockedOutInside !== 'boolean') st.clockedOutInside = false;
+    if (typeof st.clockedOutInsideSetAt !== 'number') st.clockedOutInsideSetAt = null;
+    // The double clock-in suppression must never be permanent. Expire flags
+    // armed more than 12h ago, and release legacy flags persisted without a
+    // timestamp (older builds) — otherwise an employee who stayed on site
+    // after a shift-end auto close could NEVER auto clock-in again.
+    if (
+      st.clockedOutInside &&
+      (st.clockedOutInsideSetAt === null ||
+        Date.now() - st.clockedOutInsideSetAt > CLOCKED_OUT_INSIDE_TTL_MS)
+    ) {
+      console.info('[TimeTrack] clockedOutInside suppression expired (12h TTL) — releasing.');
+      st.clockedOutInside = false;
+      st.clockedOutInsideSetAt = null;
+    }
     if (!st.pendingAction || typeof st.pendingAction !== 'object') st.pendingAction = null;
     if (!st.pendingNotification || typeof st.pendingNotification !== 'object')
       st.pendingNotification = null;
@@ -313,8 +332,9 @@ async function processBackgroundLocation({ data, error }) {
     // A NOT-clocked-in user with fresh state remains unseeded so the first
     // confirmed inside fix can perform a legitimate auto clock-in. The
     // clockedOutInside flag is only armed by the explicit CLOCK_STATE
-    // true -> false transition, which represents a real clock-out while the
-    // employee may still be on site.
+    // true -> false transition for a VOLUNTARY clock-out (bySystem closes
+    // are exempt) while the employee may still be on site, and it expires
+    // after CLOCKED_OUT_INSIDE_TTL_MS.
     if (!st.zone) {
       st.zone = clockedIn ? 'inside' : null;
     }
@@ -373,6 +393,7 @@ async function processBackgroundLocation({ data, error }) {
       // A clearly-outside fix releases the double-clock-in suppression.
       if (outside && st.clockedOutInside) {
         st.clockedOutInside = false;
+        st.clockedOutInsideSetAt = null;
       }
 
       if (inside && st.zone !== 'inside') {
@@ -387,6 +408,10 @@ async function processBackgroundLocation({ data, error }) {
           if (st.clockedOutInside) {
             // Double clock-in guard: employee clocked out while still on site.
             // Do NOT re-clock-in until they leave every assigned location.
+            console.info(
+              '[TimeTrack] Auto clock-in suppressed: awaiting a confirmed exit ' +
+                '(clocked out while on site).',
+            );
             continue;
           }
           const pendingAction =
@@ -757,6 +782,8 @@ export default function App() {
                   pendingExit: 0,
                   lastEventAt: 0,
                   clockedOutInside: Boolean(st.clockedOutInside),
+                  clockedOutInsideSetAt:
+                    typeof st.clockedOutInsideSetAt === 'number' ? st.clockedOutInsideSetAt : null,
                   lastClockedIn: st.lastClockedIn,
                   pendingAction: st.pendingAction ?? null,
                   pendingNotification: st.pendingNotification ?? null,
@@ -781,7 +808,11 @@ export default function App() {
         // REAL clocked-in → clocked-out transition happens, arm the native
         // suppression so the background task never instantly re-clocks-in an
         // employee who is still on site. Cleared on the next clock-in or by a
-        // clearly-outside location fix in the background task.
+        // clearly-outside location fix in the background task, and expired
+        // after CLOCKED_OUT_INSIDE_TTL_MS. System (cron) auto-closes arrive
+        // with bySystem: true and are EXEMPT — a shift-end close is not a
+        // voluntary on-site clock-out and must not block the next shift's
+        // auto clock-in (mirrors the web awaiting-exit exemption).
         try {
           const stateRaw = await AsyncStorage.getItem(GEOFENCE_STATE_KEY);
           const st = stateRaw
@@ -792,14 +823,22 @@ export default function App() {
                 pendingExit: 0,
                 lastEventAt: 0,
                 clockedOutInside: false,
+                clockedOutInsideSetAt: null,
                 pendingAction: null,
                 pendingNotification: null,
               };
           if (st.lastClockedIn === true && msg.clockedIn === false) {
-            st.clockedOutInside = true;
+            if (msg.bySystem === true) {
+              st.clockedOutInside = false;
+              st.clockedOutInsideSetAt = null;
+            } else {
+              st.clockedOutInside = true;
+              st.clockedOutInsideSetAt = Date.now();
+            }
           }
           if (msg.clockedIn === true) {
             st.clockedOutInside = false;
+            st.clockedOutInsideSetAt = null;
           }
           st.lastClockedIn = msg.clockedIn;
           await AsyncStorage.setItem(GEOFENCE_STATE_KEY, JSON.stringify(st));

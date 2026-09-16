@@ -95,14 +95,25 @@ export const WATCH_RESTART_DELAYS_MS = [5_000, 10_000, 30_000, 60_000];
 
 /**
  * localStorage key persisting the "awaiting confirmed exit" flag across app
- * restarts. Set when the employee clocks out (manually or automatically) so a
- * reload/reopen while still on site can NEVER instantly auto clock-in again —
- * they must first produce a confirmed OUTSIDE fix (double clock-in fix).
+ * restarts. Set when the employee clocks out VOLUNTARILY while possibly still
+ * on site, so a reload/reopen can NEVER instantly auto clock-in again — they
+ * must first produce a confirmed OUTSIDE fix (double clock-in fix). System
+ * (cron) auto-closes such as the shift-end clock-out are exempt (see
+ * noteSystemClockOut) and the flag carries a 12h safety TTL.
  */
 const AWAITING_EXIT_KEY = 'timetrack_awaiting_exit';
 
 /** Safety expiry for the persisted awaiting-exit flag (12 hours). */
 const AWAITING_EXIT_TTL_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * Validity window for a `noteSystemClockOut()` annotation. The clock-out
+ * observation (clock-state sync) arrives asynchronously after the SSE payload
+ * that identifies the close as a system (cron) auto-close, so the annotation
+ * needs a short grace window to still be visible when the transition is
+ * processed.
+ */
+export const SYSTEM_CLOSE_NOTE_TTL_MS = 60_000;
 
 export interface AutoGeofenceEvent {
   type: AutoGeofenceEventType;
@@ -189,6 +200,10 @@ class AutoGeofenceService {
    * Persisted to localStorage so it survives app restarts/page reloads.
    */
   private awaitingExit = false;
+  /** When the in-memory awaiting-exit flag was armed (live TTL enforcement). */
+  private awaitingExitSetAt: number | null = null;
+  /** When a system (cron) auto clock-out was last annotated (see noteSystemClockOut). */
+  private systemClockOutNotedAt = 0;
   /** Last clocked-in state synced by the app (transition detection). */
   private lastSyncedClockedIn: boolean | null = null;
   /** Live clocked-in knowledge (drives the inside-but-not-clocked recovery path). */
@@ -210,6 +225,9 @@ class AutoGeofenceService {
         localStorage.removeItem(AWAITING_EXIT_KEY);
         return false;
       }
+      // Mirror the persisted arming time so the TTL can also be enforced live
+      // while monitoring runs (not only when monitoring starts).
+      this.awaitingExitSetAt = parsed.setAt;
       return true;
     } catch {
       return false;
@@ -219,6 +237,7 @@ class AutoGeofenceService {
   private setAwaitingExit(value: boolean): void {
     if (this.awaitingExit === value) return;
     this.awaitingExit = value;
+    this.awaitingExitSetAt = value ? Date.now() : null;
     try {
       if (value) {
         localStorage.setItem(AWAITING_EXIT_KEY, JSON.stringify({ setAt: Date.now() }));
@@ -228,6 +247,34 @@ class AutoGeofenceService {
     } catch {
       /* storage unavailable — in-memory flag still protects this session */
     }
+  }
+
+  /**
+   * Release the awaiting-exit suppression once its 12h safety TTL has elapsed.
+   * The persisted flag is re-read when monitoring starts, but the in-memory
+   * flag would otherwise live for the whole session — without this, an
+   * employee who stays on site (e.g. a 01:00 shift after a 17:00 close) could
+   * be suppressed for the entire session with no way to recover.
+   */
+  private releaseExpiredAwaitingExit(): void {
+    if (!this.awaitingExit) return;
+    const setAt = this.awaitingExitSetAt;
+    if (setAt === null || Date.now() - setAt > AWAITING_EXIT_TTL_MS) {
+      console.info('[AutoGeofence] Awaiting-exit suppression expired (12h TTL) — releasing.');
+      this.setAwaitingExit(false);
+    }
+  }
+
+  /**
+   * Note that a clock-out about to be observed is a SYSTEM (cron) auto-close —
+   * e.g. the shift-end auto clock-out announced via SSE. The next clocked-in →
+   * clocked-out sync then does NOT arm the awaiting-exit suppression: a
+   * shift-end close is not a voluntary "leaving site" clock-out and must not
+   * block the next shift's auto clock-in. Mirrors the server re-clock guard's
+   * `system:cron` bypass (server/src/application/attendance.ts).
+   */
+  noteSystemClockOut(): void {
+    this.systemClockOutNotedAt = Date.now();
   }
 
   /**
@@ -495,6 +542,10 @@ class AutoGeofenceService {
       this.setAwaitingExit(false);
     }
 
+    // The 12h safety expiry must also apply while monitoring runs — the
+    // persisted flag is only re-read when monitoring starts.
+    this.releaseExpiredAwaitingExit();
+
     // Emit live position update (accepted fixes only — UI never sees glitch jumps)
     this.emit({
       type: 'POSITION_UPDATE',
@@ -521,6 +572,11 @@ class AutoGeofenceService {
             // site — swallow the enter event. They must first leave every
             // assigned location (which clears the flag) before auto clock-in
             // is re-armed.
+            console.info(
+              '[AutoGeofence] Auto clock-in suppressed: awaiting a confirmed exit ' +
+                '(clocked out while on site). Leave every assigned location, or wait ' +
+                'for the 12h safety expiry.',
+            );
           } else {
             this.emit({
               type: 'ENTERED_GEOFENCE',
@@ -587,7 +643,9 @@ class AutoGeofenceService {
    * transition while still inside, the awaiting-exit flag is armed
    * (persisted). While armed, ENTERED_GEOFENCE events are suppressed — even
    * across app restarts/page reloads — until a fix proves the employee left
-   * every assigned location.
+   * every assigned location, or the 12h safety TTL elapses. Clock-outs
+   * annotated as SYSTEM (cron) auto-closes via noteSystemClockOut() are
+   * exempt and never arm the suppression.
    */
   syncClockedIn(isClockedIn: boolean): void {
     const wasClockedIn = this.lastSyncedClockedIn;
@@ -597,6 +655,7 @@ class AutoGeofenceService {
     if (isClockedIn) {
       this.previousState = 'INSIDE';
       this.setAwaitingExit(false);
+      this.systemClockOutNotedAt = 0;
       return;
     }
 
@@ -613,8 +672,25 @@ class AutoGeofenceService {
     // last known zone: if the employee is already outside, the next accepted
     // outside fix releases it immediately; if they are on site (or GPS has
     // not fixed yet), re-clock-in stays blocked until they genuinely leave.
+    //
+    // SYSTEM (cron) closes are EXEMPT: a shift-end/working-end auto close is
+    // not a voluntary "leaving site" clock-out, and arming on it blocks the
+    // next shift's auto clock-in (e.g. a 17:00 shift-end close followed by a
+    // 01:00 shift while the employee stays on site). Mirrors the server
+    // re-clock guard's `system:cron` bypass. The note is consumed on every
+    // sync so it can never leak into a later manual clock-out.
+    const systemClose =
+      this.systemClockOutNotedAt > 0 &&
+      Date.now() - this.systemClockOutNotedAt <= SYSTEM_CLOSE_NOTE_TTL_MS;
+    this.systemClockOutNotedAt = 0;
     if (wasClockedIn === true) {
-      this.setAwaitingExit(true);
+      if (systemClose) {
+        console.info(
+          '[AutoGeofence] Clock-out was a system auto-close — awaiting-exit suppression NOT armed.',
+        );
+      } else {
+        this.setAwaitingExit(true);
+      }
     }
   }
 
