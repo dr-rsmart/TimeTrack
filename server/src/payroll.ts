@@ -11,6 +11,7 @@ import Decimal from 'decimal.js';
 // ── Multiplier & threshold defaults ──
 export const DEFAULT_OVERTIME_THRESHOLD_HOURS = 8;
 export const DEFAULT_SUNDAY_MULTIPLIER = 1.5;
+export const DEFAULT_SATURDAY_MULTIPLIER = 1.5;
 export const DEFAULT_HOLIDAY_MULTIPLIER = 2.0;
 export const DEFAULT_MONTHLY_THRESHOLD_HOURS = 195;
 
@@ -42,6 +43,8 @@ export interface PayrollSettings {
   monthlyOvertimeThresholdHours: number;
   sundayOvertimeEnabled: boolean;
   sundayOvertimeMultiplier: number;
+  saturdayOvertimeEnabled: boolean;
+  saturdayOvertimeMultiplier: number;
   publicHolidayOvertimeEnabled: boolean;
   publicHolidayOvertimeMultiplier: number;
   publicHolidays: string[];
@@ -54,6 +57,8 @@ export function defaultSettings(): PayrollSettings {
     monthlyOvertimeThresholdHours: DEFAULT_MONTHLY_THRESHOLD_HOURS,
     sundayOvertimeEnabled: true,
     sundayOvertimeMultiplier: DEFAULT_SUNDAY_MULTIPLIER,
+    saturdayOvertimeEnabled: false,
+    saturdayOvertimeMultiplier: DEFAULT_SATURDAY_MULTIPLIER,
     publicHolidayOvertimeEnabled: true,
     publicHolidayOvertimeMultiplier: DEFAULT_HOLIDAY_MULTIPLIER,
     publicHolidays: [],
@@ -64,10 +69,12 @@ export interface OvertimeResult {
   ordinaryHours: number;
   dailyOvertimeHours: number;
   sundayOvertimeHours: number;
+  saturdayOvertimeHours: number;
   holidayOvertimeHours: number;
   monthlyOvertimeHours: number;
   totalOvertimeHours: number;
   sundayWeightedOvertime: number;
+  saturdayWeightedOvertime: number;
   holidayWeightedOvertime: number;
   totalWeightedOvertime: number;
   totalHours: number;
@@ -96,6 +103,8 @@ export function computeOvertime(
     monthlyOvertimeThresholdHours,
     sundayOvertimeEnabled,
     sundayOvertimeMultiplier,
+    saturdayOvertimeEnabled,
+    saturdayOvertimeMultiplier,
     publicHolidayOvertimeEnabled,
     publicHolidayOvertimeMultiplier,
     publicHolidays,
@@ -106,6 +115,7 @@ export function computeOvertime(
   let ordinaryHours = D(0);
   let dailyOvertimeHours = D(0);
   let sundayOvertimeHours = D(0);
+  let saturdayOvertimeHours = D(0);
   let holidayOvertimeHours = D(0);
   let monthlyOvertimeHours = D(0);
 
@@ -115,6 +125,7 @@ export function computeOvertime(
   const threshold = D(overtimeThresholdHours);
   const monthlyThreshold = D(monthlyOvertimeThresholdHours);
   const sundayMult = D(sundayOvertimeMultiplier);
+  const saturdayMult = D(saturdayOvertimeMultiplier);
   const holidayMult = D(publicHolidayOvertimeMultiplier);
 
   for (const date of sortedDates) {
@@ -126,6 +137,7 @@ export function computeOvertime(
     const dt = new Date(`${date}T12:00:00Z`);
     const monthKey = date.slice(0, 7);
     const isSunday = dt.getUTCDay() === 0;
+    const isSaturday = dt.getUTCDay() === 6;
     const isHoliday = holidaySet.has(date);
     const leaveType = shiftTypeByDate ? normaliseLeaveType(shiftTypeByDate[date]) : null;
 
@@ -138,15 +150,17 @@ export function computeOvertime(
       continue;
     }
 
-    // Public Holiday multiplier takes precedence over Sunday
+    // Public Holiday multiplier takes precedence over Sunday, then Saturday
     if (isHoliday && publicHolidayOvertimeEnabled) {
       holidayOvertimeHours = holidayOvertimeHours.plus(dayHours);
     } else if (isSunday && sundayOvertimeEnabled) {
       sundayOvertimeHours = sundayOvertimeHours.plus(dayHours);
+    } else if (isSaturday && saturdayOvertimeEnabled) {
+      saturdayOvertimeHours = saturdayOvertimeHours.plus(dayHours);
     } else if (useMonthlyOvertimeThreshold) {
       // Monthly mode intentionally ignores the daily threshold: every regular
       // workday hour remains ordinary until the calendar month's ordinary-hour
-      // cap is reached. Sundays and public holidays were classified above.
+      // cap is reached. Sundays, Saturdays and public holidays were classified above.
       ordinaryHours = ordinaryHours.plus(dayHours);
       monthlyOrdinary[monthKey] = monthlyOrdinary[monthKey].plus(dayHours);
     } else if (dayHours.lte(threshold)) {
@@ -171,13 +185,16 @@ export function computeOvertime(
   }
 
   const sundayWeighted = sundayOvertimeHours.times(sundayMult);
+  const saturdayWeighted = saturdayOvertimeHours.times(saturdayMult);
   const holidayWeighted = holidayOvertimeHours.times(holidayMult);
   const totalOvertimeHours = dailyOvertimeHours
     .plus(sundayOvertimeHours)
+    .plus(saturdayOvertimeHours)
     .plus(holidayOvertimeHours)
     .plus(monthlyOvertimeHours);
   const totalWeightedOvertime = dailyOvertimeHours
     .plus(sundayWeighted)
+    .plus(saturdayWeighted)
     .plus(holidayWeighted)
     .plus(monthlyOvertimeHours);
   const totalHours = ordinaryHours.plus(totalOvertimeHours);
@@ -186,10 +203,12 @@ export function computeOvertime(
     ordinaryHours: toNum(ordinaryHours),
     dailyOvertimeHours: toNum(dailyOvertimeHours),
     sundayOvertimeHours: toNum(sundayOvertimeHours),
+    saturdayOvertimeHours: toNum(saturdayOvertimeHours),
     holidayOvertimeHours: toNum(holidayOvertimeHours),
     monthlyOvertimeHours: toNum(monthlyOvertimeHours),
     totalOvertimeHours: toNum(totalOvertimeHours),
     sundayWeightedOvertime: toNum(sundayWeighted),
+    saturdayWeightedOvertime: toNum(saturdayWeighted),
     holidayWeightedOvertime: toNum(holidayWeighted),
     totalWeightedOvertime: toNum(totalWeightedOvertime),
     totalHours: toNum(totalHours),

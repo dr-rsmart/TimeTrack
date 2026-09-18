@@ -616,7 +616,7 @@ export const timeEntryApi = {
     longitude?: number,
     employeeEmail?: string,
     justification?: string,
-    offlineOpts?: { capturedAt?: number; idempotencyKey?: string },
+    offlineOpts?: { capturedAt?: number; idempotencyKey?: string; automatic?: boolean },
   ) =>
     api.post<TimeEntry>(
       '/time-entries/clock-in',
@@ -630,6 +630,9 @@ export const timeEntryApi = {
         ...(offlineOpts?.capturedAt
           ? { offline: true, capturedAt: new Date(offlineOpts.capturedAt).toISOString() }
           : {}),
+        // Geofence-automation flag: subjects this punch to the server-side
+        // once-per-working-day limit after a system (cron) working-end close.
+        ...(offlineOpts?.automatic ? { automatic: true } : {}),
       },
       {
         'Idempotency-Key': offlineOpts?.idempotencyKey ?? createIdempotencyKey('clock-in'),
@@ -688,10 +691,12 @@ export interface PayrollRow {
   ordinaryHours: number;
   dailyOvertimeHours: number;
   sundayOvertimeHours: number;
+  saturdayOvertimeHours: number;
   holidayOvertimeHours: number;
   monthlyOvertimeHours: number;
   totalOvertimeHours: number;
   sundayWeightedOvertime: number;
+  saturdayWeightedOvertime: number;
   holidayWeightedOvertime: number;
   totalWeightedOvertime: number;
   totalHours: number;
@@ -814,6 +819,13 @@ export const reportApi = {
 };
 
 // ── Settings ──
+/** One per-day working-hours slot (migration 20), e.g. Mon–Thu 08:00–17:00. */
+export interface WorkingHoursSchedule {
+  days: string[];
+  startTime: string;
+  endTime: string;
+}
+
 export interface CompanySettings {
   id: string;
   ordinaryHoursPerDay: number;
@@ -823,12 +835,16 @@ export interface CompanySettings {
   monthlyOvertimeThresholdHours: number;
   sundayOvertimeEnabled: boolean;
   sundayOvertimeMultiplier: number;
+  saturdayOvertimeEnabled: boolean;
+  saturdayOvertimeMultiplier: number;
   publicHolidayOvertimeEnabled: boolean;
   publicHolidayOvertimeMultiplier: number;
   publicHolidays: string[];
   defaultWorkingStartTime: string;
   defaultWorkingEndTime: string;
   defaultWorkingDays: string[];
+  /** Per-day default schedules; empty = company-default auto clock-out disabled. */
+  defaultWorkingHoursSchedules: WorkingHoursSchedule[];
 }
 
 export interface Geofence {
@@ -842,6 +858,8 @@ export interface Geofence {
   workingStartTime: string;
   workingEndTime: string;
   workingDays: string[];
+  /** Per-day schedules; empty = location-hours auto clock-out disabled. */
+  workingHoursSchedules: WorkingHoursSchedule[];
 }
 
 export const settingsApi = {

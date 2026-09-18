@@ -13,7 +13,16 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { motion } from 'framer-motion';
 import { Plus, ChevronLeft, ChevronRight, Trash2, CalendarDays, Info } from 'lucide-react';
 import { toast } from 'sonner';
-import { shiftApi, employeeApi, type Shift, type Employee, ApiError } from '../services/api';
+import {
+  shiftApi,
+  employeeApi,
+  settingsApi,
+  type Shift,
+  type Employee,
+  type Geofence,
+  type WorkingHoursSchedule,
+  ApiError,
+} from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useSSE } from '../hooks/useSSE';
 import {
@@ -104,6 +113,10 @@ const emptyForm = {
   startTime: '08:00',
   endTime: '17:00',
   shiftType: 'full_day',
+  // Selected Geofence Location ID ('' = none). The location's per-day working
+  // hours pre-fill the start/end times and the weekly schedule, and its name
+  // is stored on the shift (Shift.location).
+  location: '',
   notes: '',
   // Range schedules default to the common Mon-Sat/Sunday-closed template.
   useCustomDailyHours: true,
@@ -125,6 +138,7 @@ export default function Shifts() {
   const [items, setItems] = useState<Shift[]>([]);
   const [total, setTotal] = useState(0);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [geofences, setGeofences] = useState<Geofence[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -173,6 +187,12 @@ export default function Shifts() {
       employeeApi
         .list({ limit: 500 })
         .then((res) => setEmployees(res.items))
+        .catch(() => {});
+      // Geofence Locations power the shift-creation location selector and the
+      // Mon–Sun working-hours summary (their schedules pre-fill shift times).
+      settingsApi
+        .listGeofences()
+        .then((res) => setGeofences(res.geofences.filter((g) => g.isActive)))
         .catch(() => {});
     }
   }, [canManage]);
@@ -301,6 +321,93 @@ export default function Shifts() {
   }, [form.date, form.useCustomDailyHours, form.weeklySchedule, rangeDays]);
   const projectedShifts = scheduledDays * form.employeeIds.length;
 
+  // ── Geofence Location selector (per-day working hours) ──
+  /** Effective per-day schedules of a geofence (migration 20, legacy fallback). */
+  const geofenceSchedules = (gf: Geofence): WorkingHoursSchedule[] =>
+    gf.workingHoursSchedules ??
+    (gf.workingDays.length > 0
+      ? [{ days: gf.workingDays, startTime: gf.workingStartTime, endTime: gf.workingEndTime }]
+      : []);
+
+  const scheduleForDay = (gf: Geofence, dayName: string): WorkingHoursSchedule | undefined =>
+    geofenceSchedules(gf).find((s) => s.days.includes(dayName));
+
+  /** Geofence IDs assigned to the employee(s) currently selected in the form. */
+  const assignedGeofenceIds = useMemo(() => {
+    const ids = new Set<string>();
+    const relevant = editing
+      ? employees.filter((e) => e.id === form.employeeId)
+      : employees.filter((e) => form.employeeIds.includes(e.id));
+    for (const e of relevant) {
+      if (e.geofenceId) ids.add(e.geofenceId);
+      for (const gid of e.geofenceIds ?? []) ids.add(gid);
+    }
+    return ids;
+  }, [employees, editing, form.employeeId, form.employeeIds]);
+
+  /**
+   * Selector order: the selected employee's assigned geofence(s) FIRST,
+   * labelled "(default)" in the dropdown, then the remaining locations.
+   */
+  const geofenceOptions = useMemo(
+    () =>
+      [...geofences].sort(
+        (a, b) =>
+          Number(assignedGeofenceIds.has(b.id)) - Number(assignedGeofenceIds.has(a.id)) ||
+          a.name.localeCompare(b.name),
+      ),
+    [geofences, assignedGeofenceIds],
+  );
+
+  const selectedGeofence = useMemo(
+    () => geofences.find((g) => g.id === form.location) ?? null,
+    [geofences, form.location],
+  );
+
+  /**
+   * Selecting a Geofence Location applies its per-day hours: the shared
+   * start/end times follow the schedule for the form's start date, and the
+   * range weekly schedule is filled per weekday (closed days are disabled).
+   */
+  const applyGeofenceLocation = (geofenceId: string) => {
+    setForm((f) => {
+      const gf = geofences.find((g) => g.id === geofenceId);
+      if (!gf) return { ...f, location: geofenceId };
+      const dateObj = parseInputDate(f.date);
+      const daySchedule = dateObj ? scheduleForDay(gf, DAY_NAMES[dateObj.getDay()]) : undefined;
+      const weekly = { ...f.weeklySchedule };
+      for (let i = 0; i < 7; i++) {
+        const s = scheduleForDay(gf, DAY_NAMES[i]);
+        weekly[i] = s
+          ? { enabled: true, startTime: s.startTime, endTime: s.endTime, shiftType: 'full_day' }
+          : { ...weekly[i], enabled: false };
+      }
+      return {
+        ...f,
+        location: geofenceId,
+        startTime: daySchedule?.startTime ?? f.startTime,
+        endTime: daySchedule?.endTime ?? f.endTime,
+        weeklySchedule: weekly,
+      };
+    });
+  };
+
+  // Changing the start date while a Geofence Location is selected re-applies
+  // that day's hours (e.g. Friday 08:00–15:00 vs Monday 08:00–17:00).
+  useEffect(() => {
+    if (!selectedGeofence) return;
+    const dateObj = parseInputDate(form.date);
+    if (!dateObj) return;
+    const s = scheduleForDay(selectedGeofence, DAY_NAMES[dateObj.getDay()]);
+    if (!s) return;
+    setForm((f) =>
+      f.startTime === s.startTime && f.endTime === s.endTime
+        ? f
+        : { ...f, startTime: s.startTime, endTime: s.endTime },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.date, selectedGeofence?.id]);
+
   const openCreate = (dateStr?: string) => {
     setEditing(null);
     setForm({
@@ -326,6 +433,8 @@ export default function Shifts() {
       notes: shift.notes ?? '',
       employeeIds: [],
       endDate: '',
+      // Re-select the geofence whose name is stored on the shift (if any).
+      location: geofences.find((g) => g.name === shift.location)?.id ?? '',
     });
     setModalOpen(true);
   };
@@ -336,6 +445,8 @@ export default function Shifts() {
       toast.error('End time must be after start time.');
       return;
     }
+    // The shift stores the selected Geofence Location's NAME (Shift.location).
+    const locationName = selectedGeofence?.name ?? form.location ?? undefined;
     if (
       !editing &&
       (rangeDays ?? 1) > 1 &&
@@ -362,6 +473,7 @@ export default function Shifts() {
           endTime: form.endTime,
           shiftType: form.shiftType,
           employeeId: form.employeeId || null,
+          location: locationName ?? null,
           notes: form.notes || null,
         });
         toast.success('Shift updated');
@@ -374,6 +486,7 @@ export default function Shifts() {
           startTime: form.startTime,
           endTime: form.endTime,
           shiftType: form.shiftType,
+          location: locationName,
           notes: form.notes || undefined,
           weeklySchedule:
             (rangeDays ?? 1) > 1 && form.useCustomDailyHours ? form.weeklySchedule : undefined,
@@ -397,6 +510,7 @@ export default function Shifts() {
           shiftType: form.shiftType,
           employeeId: form.employeeIds[0] ?? null,
           branch: form.branch || undefined,
+          location: locationName,
           notes: form.notes || null,
         });
         toast.success('Shift created');
@@ -935,29 +1049,77 @@ export default function Shifts() {
             </>
           )}
 
-          {/* Shared fields */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Geofence Location — its per-day working hours pre-fill the times below */}
+          {canManage && geofenceOptions.length > 0 && (
             <div className="space-y-2">
-              <Label htmlFor="s-start">Start time</Label>
-              <Input
-                id="s-start"
-                type="time"
-                required
-                value={form.startTime}
-                onChange={(e) => setForm({ ...form, startTime: e.target.value })}
-              />
+              <Label htmlFor="s-geofence">Geofence Location</Label>
+              <Select
+                id="s-geofence"
+                value={form.location}
+                onChange={(e) => applyGeofenceLocation(e.target.value)}
+              >
+                <option value="">— No location —</option>
+                {geofenceOptions.map((gf) => (
+                  <option key={gf.id} value={gf.id}>
+                    {gf.name}
+                    {assignedGeofenceIds.has(gf.id) ? ' (default)' : ''}
+                  </option>
+                ))}
+              </Select>
+              {selectedGeofence && (
+                <div className="rounded-lg bg-muted/70 border border-border/60 p-3 space-y-1.5">
+                  <p className="text-xs font-semibold">
+                    <Info className="mr-1.5 inline h-3.5 w-3.5" />
+                    Working hours at {selectedGeofence.name} — applied to the selected date
+                    {form.endDate ? 's' : ''}
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    {DAY_NAMES.slice(1)
+                      .concat(DAY_NAMES[0])
+                      .map((day) => {
+                        const s = scheduleForDay(selectedGeofence, day);
+                        return (
+                          <span key={day} className={s ? 'text-foreground font-medium' : ''}>
+                            {day.slice(0, 3)}: {s ? `${s.startTime}–${s.endTime}` : 'Closed'}
+                          </span>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="s-end">End time</Label>
-              <Input
-                id="s-end"
-                type="time"
-                required
-                value={form.endTime}
-                onChange={(e) => setForm({ ...form, endTime: e.target.value })}
-              />
+          )}
+
+          {/* Shared fields.
+              Start/End time stay editable when "No location" is selected; when
+              a Geofence Location is chosen they are HIDDEN — the shift times
+              come from that location's per-day working hours (see the Mon–Sun
+              summary above). The values remain in form state (pre-filled by
+              applyGeofenceLocation) so submission still sends valid times. */}
+          {!selectedGeofence && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="s-start">Start time</Label>
+                <Input
+                  id="s-start"
+                  type="time"
+                  required
+                  value={form.startTime}
+                  onChange={(e) => setForm({ ...form, startTime: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="s-end">End time</Label>
+                <Input
+                  id="s-end"
+                  type="time"
+                  required
+                  value={form.endTime}
+                  onChange={(e) => setForm({ ...form, endTime: e.target.value })}
+                />
+              </div>
             </div>
-          </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="s-type">Shift type</Label>
             <Select

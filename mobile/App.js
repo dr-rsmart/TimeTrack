@@ -197,7 +197,10 @@ async function requestClock(kind, pos, idempotencyKey, offlineInfo) {
   const requestKey =
     idempotencyKey || `native-${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const body = isClockIn
-    ? { latitude: pos.latitude, longitude: pos.longitude }
+    ? // Native punches are ALWAYS geofence automation — the automatic flag
+      // subjects them to the server's once-per-working-day limit after a
+      // system (cron) working-end close (409 DAILY_SESSION_LIMIT).
+      { latitude: pos.latitude, longitude: pos.longitude, automatic: true }
     : { breakMinutes: 0, latitude: pos.latitude, longitude: pos.longitude };
   if (offlineInfo && typeof offlineInfo.capturedAt === 'number') {
     // Offline outbox replay: the server stamps the entry at the ORIGINAL
@@ -347,9 +350,10 @@ async function retryPendingNotification() {
 // DOUBLE CLOCK-IN GUARD (mirrors the web "awaiting exit" flag): when the
 // boundary state says the employee clocked out while still on site
 // (st.clockedOutInside), auto clock-in is suppressed until a fix proves they
-// left every assigned location. The suppression is only armed by VOLUNTARY
-// clock-outs — system (cron) auto-closes arrive with CLOCK_STATE bySystem and
-// are exempt — and it expires automatically after CLOCKED_OUT_INSIDE_TTL_MS.
+// left every assigned location. The suppression is armed by VOLUNTARY
+// clock-outs AND by system (cron) auto-closes (CLOCK_STATE bySystem) — a
+// working-end close must never be followed by an instant re-clock-in on
+// site — and it expires automatically after CLOCKED_OUT_INSIDE_TTL_MS.
 async function processBackgroundLocation({ data, error }) {
   if (error) {
     await updateAutoClockDiagnostics({ taskError: true });
@@ -408,9 +412,9 @@ async function processBackgroundLocation({ data, error }) {
     // user is treated as INSIDE so clock-out can fire on the first crossing.
     // A NOT-clocked-in user with fresh state remains unseeded so the first
     // confirmed inside fix can perform a legitimate auto clock-in. The
-    // clockedOutInside flag is only armed by the explicit CLOCK_STATE
-    // true -> false transition for a VOLUNTARY clock-out (bySystem closes
-    // are exempt) while the employee may still be on site, and it expires
+    // clockedOutInside flag is armed by the explicit CLOCK_STATE
+    // true -> false transition (voluntary AND system/cron closes) while the
+    // employee may still be on site, and it expires
     // after CLOCKED_OUT_INSIDE_TTL_MS.
     if (!st.zone) {
       st.zone = clockedIn ? 'inside' : null;
@@ -536,6 +540,14 @@ async function processBackgroundLocation({ data, error }) {
           } else if (reclockBlocked) {
             // Server re-clock guard: too soon after the last clock-out. Leave
             // the zone unset so the next confirming sample retries naturally.
+            st.lastEventAt = Date.now();
+          } else if (status === 409 && resBody?.code === 'DAILY_SESSION_LIMIT') {
+            // Today's session was already closed automatically at the
+            // configured workday end. Arm the double clock-in guard so the
+            // background task stops trying to re-clock-in on site; a
+            // confirmed exit (or the 12h TTL) releases it for the next shift.
+            st.clockedOutInside = true;
+            st.clockedOutInsideSetAt = Date.now();
             st.lastEventAt = Date.now();
           }
           // 401 (expired token) or 403: leave state untouched — the web app
@@ -1152,14 +1164,15 @@ export default function App() {
       if (msg.type === 'CLOCK_STATE' && typeof msg.clockedIn === 'boolean') {
         await AsyncStorage.setItem(CLOCKED_IN_KEY, String(msg.clockedIn));
         // Double clock-in guard (mirrors the web awaiting-exit flag): when a
-        // REAL clocked-in → clocked-out transition happens, arm the native
+        // clocked-in → clocked-out transition happens, arm the native
         // suppression so the background task never instantly re-clocks-in an
         // employee who is still on site. Cleared on the next clock-in or by a
         // clearly-outside location fix in the background task, and expired
         // after CLOCKED_OUT_INSIDE_TTL_MS. System (cron) auto-closes arrive
-        // with bySystem: true and are EXEMPT — a shift-end close is not a
-        // voluntary on-site clock-out and must not block the next shift's
-        // auto clock-in (mirrors the web awaiting-exit exemption).
+        // with bySystem: true and ALSO arm the guard (stakeholder report
+        // 2026-09): a working-end close while the employee is still on site
+        // must not be followed by an instant automatic re-clock-in — the 12h
+        // TTL releases it before the next shift (mirrors the web behaviour).
         try {
           const stateRaw = await AsyncStorage.getItem(GEOFENCE_STATE_KEY);
           const st = stateRaw
@@ -1175,13 +1188,8 @@ export default function App() {
                 pendingNotification: null,
               };
           if (st.lastClockedIn === true && msg.clockedIn === false) {
-            if (msg.bySystem === true) {
-              st.clockedOutInside = false;
-              st.clockedOutInsideSetAt = null;
-            } else {
-              st.clockedOutInside = true;
-              st.clockedOutInsideSetAt = Date.now();
-            }
+            st.clockedOutInside = true;
+            st.clockedOutInsideSetAt = Date.now();
           }
           if (msg.clockedIn === true) {
             await updateAutoClockDiagnostics({ failure: null });

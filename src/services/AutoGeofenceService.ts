@@ -482,6 +482,12 @@ class AutoGeofenceService {
     if (geofences.length === 0) return;
 
     // ── Distance profile across all monitored geofences ──
+    // The OUTSIDE test is accuracy-compensated (distance − accuracy), matching
+    // the native shell: a fix whose error bar still reaches the geofence can
+    // never prove the employee left, which kills indoor Wi-Fi/cell flapping
+    // that previously fired spurious auto clock-outs.
+    const acc =
+      typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > 0 ? accuracy : 0;
     let nearest = geofences[0];
     let nearestDistance = Infinity;
     let insideAny = false;
@@ -493,7 +499,7 @@ class AutoGeofenceService {
         nearest = gf;
       }
       if (d <= gf.radius_meters) insideAny = true;
-      if (d <= gf.radius_meters + EXIT_BUFFER_METERS) outsideAll = false;
+      if (d - acc <= gf.radius_meters + EXIT_BUFFER_METERS) outsideAll = false;
     }
 
     // ── 1. Accuracy gate: drop fixes the browser itself reports as unreliable ──
@@ -665,8 +671,9 @@ class AutoGeofenceService {
    * (persisted). While armed, ENTERED_GEOFENCE events are suppressed — even
    * across app restarts/page reloads — until a fix proves the employee left
    * every assigned location, or the 12h safety TTL elapses. Clock-outs
-   * annotated as SYSTEM (cron) auto-closes via noteSystemClockOut() are
-   * exempt and never arm the suppression.
+   * annotated as SYSTEM (cron) auto-closes via noteSystemClockOut() ALSO arm
+   * the suppression (with the same 12h TTL) so a working-end close is never
+   * followed by an instant automatic re-clock-in on site.
    */
   syncClockedIn(isClockedIn: boolean): void {
     const wasClockedIn = this.lastSyncedClockedIn;
@@ -694,12 +701,14 @@ class AutoGeofenceService {
     // outside fix releases it immediately; if they are on site (or GPS has
     // not fixed yet), re-clock-in stays blocked until they genuinely leave.
     //
-    // SYSTEM (cron) closes are EXEMPT: a shift-end/working-end auto close is
-    // not a voluntary "leaving site" clock-out, and arming on it blocks the
-    // next shift's auto clock-in (e.g. a 17:00 shift-end close followed by a
-    // 01:00 shift while the employee stays on site). Mirrors the server
-    // re-clock guard's `system:cron` bypass. The note is consumed on every
-    // sync so it can never leak into a later manual clock-out.
+    // SYSTEM (cron) closes ALSO arm the suppression (stakeholder report
+    // 2026-09): a working-end auto close while the employee is still on site
+    // must NOT be followed by an instant automatic re-clock-in — that cascade
+    // produced multiple spurious clock-ins/outs per day. The 12h TTL expires
+    // overnight so the NEXT shift's auto clock-in still works, and the server
+    // DAILY_SESSION_LIMIT guard backs this up for the same business day.
+    // The note is consumed on every sync so it can never leak into a later
+    // manual clock-out.
     const systemClose =
       this.systemClockOutNotedAt > 0 &&
       Date.now() - this.systemClockOutNotedAt <= SYSTEM_CLOSE_NOTE_TTL_MS;
@@ -707,11 +716,10 @@ class AutoGeofenceService {
     if (wasClockedIn === true) {
       if (systemClose) {
         console.info(
-          '[AutoGeofence] Clock-out was a system auto-close — awaiting-exit suppression NOT armed.',
+          '[AutoGeofence] Clock-out was a system auto-close — awaiting-exit suppression armed until a confirmed exit (or the 12h TTL).',
         );
-      } else {
-        this.setAwaitingExit(true);
       }
+      this.setAwaitingExit(true);
     }
   }
 

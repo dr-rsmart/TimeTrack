@@ -30,6 +30,7 @@ const TERMINAL_ERROR_CODES = new Set([
   'OFFLINE_PUNCH_EXPIRED',
   'ALREADY_CLOCKED_IN',
   'RECLOCK_GUARD',
+  'DAILY_SESSION_LIMIT',
   'GEOFENCE_VIOLATION',
   'NO_ACTIVE_SESSION',
   'BAD_REQUEST',
@@ -124,7 +125,13 @@ export async function drainPunchOutbox(): Promise<void> {
       const opts = { capturedAt: punch.capturedAt, idempotencyKey: punch.key };
       try {
         if (punch.kind === 'in') {
-          await timeEntryApi.clockIn(punch.latitude, punch.longitude, undefined, undefined, opts);
+          // Outbox punches are ALWAYS geofence automation — replay them with
+          // the automatic flag so the server's once-per-working-day limit
+          // after a system (cron) close applies to offline replays too.
+          await timeEntryApi.clockIn(punch.latitude, punch.longitude, undefined, undefined, {
+            ...opts,
+            automatic: true,
+          });
         } else {
           await timeEntryApi.clockOut(
             punch.breakMinutes ?? 0,

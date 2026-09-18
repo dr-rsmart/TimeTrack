@@ -17,6 +17,7 @@ import {
 import { logAudit, getClientIp, computeChanges } from '../audit.js';
 import { broadcastScoped } from '../sse.js';
 import { haversineDistance } from '../geoValidationService.js';
+import { parseWorkingHoursSchedules, type WorkingHoursSchedule } from '../workingHoursSchedules.js';
 import {
   badRequest,
   notFound,
@@ -29,6 +30,25 @@ import {
 const router = Router();
 
 router.use(requireAuth);
+
+/**
+ * Keep the legacy single-hours columns in sync with the FIRST per-day
+ * schedule (migration 20) so older clients and reports keep working while
+ * the cron job uses the schedule list.
+ */
+function legacyHoursSync(
+  schedules: unknown,
+  keys: { start: string; end: string; days: string },
+): Record<string, unknown> {
+  if (!Array.isArray(schedules)) return {};
+  const first = schedules[0] as WorkingHoursSchedule | undefined;
+  if (!first) return {};
+  return {
+    [keys.start]: first.startTime,
+    [keys.end]: first.endTime,
+    [keys.days]: first.days,
+  };
+}
 
 // ── GET /settings — get company payroll settings ──
 router.get('/settings', requireAuth, async (req, res) => {
@@ -77,14 +97,24 @@ router.put('/settings', requireAdmin, validate(updateSettingsSchema), async (req
     });
 
     let settings;
+    // Per-day default schedules (migration 20): mirror the first slot into the
+    // legacy single-hours columns for backward compatibility.
+    const payload = {
+      ...data,
+      ...legacyHoursSync(data.defaultWorkingHoursSchedules, {
+        start: 'defaultWorkingStartTime',
+        end: 'defaultWorkingEndTime',
+        days: 'defaultWorkingDays',
+      }),
+    };
     if (existing) {
       settings = await prisma.companySettings.update({
         where: { id: existing.id },
-        data,
+        data: payload,
       });
     } else {
       settings = await prisma.companySettings.create({
-        data: { ...data, companyProfileId: authUser.companyProfileId },
+        data: { ...payload, companyProfileId: authUser.companyProfileId },
       });
     }
 
@@ -332,6 +362,7 @@ router.get('/geofences/my', requireAuth, async (req, res) => {
         workingStartTime: true,
         workingEndTime: true,
         workingDays: true,
+        workingHoursSchedules: true,
       },
     });
 
@@ -358,7 +389,10 @@ router.get('/geofences/my', requireAuth, async (req, res) => {
             geofenceIds: assignedIds,
           }
         : null,
-      geofences,
+      geofences: geofences.map((g) => ({
+        ...g,
+        workingHoursSchedules: parseWorkingHoursSchedules(g.workingHoursSchedules),
+      })),
     });
   } catch (err) {
     logger.error('[settings] My geofences error:', err);
@@ -427,6 +461,7 @@ router.get('/geofences', requireAdminOrManager, async (req, res) => {
       workingStartTime: g.workingStartTime,
       workingEndTime: g.workingEndTime,
       workingDays: g.workingDays,
+      workingHoursSchedules: parseWorkingHoursSchedules(g.workingHoursSchedules),
       companyProfileId: g.companyProfileId,
       createdAt: g.createdAt,
       updatedAt: g.updatedAt,
@@ -447,7 +482,17 @@ router.post('/geofences', requireAdmin, validate(createGeofenceSchema), async (r
     const data = req.body;
 
     const geofence = await prisma.geofence.create({
-      data: { ...data, companyProfileId: authUser.companyProfileId },
+      data: {
+        ...data,
+        // Mirror the first per-day schedule into the legacy single-hours
+        // columns (migration 20) for backward compatibility.
+        ...legacyHoursSync(data.workingHoursSchedules, {
+          start: 'workingStartTime',
+          end: 'workingEndTime',
+          days: 'workingDays',
+        }),
+        companyProfileId: authUser.companyProfileId,
+      },
     });
 
     logAudit({
@@ -493,7 +538,19 @@ router.put('/geofences/:id', requireAdmin, validate(updateGeofenceSchema), async
       return accessDenied(res);
     }
 
-    const geofence = await prisma.geofence.update({ where: { id }, data });
+    const geofence = await prisma.geofence.update({
+      where: { id },
+      data: {
+        ...data,
+        // Mirror the first per-day schedule into the legacy single-hours
+        // columns (migration 20) for backward compatibility.
+        ...legacyHoursSync(data.workingHoursSchedules, {
+          start: 'workingStartTime',
+          end: 'workingEndTime',
+          days: 'workingDays',
+        }),
+      },
+    });
 
     logAudit({
       entity: 'Geofence',

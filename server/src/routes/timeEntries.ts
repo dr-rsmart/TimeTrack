@@ -219,6 +219,7 @@ router.post('/clock-in', requireAuth, clockRateLimit, validate(clockInSchema), a
       position,
       capturedAt,
       offline,
+      automatic: body.automatic === true,
       justification: typeof body.justification === 'string' ? body.justification : undefined,
       idempotencyKey: scopeIdempotencyKeyForRoute(
         'clock_in',

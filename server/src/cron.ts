@@ -29,7 +29,8 @@ import {
 import { notifyEmployeePush } from './push.js';
 import { parseDate } from './overlap.js';
 import { singleEmployeeIdentityFilter } from './domain/employeeIdentity.js';
-import { resolveLocationWorkingEnd } from './locationWorkingHours.js';
+import { resolveWorkingEndFromSchedules } from './locationWorkingHours.js';
+import { parseWorkingHoursSchedules, type WorkingHoursSchedule } from './workingHoursSchedules.js';
 import { runUnrestricted } from './tenantDatabase.js';
 import { recordAutoClockOutcome, setAuditLogRows } from './metrics.js';
 import {
@@ -256,6 +257,30 @@ async function closeStaleActiveTimeEntries(): Promise<void> {
 }
 
 /**
+ * True when the employee behind an active entry has ANY geofence assignment
+ * (legacy Employee.geofenceId column or an EmployeeGeofence join row). The
+ * company-default working-hours close must only apply to employees with no
+ * location configured at all.
+ */
+async function employeeHasGeofenceAssignment(entry: {
+  employeeId: string | null;
+  employeeEmail: string;
+  companyProfileId: string | null;
+}): Promise<boolean> {
+  const employee = await prisma.employee.findFirst({
+    where: {
+      ...(entry.companyProfileId ? { companyProfileId: entry.companyProfileId } : {}),
+      ...(entry.employeeId
+        ? { id: entry.employeeId }
+        : { email: { equals: entry.employeeEmail, mode: 'insensitive' } }),
+    },
+    select: { id: true, geofenceId: true, employeeGeofences: { select: { id: true } } },
+  });
+  if (!employee) return false;
+  return Boolean(employee.geofenceId) || employee.employeeGeofences.length > 0;
+}
+
+/**
  * Auto clock-out at scheduled shift end.
  * When a manager has scheduled a shift with an end time and the employee is
  * still clocked in as that end passes, the active time entry is closed and its
@@ -347,10 +372,15 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
       await closeActiveEntryAtShiftEnd(activeEntry, shift, clockOut);
     }
 
-    // Employees without a scheduled shift use the working hours configured on
-    // the exact location where they clocked in. A shift remains authoritative;
-    // this fallback is skipped whenever an open scheduled/active shift with an
-    // end time exists for the employee on the current business day.
+    // Employees without a scheduled shift use the per-day working-hours
+    // schedules explicitly configured (migration 20) on the exact location
+    // where they clocked in — location hours take PRIORITY. The company
+    // default schedules only apply when the employee has NO geofence
+    // assignment at all. An empty schedule list means "not explicitly
+    // configured" and never auto-closes (fixes the implicit-17:00 closes).
+    // A shift remains authoritative; this fallback is skipped whenever an
+    // open scheduled/active shift with an end time exists for the employee
+    // on the current business day.
     const locationEntries = await prisma.timeEntry.findMany({
       where: { status: 'active' },
       include: { geofence: true, companyProfile: { include: { settings: true } } },
@@ -374,35 +404,37 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
     );
 
     for (const entry of locationEntries) {
-      const location = entry.geofence;
-      if (!location && !companyDefaultCloseEnabled) continue;
-      const companySettings = entry.companyProfile?.settings?.[0];
-      const workingStartTime =
-        location?.workingStartTime ?? companySettings?.defaultWorkingStartTime;
-      const workingEndTime = location?.workingEndTime ?? companySettings?.defaultWorkingEndTime;
-      const workingDays = location?.workingDays ?? companySettings?.defaultWorkingDays ?? [];
-      if (!workingStartTime || !workingEndTime || workingDays.length === 0) continue;
-
       if (
         (entry.employeeId && openShiftKeys.has(`id:${entry.employeeId}`)) ||
         openShiftKeys.has(`email:${entry.employeeEmail.toLowerCase()}`)
       )
         continue;
 
-      const clockOut = resolveLocationWorkingEnd({
+      const location = entry.geofence;
+      let schedules: WorkingHoursSchedule[];
+      let hoursLabel: string;
+      if (location) {
+        schedules = parseWorkingHoursSchedules(location.workingHoursSchedules);
+        hoursLabel = location.name;
+      } else {
+        if (!companyDefaultCloseEnabled) continue;
+        // Company default hours ONLY fall into place when no geofence has
+        // been set for the employee (legacy column or multi-location join).
+        if (await employeeHasGeofenceAssignment(entry)) continue;
+        const companySettings = entry.companyProfile?.settings?.[0];
+        schedules = parseWorkingHoursSchedules(companySettings?.defaultWorkingHoursSchedules);
+        hoursLabel = 'company default hours';
+      }
+      if (schedules.length === 0) continue; // not explicitly configured
+
+      const clockOut = resolveWorkingEndFromSchedules({
         clockIn: entry.clockIn,
         timezone: tz,
-        workingStartTime,
-        workingEndTime,
-        workingDays,
+        schedules,
       });
       if (!clockOut || clockOut.getTime() > now.getTime()) continue;
 
-      await closeActiveEntryAtWorkingEnd(
-        entry,
-        clockOut,
-        location?.name ?? 'company default hours',
-      );
+      await closeActiveEntryAtWorkingEnd(entry, clockOut, hoursLabel);
     }
   } catch (err) {
     logger.error('[cron] Shift-end auto clock-out error:', err);

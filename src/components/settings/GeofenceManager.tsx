@@ -15,6 +15,21 @@ import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { getAutoGeofenceEnabled, setAutoGeofenceEnabled } from '../../hooks/useAutoGeofence';
 
+/** One per-day working-hours slot (migration 20), e.g. Mon–Thu 08:00–17:00. */
+interface WorkingHoursSchedule {
+  days: string[];
+  startTime: string;
+  endTime: string;
+}
+
+const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+const DEFAULT_SCHEDULE: WorkingHoursSchedule = {
+  days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+  startTime: '08:00',
+  endTime: '17:00',
+};
+
 interface Geofence {
   id: string;
   name: string;
@@ -26,6 +41,8 @@ interface Geofence {
   workingStartTime: string;
   workingEndTime: string;
   workingDays: string[];
+  /** Per-day schedules; empty = location-hours auto clock-out disabled. */
+  workingHoursSchedules?: WorkingHoursSchedule[];
   employeeCount: number;
 }
 
@@ -97,6 +114,7 @@ export function GeofenceManager({
     workingStartTime: '08:00',
     workingEndTime: '17:00',
     workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+    workingHoursSchedules: [{ ...DEFAULT_SCHEDULE, days: [...DEFAULT_SCHEDULE.days] }],
   });
 
   // ── Preset Management State ──
@@ -231,6 +249,7 @@ export function GeofenceManager({
       workingStartTime: '08:00',
       workingEndTime: '17:00',
       workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+      workingHoursSchedules: [{ ...DEFAULT_SCHEDULE, days: [...DEFAULT_SCHEDULE.days] }],
     });
     setSearchQuery(preset.name);
   };
@@ -298,6 +317,23 @@ export function GeofenceManager({
       alert('Location name is required.');
       return;
     }
+    // Client-side mirror of the server rule: each day may only appear in ONE
+    // schedule, and every schedule needs at least one day.
+    const claimed = new Set<string>();
+    for (const schedule of form.workingHoursSchedules) {
+      if (schedule.days.length === 0) {
+        alert('Each working-hours slot needs at least one day. Remove empty slots or pick days.');
+        return;
+      }
+      for (const day of schedule.days) {
+        if (claimed.has(day)) {
+          alert(`${day} is already covered by another working-hours slot.`);
+          return;
+        }
+        claimed.add(day);
+      }
+    }
+    const firstSchedule = form.workingHoursSchedules[0];
     const body = {
       name: form.name.trim(),
       address: form.address || null,
@@ -305,9 +341,16 @@ export function GeofenceManager({
       longitude: form.longitude,
       radiusMeters: form.radiusMeters,
       isActive: form.isActive,
-      workingStartTime: form.workingStartTime,
-      workingEndTime: form.workingEndTime,
-      workingDays: form.workingDays,
+      // Legacy single-hours fields mirror the first schedule (kept in sync
+      // server-side too) for backward compatibility.
+      ...(firstSchedule
+        ? {
+            workingStartTime: firstSchedule.startTime,
+            workingEndTime: firstSchedule.endTime,
+            workingDays: firstSchedule.days,
+          }
+        : {}),
+      workingHoursSchedules: form.workingHoursSchedules,
     };
     const url = editingId ? `/api/settings/geofences/${editingId}` : '/api/settings/geofences';
     const method = editingId ? 'PUT' : 'POST';
@@ -446,6 +489,40 @@ export function GeofenceManager({
   // ── Format radius for display ──
   const formatRadius = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m}m`);
 
+  // ── Working-hours schedule helpers (migration 20) ──
+  /** Days claimed by OTHER schedules — rendered grayed-out/disabled. */
+  const daysClaimedByOthers = (index: number): Set<string> =>
+    new Set(form.workingHoursSchedules.flatMap((s, i) => (i === index ? [] : s.days)));
+
+  const addSchedule = () =>
+    setForm({
+      ...form,
+      workingHoursSchedules: [
+        ...form.workingHoursSchedules,
+        { days: [], startTime: '08:00', endTime: '17:00' },
+      ],
+    });
+
+  const updateSchedule = (index: number, patch: Partial<WorkingHoursSchedule>) =>
+    setForm({
+      ...form,
+      workingHoursSchedules: form.workingHoursSchedules.map((s, i) =>
+        i === index ? { ...s, ...patch } : s,
+      ),
+    });
+
+  const removeSchedule = (index: number) =>
+    setForm({
+      ...form,
+      workingHoursSchedules: form.workingHoursSchedules.filter((_, i) => i !== index),
+    });
+
+  /** "Mon–Thu 08:00–17:00" style summary of one schedule. */
+  const summarizeSchedule = (s: WorkingHoursSchedule): string => {
+    const days = DAY_ORDER.filter((d) => s.days.includes(d)).map((d) => d.slice(0, 3));
+    return `${days.join(', ')} ${s.startTime}–${s.endTime}`;
+  };
+
   if (loading) return <div className="p-6 text-slate-500">Loading geofences...</div>;
 
   return (
@@ -494,6 +571,7 @@ export function GeofenceManager({
                 workingStartTime: '08:00',
                 workingEndTime: '17:00',
                 workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+                workingHoursSchedules: [{ ...DEFAULT_SCHEDULE, days: [...DEFAULT_SCHEDULE.days] }],
               });
               setEditingId(null);
               setShowForm(true);
@@ -933,65 +1011,114 @@ export function GeofenceManager({
                   </div>
 
                   <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50/50 p-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-700">Global working hours</p>
-                      <p className="text-xs text-slate-500">
-                        Used to auto clock out employees who do not have an assigned shift.
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-700">Global working hours</p>
+                        <p className="text-xs text-slate-500">
+                          Used to auto clock out employees who do not have an assigned shift. Add a
+                          separate slot for days with different hours (e.g. Mon–Thu 08:00–17:00, Fri
+                          08:00–15:00, Sat 08:00–14:00). Each day can only be in one slot.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={addSchedule}
+                        disabled={form.workingHoursSchedules.length >= 7}
+                        className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border border-blue-300 text-blue-700 bg-white hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        + Add hours
+                      </button>
+                    </div>
+
+                    {form.workingHoursSchedules.length === 0 && (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                        No working hours configured — the automatic clock-out at the workday end is
+                        DISABLED for this location (the 16h forgotten-clock-out safety close still
+                        applies).
                       </p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="text-xs text-slate-500">
-                        Start time
-                        <input
-                          type="time"
-                          value={form.workingStartTime}
-                          onChange={(e) => setForm({ ...form, workingStartTime: e.target.value })}
-                          className="mt-1 w-full rounded-lg border px-3 py-2 text-sm text-slate-700"
-                        />
-                      </label>
-                      <label className="text-xs text-slate-500">
-                        End time
-                        <input
-                          type="time"
-                          value={form.workingEndTime}
-                          onChange={(e) => setForm({ ...form, workingEndTime: e.target.value })}
-                          className="mt-1 w-full rounded-lg border px-3 py-2 text-sm text-slate-700"
-                        />
-                      </label>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        'Monday',
-                        'Tuesday',
-                        'Wednesday',
-                        'Thursday',
-                        'Friday',
-                        'Saturday',
-                        'Sunday',
-                      ].map((day) => {
-                        const checked = form.workingDays.includes(day);
-                        return (
-                          <label
-                            key={day}
-                            className="flex items-center gap-1 text-xs text-slate-600"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() =>
-                                setForm({
-                                  ...form,
-                                  workingDays: checked
-                                    ? form.workingDays.filter((d) => d !== day)
-                                    : [...form.workingDays, day],
-                                })
-                              }
-                            />
-                            {day.slice(0, 3)}
-                          </label>
-                        );
-                      })}
-                    </div>
+                    )}
+
+                    {form.workingHoursSchedules.map((schedule, index) => {
+                      const claimedByOthers = daysClaimedByOthers(index);
+                      return (
+                        <div
+                          key={index}
+                          className="rounded-lg border border-blue-200 bg-white p-3 space-y-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-semibold text-slate-600">
+                              Hours slot {index + 1}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => removeSchedule(index)}
+                              className="text-xs text-red-600 hover:text-red-700 font-medium"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <label className="text-xs text-slate-500">
+                              Start time
+                              <input
+                                type="time"
+                                value={schedule.startTime}
+                                onChange={(e) =>
+                                  updateSchedule(index, { startTime: e.target.value })
+                                }
+                                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm text-slate-700"
+                              />
+                            </label>
+                            <label className="text-xs text-slate-500">
+                              End time
+                              <input
+                                type="time"
+                                value={schedule.endTime}
+                                onChange={(e) => updateSchedule(index, { endTime: e.target.value })}
+                                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm text-slate-700"
+                              />
+                            </label>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {DAY_ORDER.map((day) => {
+                              const checked = schedule.days.includes(day);
+                              // Days already selected in ANOTHER slot are
+                              // grayed out and cannot be claimed twice.
+                              const disabled = claimedByOthers.has(day);
+                              return (
+                                <label
+                                  key={day}
+                                  className={`flex items-center gap-1 text-xs ${
+                                    disabled
+                                      ? 'text-slate-300 cursor-not-allowed'
+                                      : 'text-slate-600'
+                                  }`}
+                                  title={
+                                    disabled
+                                      ? `${day} is already covered by another hours slot`
+                                      : undefined
+                                  }
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    disabled={disabled}
+                                    onChange={() =>
+                                      updateSchedule(index, {
+                                        days: checked
+                                          ? schedule.days.filter((d) => d !== day)
+                                          : [...schedule.days, day],
+                                      })
+                                    }
+                                  />
+                                  {day.slice(0, 3)}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
 
                   <label className="flex items-center gap-2">
@@ -1069,7 +1196,12 @@ export function GeofenceManager({
                     </span>
                     <span>⌀ {formatRadius(g.radiusMeters)}</span>
                     <span>
-                      🕒 {g.workingStartTime}–{g.workingEndTime}
+                      🕒{' '}
+                      {(g.workingHoursSchedules ?? []).length > 0
+                        ? (g.workingHoursSchedules ?? []).map(summarizeSchedule).join(' · ')
+                        : g.workingHoursSchedules === undefined && g.workingDays.length > 0
+                          ? `${g.workingStartTime}–${g.workingEndTime}`
+                          : 'No auto clock-out hours'}
                     </span>
                     <span>
                       👥 {g.employeeCount} employee{g.employeeCount !== 1 ? 's' : ''} assigned
@@ -1095,6 +1227,20 @@ export function GeofenceManager({
                         workingStartTime: g.workingStartTime,
                         workingEndTime: g.workingEndTime,
                         workingDays: g.workingDays,
+                        // Migration 20: load the per-day schedules; fall back
+                        // to the legacy single block for pre-migration rows.
+                        workingHoursSchedules: (
+                          g.workingHoursSchedules ??
+                          (g.workingDays.length > 0
+                            ? [
+                                {
+                                  days: [...g.workingDays],
+                                  startTime: g.workingStartTime,
+                                  endTime: g.workingEndTime,
+                                },
+                              ]
+                            : [])
+                        ).map((s) => ({ ...s, days: [...s.days] })),
                       });
                       setEditingId(g.id);
                       setShowForm(true);

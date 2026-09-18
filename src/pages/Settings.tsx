@@ -25,7 +25,12 @@ import {
   Building2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { settingsApi, type CompanySettings, ApiError } from '../services/api';
+import {
+  settingsApi,
+  type CompanySettings,
+  type WorkingHoursSchedule,
+  ApiError,
+} from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useSSE } from '../hooks/useSSE';
 import { GeofenceManager } from '../components/settings/GeofenceManager';
@@ -127,8 +132,50 @@ export default function Settings() {
     setSettings((prev) => (prev ? { ...prev, [field]: value } : prev));
   };
 
+  // ── Default working-hours schedules (migration 20) ──
+  // Multiple per-day slots (e.g. Mon–Thu 08:00–17:00, Fri 08:00–15:00). A day
+  // may only appear in ONE slot — already-claimed days are grayed out in the
+  // other slots and rejected on save (mirrors the server validation).
+  const defaultSchedules: WorkingHoursSchedule[] = settings?.defaultWorkingHoursSchedules ?? [];
+
+  const daysClaimedByOtherDefault = (index: number): Set<string> =>
+    new Set(defaultSchedules.flatMap((s, i) => (i === index ? [] : s.days)));
+
+  const updateDefaultSchedule = (index: number, patch: Partial<WorkingHoursSchedule>) =>
+    updateField(
+      'defaultWorkingHoursSchedules',
+      defaultSchedules.map((s, i) => (i === index ? { ...s, ...patch } : s)),
+    );
+
+  const addDefaultSchedule = () =>
+    updateField('defaultWorkingHoursSchedules', [
+      ...defaultSchedules,
+      { days: [], startTime: '08:00', endTime: '17:00' },
+    ]);
+
+  const removeDefaultSchedule = (index: number) =>
+    updateField(
+      'defaultWorkingHoursSchedules',
+      defaultSchedules.filter((_, i) => i !== index),
+    );
+
   const handleSave = async () => {
     if (!settings) return;
+    // Validate default-hours schedules before saving (server enforces too).
+    const claimedDays = new Set<string>();
+    for (const schedule of defaultSchedules) {
+      if (schedule.days.length === 0) {
+        toast.error('Each default working-hours slot needs at least one day.');
+        return;
+      }
+      for (const day of schedule.days) {
+        if (claimedDays.has(day)) {
+          toast.error(`${day} is already covered by another default working-hours slot.`);
+          return;
+        }
+        claimedDays.add(day);
+      }
+    }
     setSaving(true);
     try {
       const { id, ...data } = settings;
@@ -265,6 +312,19 @@ export default function Settings() {
               </div>
               <div className="flex items-center justify-between rounded-xl border border-border/50 bg-secondary/20 p-4">
                 <div>
+                  <p className="font-medium text-sm">Saturday overtime enabled</p>
+                  <p className="text-xs text-muted-foreground">
+                    Saturday work counts as overtime (off by default)
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.saturdayOvertimeEnabled}
+                  onCheckedChange={(v) => updateField('saturdayOvertimeEnabled', v)}
+                  aria-label="Saturday overtime"
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-xl border border-border/50 bg-secondary/20 p-4">
+                <div>
                   <p className="font-medium text-sm">Public holiday overtime enabled</p>
                   <p className="text-xs text-muted-foreground">
                     Holiday work counts as overtime (takes precedence over Sunday)
@@ -278,7 +338,7 @@ export default function Settings() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="st-sunday-mult">Sunday multiplier</Label>
                 <Input
@@ -290,6 +350,20 @@ export default function Settings() {
                   value={settings.sundayOvertimeMultiplier}
                   onChange={(e) =>
                     updateField('sundayOvertimeMultiplier', parseFloat(e.target.value) || 1.5)
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="st-saturday-mult">Saturday multiplier</Label>
+                <Input
+                  id="st-saturday-mult"
+                  type="number"
+                  step="0.1"
+                  min="1"
+                  max="5"
+                  value={settings.saturdayOvertimeMultiplier}
+                  onChange={(e) =>
+                    updateField('saturdayOvertimeMultiplier', parseFloat(e.target.value) || 1.5)
                   }
                 />
               </div>
@@ -316,65 +390,121 @@ export default function Settings() {
               Public holidays are now managed in the dedicated "Public Holidays" tab above.
             </p>
             <div className="rounded-xl border border-border/50 bg-secondary/20 p-4 space-y-3">
-              <div>
-                <p className="font-medium text-sm">Default working hours</p>
-                <p className="text-xs text-muted-foreground">
-                  Used for automatic clock-out when an employee has no assigned location.
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-medium text-sm">Default working hours</p>
+                  <p className="text-xs text-muted-foreground">
+                    Used for automatic clock-out ONLY when no geofence (work location) has been set
+                    for the employee — Work Locations &quot;Global working hours&quot; always take
+                    priority. Add a separate slot for days with different hours (e.g. Mon–Thu
+                    08:00–17:00, Fri 08:00–15:00); each day can only be in one slot.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 gap-1.5"
+                  onClick={addDefaultSchedule}
+                  disabled={defaultSchedules.length >= 7}
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add hours
+                </Button>
+              </div>
+
+              {defaultSchedules.length === 0 && (
+                <p className="text-xs rounded-lg border border-border/60 bg-muted/60 p-2">
+                  No default hours configured — the company-default automatic clock-out is disabled
+                  (the 16h forgotten-clock-out safety close still applies).
                 </p>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="st-default-start">Default start</Label>
-                  <Input
-                    id="st-default-start"
-                    type="time"
-                    value={settings.defaultWorkingStartTime}
-                    onChange={(e) => updateField('defaultWorkingStartTime', e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="st-default-end">Default end</Label>
-                  <Input
-                    id="st-default-end"
-                    type="time"
-                    value={settings.defaultWorkingEndTime}
-                    onChange={(e) => updateField('defaultWorkingEndTime', e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Default working days</p>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    'Monday',
-                    'Tuesday',
-                    'Wednesday',
-                    'Thursday',
-                    'Friday',
-                    'Saturday',
-                    'Sunday',
-                  ].map((day) => {
-                    const checked = settings.defaultWorkingDays.includes(day);
-                    return (
-                      <label key={day} className="flex items-center gap-1.5 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() =>
-                            updateField(
-                              'defaultWorkingDays',
-                              checked
-                                ? settings.defaultWorkingDays.filter((value) => value !== day)
-                                : [...settings.defaultWorkingDays, day],
-                            )
+              )}
+
+              {defaultSchedules.map((schedule, index) => {
+                const claimedByOthers = daysClaimedByOtherDefault(index);
+                return (
+                  <div
+                    key={index}
+                    className="rounded-lg border border-border/60 bg-background/60 p-3 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold">Hours slot {index + 1}</p>
+                      <button
+                        type="button"
+                        onClick={() => removeDefaultSchedule(index)}
+                        className="text-xs text-destructive hover:underline font-medium"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor={`st-default-start-${index}`}>Start time</Label>
+                        <Input
+                          id={`st-default-start-${index}`}
+                          type="time"
+                          value={schedule.startTime}
+                          onChange={(e) =>
+                            updateDefaultSchedule(index, { startTime: e.target.value })
                           }
                         />
-                        {day.slice(0, 3)}
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`st-default-end-${index}`}>End time</Label>
+                        <Input
+                          id={`st-default-end-${index}`}
+                          type="time"
+                          value={schedule.endTime}
+                          onChange={(e) =>
+                            updateDefaultSchedule(index, { endTime: e.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        'Monday',
+                        'Tuesday',
+                        'Wednesday',
+                        'Thursday',
+                        'Friday',
+                        'Saturday',
+                        'Sunday',
+                      ].map((day) => {
+                        const checked = schedule.days.includes(day);
+                        // Days already selected in ANOTHER slot are grayed out.
+                        const disabled = claimedByOthers.has(day);
+                        return (
+                          <label
+                            key={day}
+                            className={`flex items-center gap-1.5 text-sm ${
+                              disabled ? 'opacity-40 cursor-not-allowed' : ''
+                            }`}
+                            title={
+                              disabled
+                                ? `${day} is already covered by another hours slot`
+                                : undefined
+                            }
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={disabled}
+                              onChange={() =>
+                                updateDefaultSchedule(index, {
+                                  days: checked
+                                    ? schedule.days.filter((value) => value !== day)
+                                    : [...schedule.days, day],
+                                })
+                              }
+                            />
+                            {day.slice(0, 3)}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>

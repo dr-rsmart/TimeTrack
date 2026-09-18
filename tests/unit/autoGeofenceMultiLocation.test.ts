@@ -1,7 +1,8 @@
 /**
  * Unit tests for multi-location geofence monitoring and the double clock-in
  * prevention (awaiting-exit guard) in AutoGeofenceService, including the
- * system (cron) auto-close exemption and the live 12h TTL expiry.
+ * system (cron) auto-close suppression (armed since the 2026-09 duplicate
+ * clocking fix) and the live 12h TTL expiry.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -239,7 +240,7 @@ describe('AutoGeofenceService — double clock-in prevention (awaiting exit)', (
   });
 });
 
-describe('AutoGeofenceService — system-close exemption & live TTL expiry', () => {
+describe('AutoGeofenceService — system-close suppression & live TTL expiry', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
     stubLocalStorage();
@@ -251,7 +252,7 @@ describe('AutoGeofenceService — system-close exemption & live TTL expiry', () 
     vi.unstubAllGlobals();
   });
 
-  it('a system (cron) auto clock-out does NOT arm the awaiting-exit suppression', async () => {
+  it('a system (cron) auto clock-out ARMS the awaiting-exit suppression (no instant re-clock-in on site)', async () => {
     const harness = createGeolocationHarness();
     vi.stubGlobal('navigator', { geolocation: harness.geolocation });
     const { autoGeofenceService } = await importFreshService();
@@ -264,8 +265,8 @@ describe('AutoGeofenceService — system-close exemption & live TTL expiry', () 
     harness.emitFix({ ...POS_INSIDE, accuracy: 10 });
     expect(events.filter((e) => e.type === 'ENTERED_GEOFENCE').length).toBe(1);
 
-    // The server cron closes the entry at shift end while the employee is
-    // still on site (e.g. 17:00 close, 01:00 next shift). The SSE payload
+    // The server cron closes the entry at the configured workday end while the
+    // employee is still on site (stakeholder report 2026-09). The SSE payload
     // marks the close as automatic BEFORE the clock-state sync flips to
     // signed-out, so the hook calls noteSystemClockOut() first.
     autoGeofenceService.syncClockedIn(true);
@@ -277,7 +278,15 @@ describe('AutoGeofenceService — system-close exemption & live TTL expiry', () 
     autoGeofenceService.startMonitoring(GEOFENCE, false);
     vi.advanceTimersByTime(61_000); // beyond event cooldown
 
-    // …must auto clock-in again for the next shift (NOT suppressed).
+    // …must NOT auto clock-in again — an on-site system close arms the same
+    // suppression as a voluntary on-site clock-out (fixes the cascade of
+    // duplicate clock-ins/outs after a working-end auto close).
+    harness.emitFix({ ...POS_INSIDE, accuracy: 10 });
+    expect(events.filter((e) => e.type === 'ENTERED_GEOFENCE').length).toBe(1);
+
+    // After the 12h safety TTL (i.e. by the next shift) the suppression
+    // releases and the employee can auto clock-in again while still on site.
+    vi.advanceTimersByTime(12 * 60 * 60 * 1000);
     harness.emitFix({ ...POS_INSIDE, accuracy: 10 });
     expect(events.filter((e) => e.type === 'ENTERED_GEOFENCE').length).toBe(2);
   });

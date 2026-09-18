@@ -320,10 +320,10 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
       postToNativeShell({
         type: 'CLOCK_STATE',
         clockedIn: isClockedIn,
-        // A system (cron) auto close (e.g. shift-end) must NOT arm the native
-        // double clock-in guard — a shift-end close is not a voluntary
-        // on-site clock-out and arming on it would block the next shift's
-        // auto clock-in while the employee remains on site.
+        // Informational: marks a system (cron) auto close. The native guard
+        // now ARMS on system closes too (like the web awaiting-exit flag) so
+        // a working-end close is never followed by an instant auto re-clock-in
+        // on site; its 12h TTL still releases before the next shift.
         bySystem:
           !isClockedIn &&
           systemCloseNotedAtRef.current > 0 &&
@@ -508,6 +508,10 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
             pos?.latitude,
             pos?.longitude,
             userEmail ?? undefined,
+            undefined,
+            // Marks the punch as geofence automation so the server enforces
+            // the once-per-working-day limit after a system (cron) close.
+            { automatic: true },
           );
           if (result?.id) {
             setLastAutoClockIn(result.id);
@@ -541,7 +545,17 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
             return;
           }
           const msg = err instanceof Error ? err.message : 'Unknown error';
-          if (!msg.toLowerCase().includes('already clocked')) {
+          if (err.code === 'DAILY_SESSION_LIMIT') {
+            // Today's session was already closed automatically at the
+            // configured workday end. Back off for 10 minutes and inform —
+            // automatic re-clock-in stays off for the rest of the day.
+            reclockBlockedUntilRef.current = Date.now() + 600_000;
+            showToast(
+              'info',
+              'Already closed for today',
+              'Your session was closed automatically at the configured workday end. Clock in manually if you are still working.',
+            );
+          } else if (!msg.toLowerCase().includes('already clocked')) {
             if (
               msg.toLowerCase().includes('less than') ||
               msg.toLowerCase().includes('duplicate')

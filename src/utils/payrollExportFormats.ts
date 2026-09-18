@@ -40,9 +40,11 @@ const n2 = (v: number): number => parseFloat(v.toFixed(2));
 
 /** Normal (ordinary) hours for the flat layout. */
 const normalHours = (r: PayrollRow): number => n2(r.ordinaryHours);
-/** Overtime = daily + monthly + Sunday overtime (excluding public holidays). */
+/** Overtime = daily + monthly + Sunday + Saturday overtime (excluding public holidays). */
 const overtimeHours = (r: PayrollRow): number =>
-  n2(r.dailyOvertimeHours + r.monthlyOvertimeHours + r.sundayOvertimeHours);
+  n2(
+    r.dailyOvertimeHours + r.monthlyOvertimeHours + r.sundayOvertimeHours + r.saturdayOvertimeHours,
+  );
 /** Public-holiday hours. */
 const publicHolidayHours = (r: PayrollRow): number => n2(r.holidayOvertimeHours);
 
@@ -63,6 +65,7 @@ export const timetrackStandardFormat: PayrollExportFormat = {
     'Ordinary Hours',
     'Daily OT',
     'Sunday OT',
+    'Saturday OT',
     'Holiday OT',
     'Monthly OT',
     'Total OT',
@@ -82,6 +85,7 @@ export const timetrackStandardFormat: PayrollExportFormat = {
       r.ordinaryHours,
       r.dailyOvertimeHours,
       r.sundayOvertimeHours,
+      r.saturdayOvertimeHours,
       r.holidayOvertimeHours,
       r.monthlyOvertimeHours,
       r.totalOvertimeHours,

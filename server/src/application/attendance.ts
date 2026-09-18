@@ -68,6 +68,12 @@ export interface ClockInCommand {
   capturedAt?: Date | null;
   /** True when the punch was queued offline and replayed on reconnect. */
   offline?: boolean;
+  /**
+   * True when fired by geofence automation (web monitor / native background
+   * task) rather than the employee tapping Clock In. Automatic punches obey
+   * the once-per-working-day limit after a system (cron) working-end close.
+   */
+  automatic?: boolean;
   idempotencyKey?: string | null;
   clientIp: string;
 }
@@ -411,6 +417,39 @@ export async function clockIn(command: ClockInCommand): Promise<AttendanceMutati
           },
         );
       }
+    }
+  }
+
+  // Once-per-working-day limit for AUTOMATIC punches: when cron already closed
+  // a session today at the configured working end (system:cron), geofence
+  // automation must not silently reopen a new session while the employee is
+  // still on site — that produced the reported three-clocks-in/out cascade.
+  // Manual punches (employee taps Clock In) and manager/admin proxy punches
+  // remain allowed as the explicit correction path.
+  if (!isManualOverride && command.automatic) {
+    const businessToday = parseDate(toBusinessDateStr(offlineCapturedAt ?? new Date()));
+    const systemClosedToday = await prisma.timeEntry.findFirst({
+      where: {
+        ...tenantWhere(actor),
+        ...singleEmployeeIdentityFilter(employee),
+        status: ATTENDANCE_STATUS.COMPLETED,
+        updatedBy: 'system:cron',
+        date: businessToday,
+      },
+      select: { id: true },
+    });
+    if (systemClosedToday) {
+      throw new AttendanceUseCaseError(
+        'Your session for today was already closed automatically at the configured workday end. Automatic clock-in stays off for the rest of the day — clock in manually or ask a manager if you are still working.',
+        {
+          status: 409,
+          code: 'DAILY_SESSION_LIMIT',
+          suggestions: [
+            'Use the manual Clock In button if you are still working.',
+            'Ask your manager or admin to adjust the recorded hours.',
+          ],
+        },
+      );
     }
   }
 

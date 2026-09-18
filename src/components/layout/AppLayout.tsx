@@ -157,14 +157,15 @@ export default function AppLayout() {
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-brand via-brand/90 to-brand-light" />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            {/* Logo */}
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between gap-3 h-16">
+            {/* Logo — never shrinks and always stacks ABOVE the nav so the
+                menu can never render in front of it at narrow widths. */}
+            <div className="flex items-center gap-2 shrink-0 relative z-20">
               <BrandLogo size="md" animated />
             </div>
 
-            {/* Desktop Navigation */}
-            <nav className="hidden md:flex items-center gap-1.5 p-1 rounded-xl bg-secondary/40 backdrop-blur-sm">
+            {/* Desktop Navigation — scrollable instead of overflowing onto the logo */}
+            <nav className="hidden md:flex items-center gap-1.5 p-1 rounded-xl bg-secondary/40 backdrop-blur-sm min-w-0 max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden shrink">
               {navItems.map((item) => {
                 const isActive =
                   location.pathname === item.path ||

@@ -342,7 +342,11 @@ export default function Reports() {
         row: r,
         dayEntries,
         normal: r.ordinaryHours,
-        overtime: r.dailyOvertimeHours + r.monthlyOvertimeHours + r.sundayOvertimeHours,
+        overtime:
+          r.dailyOvertimeHours +
+          r.monthlyOvertimeHours +
+          r.sundayOvertimeHours +
+          r.saturdayOvertimeHours,
         publicHoliday: r.holidayOvertimeHours,
       };
     });
@@ -614,6 +618,7 @@ export default function Reports() {
                       <TableHead className="text-right">Ordinary</TableHead>
                       <TableHead className="text-right">Daily OT</TableHead>
                       <TableHead className="text-right">Sunday OT</TableHead>
+                      <TableHead className="text-right">Saturday OT</TableHead>
                       <TableHead className="text-right">Holiday OT</TableHead>
                       <TableHead className="text-right">Monthly OT</TableHead>
                       <TableHead className="text-right">Total OT</TableHead>
@@ -638,6 +643,9 @@ export default function Reports() {
                           {formatHours(r.sundayOvertimeHours)}
                         </TableCell>
                         <TableCell className="text-right">
+                          {formatHours(r.saturdayOvertimeHours)}
+                        </TableCell>
+                        <TableCell className="text-right">
                           {formatHours(r.holidayOvertimeHours)}
                         </TableCell>
                         <TableCell className="text-right">
@@ -658,7 +666,7 @@ export default function Reports() {
                     <TableRow className="bg-muted/50 font-semibold">
                       <TableCell colSpan={3}>Totals ({rows.length} employees)</TableCell>
                       <TableCell className="text-right">{formatHours(totals.ordinary)}</TableCell>
-                      <TableCell className="text-right" colSpan={4}>
+                      <TableCell className="text-right" colSpan={5}>
                         {''}
                       </TableCell>
                       <TableCell className="text-right">{formatHours(totals.overtime)}</TableCell>

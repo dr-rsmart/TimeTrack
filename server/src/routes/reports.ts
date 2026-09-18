@@ -57,6 +57,8 @@ async function getPayrollSettings(companyProfileId: string | null): Promise<Payr
     monthlyOvertimeThresholdHours: settings.monthlyOvertimeThresholdHours,
     sundayOvertimeEnabled: settings.sundayOvertimeEnabled,
     sundayOvertimeMultiplier: settings.sundayOvertimeMultiplier,
+    saturdayOvertimeEnabled: settings.saturdayOvertimeEnabled,
+    saturdayOvertimeMultiplier: settings.saturdayOvertimeMultiplier,
     publicHolidayOvertimeEnabled: settings.publicHolidayOvertimeEnabled,
     publicHolidayOvertimeMultiplier: settings.publicHolidayOvertimeMultiplier,
     publicHolidays: mergedHolidays,

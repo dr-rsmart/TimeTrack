@@ -298,6 +298,11 @@ export const clockInSchema = z.object({
   // Offline outbox replay (bounded acceptance window — see attendance use case).
   capturedAt: isoDateTimeSchema.optional(),
   offline: z.boolean().optional(),
+  // True when the punch was fired by geofence automation (web monitor or the
+  // native background task) rather than the employee tapping Clock In.
+  // Automatic punches are subject to the once-per-working-day limit after a
+  // system (cron) working-end close — manual punches always remain possible.
+  automatic: z.boolean().optional(),
 });
 
 export const clockOutSchema = z.object({
@@ -343,6 +348,49 @@ export const updateTimeEntrySchema = z.object({
 });
 
 // ── Geofences ──
+/** Day names accepted by working-hours schedules (migration 20). */
+const workingDaySchema = z.enum([
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+]);
+
+/** One per-day working-hours slot, e.g. { days: [Mon..Thu], 08:00, 17:00 }. */
+export const workingHoursScheduleSchema = z.object({
+  days: z.array(workingDaySchema).min(1),
+  startTime: timeStrSchema,
+  endTime: timeStrSchema,
+});
+
+/**
+ * Schedule list with the "each day only once" rule enforced server-side (the
+ * UI grays out claimed days; this rejects API-level overlaps).
+ */
+export const workingHoursSchedulesSchema = z
+  .array(workingHoursScheduleSchema)
+  .max(7)
+  .superRefine((list, ctx) => {
+    const seen = new Set<string>();
+    list.forEach((schedule, index) => {
+      for (const day of schedule.days) {
+        if (seen.has(day)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [index, 'days'],
+            message: `${day} is already covered by another working-hours schedule. Each day can only appear once.`,
+          });
+        }
+        seen.add(day);
+      }
+    });
+  });
+
+export type WorkingHoursScheduleInput = z.infer<typeof workingHoursScheduleSchema>;
+
 export const createGeofenceSchema = z.object({
   name: z.string().min(1).max(100),
   address: z.string().max(255).nullish(),
@@ -355,6 +403,8 @@ export const createGeofenceSchema = z.object({
     .array(z.enum(['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']))
     .min(1)
     .default(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']),
+  /** Per-day schedules (migration 20). Empty/omitted = not explicitly configured. */
+  workingHoursSchedules: workingHoursSchedulesSchema.optional(),
 });
 
 export const updateGeofenceSchema = createGeofenceSchema.partial();
@@ -368,6 +418,8 @@ export const updateSettingsSchema = z.object({
   monthlyOvertimeThresholdHours: z.number().min(1).max(500).optional(),
   sundayOvertimeEnabled: z.boolean().optional(),
   sundayOvertimeMultiplier: z.number().min(1).max(5).optional(),
+  saturdayOvertimeEnabled: z.boolean().optional(),
+  saturdayOvertimeMultiplier: z.number().min(1).max(5).optional(),
   publicHolidayOvertimeEnabled: z.boolean().optional(),
   publicHolidayOvertimeMultiplier: z.number().min(1).max(5).optional(),
   publicHolidays: z.array(dateStrSchema).optional(),
@@ -377,6 +429,8 @@ export const updateSettingsSchema = z.object({
     .array(z.enum(['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']))
     .min(1)
     .optional(),
+  /** Per-day default schedules (migration 20). Empty array disables the company-default auto clock-out. */
+  defaultWorkingHoursSchedules: workingHoursSchedulesSchema.optional(),
 });
 
 export const registerPushTokenSchema = z.object({

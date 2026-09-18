@@ -260,12 +260,20 @@ model CompanySettings {
   monthlyOvertimeThresholdHours     Float           @default(195)
   sundayOvertimeEnabled             Boolean         @default(true)
   sundayOvertimeMultiplier          Float           @default(1.5)
+  // Migration 21: Saturday overtime, mirroring Sunday. Default OFF so existing
+  // payroll is unchanged until an admin explicitly enables it.
+  saturdayOvertimeEnabled           Boolean         @default(false)
+  saturdayOvertimeMultiplier        Float           @default(1.5)
   publicHolidayOvertimeEnabled      Boolean         @default(true)
   publicHolidayOvertimeMultiplier   Float           @default(2.0)
   publicHolidays                    String[]        @default([])
   defaultWorkingStartTime            String          @default("08:00")
   defaultWorkingEndTime              String          @default("17:00")
   defaultWorkingDays                 String[]        @default(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+  // Migration 20: per-day working-hours schedules [{days[],startTime,endTime}].
+  // Multiple slots let admins express e.g. Mon-Thu 08:00-17:00, Fri 08:00-15:00.
+  // Empty array = NOT explicitly configured (no company-default auto clock-out).
+  defaultWorkingHoursSchedules       Json            @default("[]")
   companyProfileId                  String?
   createdAt                         DateTime        @default(now())
   updatedAt                         DateTime        @updatedAt
@@ -337,6 +345,9 @@ model Geofence {
   workingStartTime String          @default("08:00")
   workingEndTime   String          @default("17:00")
   workingDays      String[]        @default(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+  // Migration 20: per-day working-hours schedules [{days[],startTime,endTime}].
+  // Empty array = NOT explicitly configured (no location-hours auto clock-out).
+  workingHoursSchedules Json       @default("[]")
   companyProfileId String
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt

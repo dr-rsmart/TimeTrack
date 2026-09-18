@@ -158,6 +158,12 @@ export interface ClockInRequest {
   capturedAt?: string;
   /** True when this punch was queued offline and replayed on reconnect. */
   offline?: boolean;
+  /**
+   * True when fired by geofence automation rather than a manual tap.
+   * Automatic punches obey the once-per-working-day limit after a system
+   * (cron) working-end close (409 DAILY_SESSION_LIMIT).
+   */
+  automatic?: boolean;
 }
 
 export interface ClockOutRequest {

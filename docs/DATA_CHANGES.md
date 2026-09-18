@@ -600,3 +600,42 @@ not_null` ran before `5_time_entry_integer_minutes` on any fresh database
   OpenAPI Contract Drift Guard. Production note: the same `migrate deploy`
   (elevated) is the deploy-path action; 19 is idempotent, 18 is NOT — run
   deploy rather than db push so history stays booked.
+
+## 2026-09-18 — Railway production → local clone sync (+ migration 20/21 rollout to local DBs)
+
+- **What:** full production snapshot restore into the local clone and
+  propagation to local pre-prod:
+  1. `npm run db:sync:prod` (`scripts/sync-prod-to-local.mjs`): `pg_dump`
+     from the Railway production Postgres (TCP proxy, `sslmode=require`;
+     DSN supplied at runtime via `PROD_SNAPSHOT_URL` from the authenticated
+     Railway CLI — never written to any repo file) and restore into local
+     `timetrack_prod` (`--no-owner --no-privileges --clean --if-exists`).
+     18 tables restored; production data now local (User 105, Employee 100,
+     Shift 932, TimeEntry 743, Geofence 29, CompanySettings 6, AuditLog
+     4059, EmploymentHistory 172, RetentionPolicy 3).
+  2. `prisma migrate deploy` against the restored `timetrack_prod`:
+     production history carried migrations 0–19; migrations
+     `20_working_hours_schedules` and `21_saturday_overtime` were applied
+     and booked (both idempotent/replay-safe).
+  3. `npm run db:sync:preprod` (`scripts/sync-prod-to-preprod.mjs`): local
+     `timetrack_prod` → `timetrack_pre-prod`; record-count verification
+     printed ✅ MATCH for all 11 checked tables.
+- **Grants:** both restores run as the superuser with `--no-privileges`,
+  which drops the runtime role's table grants. Re-granted on BOTH
+  databases: `GRANT USAGE, CREATE ON SCHEMA public TO timetrack_app`,
+  `GRANT ALL … ON ALL TABLES/ALL SEQUENCES IN SCHEMA public`, plus
+  `ALTER DEFAULT PRIVILEGES …` so future migrate-created objects stay
+  usable by the runtime role.
+- **Why:** develop/test the working-hours-schedules (migration 20) and
+  Saturday-overtime (migration 21) features against real production data;
+  keep the pre-prod clone byte-identical for release rehearsal.
+- **Staff-hours impact:** none on production — this operation only READ
+  production (single `pg_dump` snapshot transaction). All writes were to
+  local databases.
+- **Production state note:** migrations 20/21 are NOT yet applied or booked
+  in Railway production (folders uncommitted at sync time). They ship with
+  the next deploy via `scripts/production-start.mjs` → `prisma migrate
+deploy`; both are replay-safe, 21 defaults Saturday overtime OFF so no
+  payroll result changes until an admin enables it.
+- **Rollback path:** local-only — re-run either sync script to re-restore,
+  or drop the local databases. No production rollback exists or is needed.

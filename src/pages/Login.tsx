@@ -221,7 +221,7 @@ export default function Login() {
                       onChange={(e) => setForgotEmail(e.target.value)}
                       autoComplete="email"
                       required
-                      className="h-11 rounded-xl border-slate-200 focus:ring-brand focus:border-brand"
+                      className="h-11 rounded-xl border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:ring-brand focus:border-brand"
                     />
                   </div>
                   <Button
@@ -334,7 +334,7 @@ export default function Login() {
                     onChange={(e) => setEmail(e.target.value)}
                     autoComplete="email"
                     required
-                    className="h-11 rounded-xl border-slate-200 focus:ring-brand focus:border-brand"
+                    className="h-11 rounded-xl border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:ring-brand focus:border-brand"
                   />
                 </div>
 
@@ -367,7 +367,7 @@ export default function Login() {
                       onChange={(e) => setPassword(e.target.value)}
                       autoComplete="current-password"
                       required
-                      className="h-11 rounded-xl border-slate-200 pr-10 focus:ring-brand focus:border-brand"
+                      className="h-11 rounded-xl border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 pr-10 focus:ring-brand focus:border-brand"
                     />
                     <button
                       type="button"

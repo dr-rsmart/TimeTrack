@@ -8,6 +8,43 @@ committed at `server/docs/openapi.json`.
 Versions follow the `/api/v1` contract surface. The legacy `/api`
 surface remains available and backward-compatible.
 
+## v1.5.0 - 2026-09-18 (per-day working-hours schedules, duplicate-clocking fixes)
+
+### Added
+
+- `Geofence.workingHoursSchedules` and `CompanySettings.defaultWorkingHoursSchedules`
+  (JSONB arrays, migration 20) — per-day working-hours slots
+  `[{ days: ["Monday", ...], startTime: "HH:mm", endTime: "HH:mm" }]` so a
+  location can express e.g. Mon–Thu 08:00–17:00, Fri 08:00–15:00,
+  Sat 08:00–14:00. Accepted by POST/PUT /settings/geofences and
+  PUT /settings/settings (each day may appear in only ONE slot — overlaps are
+  rejected with 400), returned by GET /settings/geofences,
+  GET /settings/geofences/my and GET /settings/settings. The legacy
+  single-hours fields remain and are kept in sync with the first slot.
+- POST /time-entries/clock-in accepts `automatic: boolean` — marks punches
+  fired by geofence automation (web monitor / native background task).
+- New 409 `DAILY_SESSION_LIMIT` on clock-in: an AUTOMATIC punch is rejected
+  when a session was already closed by the cron working-end job
+  (`system:cron`) on the same business day — one clock-in per working day
+  unless manually corrected. Manual taps and admin/manager proxy punches are
+  exempt. Treated as terminal by both punch outboxes.
+
+### Changed
+
+- Cron working-end auto clock-out now fires ONLY for explicitly configured
+  schedules (migration 20 leaves never-customised locations/companies with an
+  empty schedule list) — fixes erroneous ~17:00 closes caused by the implicit
+  schema defaults for 20:00 knock-off companies.
+- Priority made explicit: a location's schedules apply to entries clocked in
+  at that location; company default schedules apply ONLY when the employee
+  has no geofence assignment at all.
+- Web + native geofence automation: a system (cron) close while the employee
+  is still on site now ARMS the double clock-in suppression (12h TTL,
+  released by a confirmed exit) instead of being exempt — kills the
+  re-clock-in cascade that produced multiple clock-ins/outs per day. Web
+  exit detection now uses the accuracy-compensated distance
+  (distance − accuracy > radius + buffer), matching the native shell.
+
 ## v1.4.0 - 2026-09-16 (attendance cost, alerts, reminders, export formats)
 
 ### Added
