@@ -637,5 +637,20 @@ not_null` ran before `5_time_entry_integer_minutes` on any fresh database
   the next deploy via `scripts/production-start.mjs` → `prisma migrate
 deploy`; both are replay-safe, 21 defaults Saturday overtime OFF so no
   payroll result changes until an admin enables it.
+- **Addendum (same day, production deploy executed):** commit `790810e`
+  pushed to `main` at ~13:06 UTC; Railway deployment `2b79412e` built
+  (~4.5 min), ran `migrate deploy` (20 + 21 booked at 13:11:41 UTC), passed
+  the `/ping` healthcheck and switched traffic with **zero downtime** — the
+  previous deployment served continuously until switchover and drained
+  gracefully. Verified post-deploy: 3 new `CompanySettings` columns present
+  in production, `/ping` 200, **20 active clock-in rows intact** (migrations
+  never touch `TimeEntry`), live traffic served by the new bundle, zero 5xx
+  responses. Pre-deploy snapshot: `backups/prod-pre-deploy-2026-09-18.sql`
+  (1.97 MB; the in-container best-effort backup was skipped — `pg_dump`
+  absent from the Nixpacks image — so the manual snapshot was the operative
+  pre-deploy backup, alongside Railway PITR). Observed non-fatal noise:
+  3× pre-existing `audit.js` P2028 "Transaction already closed" audit-write
+  failures (file untouched by this deploy; API responses all 200) — tracked
+  as a separate follow-up fix.
 - **Rollback path:** local-only — re-run either sync script to re-restore,
   or drop the local databases. No production rollback exists or is needed.
