@@ -45,6 +45,8 @@
     "predeploy:limitations": "node scripts/predeploy-limitations.mjs",
     "submit:ios": "node scripts/submit-to-app-store.mjs",
     "review:ios": "node scripts/add-for-review-asc.mjs",
+    "release:ios": "node scripts/release-ios-asc.mjs",
+    "verify:stores": "node scripts/verify-store-release.mjs",
     "update:ios": "node scripts/update-ios-review-build.mjs",
     "browser:asc": "node scripts/open-browser-asc.mjs",
     "play:closedalpha": "node scripts/update-closed-alpha-vc15.mjs",

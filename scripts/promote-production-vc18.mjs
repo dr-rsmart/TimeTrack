@@ -35,7 +35,7 @@ const APP_ID = '4976072281005342488';
 
 // "What's new" copy — enthusiastic and appreciative (Play limit: 500 chars).
 const RELEASE_NOTES = [
-  '🚀 TimeTrack 1.0.0 — Release 18',
+  '🚀 TimeTrack 1.0.0',
   '⏰ New: shift reminders — a heads-up 5 minutes before your shift starts and ends',
   '📍 Auto clock-in/out keeps getting better: punches captured offline are saved and sync automatically',
   '🔔 Managers: new in-app notification centre for late-ins, early-outs and no-shows',
@@ -94,6 +94,7 @@ async function isVisible(page, rx, timeout = 8000) {
 }
 
 // ── Review + rollout (production wording; falls back to generic labels) ──
+// Returns true only when the rollout click actually succeeded.
 async function submitRelease(page) {
   await clickVisible(
     page,
@@ -124,7 +125,7 @@ async function submitRelease(page) {
     20000,
   );
   await wait(6000);
-  await clickVisible(
+  const reviewed = await clickVisible(
     page,
     '"Review release"',
     [
@@ -134,7 +135,7 @@ async function submitRelease(page) {
     30000,
   );
   await wait(4000);
-  await clickVisible(
+  const rolled = await clickVisible(
     page,
     '"Start rollout to Production" / "Send for review"',
     [
@@ -146,16 +147,19 @@ async function submitRelease(page) {
     30000,
   );
   await wait(3000);
-  await clickVisible(
-    page,
-    'confirm dialog',
-    [
-      (p) => p.getByRole('button', { name: /^confirm$/i }),
-      (p) => p.getByRole('button', { name: /send for review/i }),
-      (p) => p.getByRole('button', { name: /start rollout/i }),
-    ],
-    15000,
-  );
+  if (rolled) {
+    await clickVisible(
+      page,
+      'confirm dialog',
+      [
+        (p) => p.getByRole('button', { name: /^confirm$/i }),
+        (p) => p.getByRole('button', { name: /send for review/i }),
+        (p) => p.getByRole('button', { name: /start rollout/i }),
+      ],
+      15000,
+    );
+  }
+  return { reviewed, rolled };
 }
 
 // Attach version code 16 INSIDE the release editor (library first, then upload).
@@ -179,21 +183,17 @@ async function attachBundleVc18(page) {
       [
         (p) =>
           p.locator(
-            'xpath=(//*[normalize-space(text())="17"]/preceding::*[self::input[@type="checkbox"] or @role="checkbox"])[last()]',
+            'xpath=(//*[normalize-space(text())="18"]/preceding::*[self::input[@type="checkbox"] or @role="checkbox"])[last()]',
           ),
         (p) =>
           p
-            .locator('[role="dialog"] input[type="checkbox"], [role="dialog"] [role="checkbox"]')
-            .nth(1),
-        (p) =>
-          p
             .locator('tr')
-            .filter({ has: p.locator('td').filter({ hasText: /^17$/ }) })
+            .filter({ has: p.locator('td').filter({ hasText: /^18$/ }) })
             .getByRole('checkbox'),
         (p) =>
           p
             .locator('tr')
-            .filter({ hasText: /App bundle\s+17\s+1\.0\.0/ })
+            .filter({ hasText: /App bundle\s+18\s+1\.0\.0/ })
             .getByRole('checkbox'),
       ],
       20000,
@@ -256,13 +256,75 @@ async function attachBundleVc18(page) {
   }
 }
 
+// ── Country/region selection (PRODUCTION requirement) ──
+// The production prepare page disables "Review release" until at least one
+// country/region is selected. Expand the section, open the picker, choose
+// South Africa (the app's launch market), and confirm.
+async function ensureCountrySelection(page) {
+  const opened = await clickVisible(
+    page,
+    '"Countries / regions" section',
+    [
+      (p) => p.getByText(/countries? (and|\/) regions?/i),
+      (p) => p.getByText(/countries? \/ regions?/i),
+      (p) => p.getByRole('button', { name: /countries/i }),
+    ],
+    8000,
+  );
+  if (!opened) {
+    console.log('ℹ️  Country section not found — assuming already configured.');
+    return true;
+  }
+  await wait(2500);
+  const added = await clickVisible(
+    page,
+    '"Add countries / regions"',
+    [
+      (p) => p.getByRole('button', { name: /add countries/i }),
+      (p) => p.getByText(/add countries/i),
+    ],
+    8000,
+  );
+  if (!added) {
+    console.log('⚠️  Add-countries control not found — leaving to GUIDED.');
+    return false;
+  }
+  await wait(2500);
+  const picked = await clickVisible(
+    page,
+    '"South Africa" row',
+    [
+      (p) => p.locator('[role="dialog"]').getByText('South Africa', { exact: true }),
+      (p) => p.getByText('South Africa', { exact: true }),
+    ],
+    8000,
+  );
+  if (!picked) {
+    console.log('⚠️  Could not pick a country — leaving to GUIDED.');
+    return false;
+  }
+  await wait(2000);
+  await clickVisible(
+    page,
+    'picker confirm ("Add"/"Save")',
+    [
+      (p) => p.locator('[role="dialog"]').getByRole('button', { name: /^(add|save|apply)$/i }),
+      (p) => p.getByRole('button', { name: /^(add|save|apply)$/i }),
+    ],
+    8000,
+  );
+  await wait(3000);
+  console.log('✅ Country selection attempted.');
+  return true;
+}
+
 // ── Release name box: ensure it reflects release 18 ──
 async function ensureReleaseName(page) {
   try {
     const nameBox = page.getByLabel(/release name/i).first();
     if ((await nameBox.count()) > 0) {
       const current = await nameBox.inputValue().catch(() => '');
-      if (!current || !/^\s*17\b/.test(current)) {
+      if (!/^\s*18\b/.test(current || '')) {
         await nameBox.fill(RELEASE_NAME);
         console.log(`✅ Release name set to "${RELEASE_NAME}".`);
       } else {
@@ -408,62 +470,27 @@ async function run() {
   const appId = APP_ID;
 
   // ── Production track ──
-  console.log('🧭 Opening the Production section...');
-  await page
-    .goto(
-      `https://play.google.com/console/u/0/developers/${devId}/app/${appId}/releases/production`,
-      { waitUntil: 'domcontentloaded', timeout: 60000 },
-    )
-    .catch(() => {});
-  await wait(6000);
-  if (!/production/i.test(page.url())) {
+  // Verified 2026-09-21: the only deep link that reaches the production
+  // track from a cold start is .../tracks/production. /releases/production
+  // and /production redirect to the app-list page (previous GUIDED cause).
+  console.log('🧭 Opening the Production track…');
+  const productionUrl = `https://play.google.com/console/u/0/developers/${devId}/app/${appId}/tracks/production`;
+  await page.goto(productionUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+  await wait(7000);
+  // The Console may re-ask for a developer account after redirects.
+  const bodyText0 = await page.evaluate(() => document.body.innerText).catch(() => '');
+  if (/choose developer account/i.test(bodyText0)) {
+    await clickVisible(
+      page,
+      'developer account "dr-rsmart" (post-nav chooser)',
+      [(p) => p.getByText('dr-rsmart', { exact: true })],
+      12000,
+    );
+    await wait(6000);
     await page
-      .goto(`https://play.google.com/console/u/0/developers/${devId}/app/${appId}/production`, {
-        waitUntil: 'domcontentloaded',
-        timeout: 60000,
-      })
+      .goto(productionUrl, { waitUntil: 'domcontentloaded', timeout: 60000 })
       .catch(() => {});
-    await wait(5000);
-  }
-  if (!/production/i.test(page.url())) {
-    // Expand the "Test and release" nav group, then click its Production entry
-    // (a bare text match can hit dashboard cards like "Latest production release").
-    await clickVisible(
-      page,
-      '"Test and release" nav group',
-      [(p) => p.getByText('Test and release', { exact: true })],
-      10000,
-    );
-    await wait(2500);
-    await clickVisible(
-      page,
-      '"Production" nav link',
-      [
-        (p) => p.locator('a').filter({ hasText: /^Production$/ }),
-        (p) => p.getByRole('link', { name: /^production$/i }),
-        (p) => p.getByRole('button', { name: /^production$/i }),
-        (p) => p.getByText('Production', { exact: true }),
-      ],
-      20000,
-    );
-    await wait(5000);
-  }
-  if (!/production/i.test(page.url())) {
-    // Last resort: read the Production nav anchor's href and navigate to it
-    // directly (SPA clicks can land on dashboard cards with the same label).
-    try {
-      const href = await page
-        .locator('a')
-        .filter({ hasText: /^Production$/ })
-        .first()
-        .getAttribute('href', { timeout: 8000 });
-      if (href) {
-        const target = href.startsWith('http') ? href : `https://play.google.com/console${href}`;
-        console.log(`🧭 Direct-navigating to Production href: ${target}`);
-        await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
-        await wait(6000);
-      }
-    } catch {}
+    await wait(7000);
   }
   if (!/production/i.test(page.url())) {
     console.log('⚠️  Could not reach the Production track page.');
@@ -540,28 +567,31 @@ async function run() {
     if (inEditor) {
       await wait(6000);
       await shot(page, 'release-editor');
-      // Drop the preloaded previous-production bundle (shadow guard).
-      const excluded = await excludePreviousRelease(page);
-      if (!excluded) {
-        console.log('⚠️  Could not exclude the preloaded previous bundle — aborting to GUIDED.');
-        await shot(page, 'exclude-failed');
-        console.log('PLAY_CONSOLE_RESULT: GUIDED');
-        await wait(5000);
-        await context.close();
-        return;
-      }
-      console.log('✅ Previous-release bundle excluded from this draft.');
       const bundleAlready = await isVisible(page, /18 \(1\.0\.0\)/, 5000);
       if (bundleAlready) {
-        console.log('ℹ️  vc18 already attached to this release.');
+        // Draft already carries vc18 — never run the exclude guard here
+        // (it would strip the attached bundle).
+        console.log('ℹ️  vc18 already attached — skipping exclude/attach.');
       } else {
+        // Drop the preloaded previous-production bundle (shadow guard).
+        const excluded = await excludePreviousRelease(page);
+        if (!excluded) {
+          console.log('⚠️  Could not exclude the preloaded previous bundle — aborting to GUIDED.');
+          await shot(page, 'exclude-failed');
+          console.log('PLAY_CONSOLE_RESULT: GUIDED');
+          await wait(5000);
+          await context.close();
+          return;
+        }
+        console.log('✅ Previous-release bundle excluded from this draft.');
         await attachBundleVc18(page);
       }
+      await ensureCountrySelection(page);
       await ensureReleaseName(page);
       await fillReleaseNotes(page);
       await shot(page, 'before-review');
-      await submitRelease(page);
-      submitted = true;
+      const { rolled } = await submitRelease(page);
+      submitted = rolled;
     } else {
       await shot(page, 'editor-unreachable');
     }
@@ -595,11 +625,10 @@ async function run() {
   } else {
     console.log('======================================================');
     console.log('🟢 GUIDED MODE — finish in the open browser window:');
-    console.log('   1. Releases -> Production -> "Create new release"');
-    console.log('   2. Attach vc18 from the app bundle library (or upload');
-    console.log(`      ${AAB_PATH})`);
-    console.log(`   3. Release name: ${RELEASE_NAME}; add the positive release notes`);
-    console.log('   4. "Review release" -> "Start rollout to Production" -> Confirm');
+    console.log('   1. In the release editor, select at least one');
+    console.log('      country/region (Countries / regions section).');
+    console.log('   2. "Review release" -> "Start rollout to Production"');
+    console.log('   3. Confirm the rollout.');
     console.log('======================================================');
     console.log('PLAY_CONSOLE_RESULT: GUIDED');
     const deadline = Date.now() + 10 * 60 * 1000;
