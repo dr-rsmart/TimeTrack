@@ -26,7 +26,7 @@
     "dns:update": "node scripts/update-namecheap-dns.mjs",
     "dns:watch": "node scripts/dns-watchdog.mjs",
     "postinstall": "cd server && npm install",
-    "build": "vite build && cd server && npm run build",
+    "build": "vite build && node scripts/generate-static-legal-pages.mjs && cd server && npm run build",
     "start": "node scripts/production-start.mjs",
     "start:dev-db": "cd server && npx prisma db push --schema=prisma/schema.prisma && cd .. && node server/dist/index.js",
     "typecheck": "tsc -p ./tsconfig.json --noEmit && cd server && npx tsc --noEmit",

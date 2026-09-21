@@ -1,0 +1,78 @@
+{
+  "route": "/privacy",
+  "htmlTitle": "Privacy Policy — TimeTrack",
+  "metaDescription": "TimeTrack privacy policy: how the workforce time tracking, scheduling and payroll platform collects, uses, shares and protects employee personal information under POPIA and the GDPR.",
+  "title": "Privacy Policy",
+  "productLine": "TimeTrack — workforce time tracking, scheduling and payroll",
+  "updated": "21 September 2026",
+  "siteUrl": "https://time-track.tech",
+  "sections": [
+    {
+      "heading": "1. Who we are",
+      "paragraphs": [
+        "TimeTrack (“the app”, “we”) is a workforce management platform operated by Smart Patel Tech Solutions and made available at [time-track.tech](https://time-track.tech) and via the TimeTrack iOS and Android applications. Employers (“company administrators”) use TimeTrack to record employee attendance, schedule shifts and produce payroll reports. This policy explains what personal information is processed, why, and the rights of the people whose data it holds. It is written to comply with the Protection of Personal Information Act (POPIA, South Africa) and, where applicable, the EU General Data Protection Regulation (GDPR)."
+      ]
+    },
+    {
+      "heading": "2. Information we process",
+      "bullets": [
+        "**Identity & employment records:** name, work email address, role, employee number, position, branch, department, manager, hire date, contact number and hourly pay rate (used for attendance-cost reporting).",
+        "**Attendance & location data:** clock-in/clock-out timestamps, break minutes, shift schedules, and device location used to verify presence within an assigned workplace geofence. Location is processed to record and validate attendance (including automatic clock-in/out) — it is not used to track employees continuously outside attendance events at assigned work locations.",
+        "**Device & notification data:** push-notification tokens and basic device details so the app can confirm automatic punches and send shift reminders.",
+        "**Authentication data:** email and a bcrypt-hashed password (never stored in plain text), session tokens, and password-reset metadata.",
+        "**Audit & security logs:** records of administrative actions (who changed what, when) including IP addresses. IP addresses are redacted for non-administrative viewers. Audit logs are append-only and are never silently purged."
+      ]
+    },
+    {
+      "heading": "3. Why we process it (purposes & legal grounds)",
+      "bullets": [
+        "**Employment contract / your employer's legitimate interest:** recording attendance, scheduling, payroll and overtime computation, and attendance cost reporting.",
+        "**Consent (withdrawable at any time):** precise and background location for automatic geofence clock-in/out, and push notifications. Permissions are requested in-app and can be revoked in your device settings; the app remains usable with manual clock-in/out.",
+        "**Legal obligation & security:** audit trails, tenant isolation and abuse prevention."
+      ]
+    },
+    {
+      "heading": "4. Location permissions in the mobile app",
+      "paragraphs": [
+        "On iOS and Android, TimeTrack may request “While Using” and “Always” location access. “Always” access enables automatic clock-in when you arrive at an assigned work location and clock-out when you leave, even when the app is closed or the device is locked. Location checks are limited to the geofence perimeters your employer assigns to you. Location data is transmitted to the TimeTrack server over TLS to create attendance records and is not sold, rented or used for advertising."
+      ]
+    },
+    {
+      "heading": "5. Who we share data with",
+      "paragraphs": [
+        "We do not sell personal information. Data is shared only with: (a) your employer's TimeTrack administrators and managers, within their assigned branch/department scope; (b) service providers that host and operate the platform — Railway (application hosting and PostgreSQL database), Expo (push notification delivery), and Apple/Google (push transport) — each processing data solely to provide these services; and (c) authorities where legally compelled. Some processors operate infrastructure outside South Africa; transfers are limited to what is necessary to provide the service and are protected by applicable data-transfer safeguards."
+      ]
+    },
+    {
+      "heading": "6. Retention",
+      "paragraphs": [
+        "Attendance and employment records are retained for the period configured by your employer's retention policy in TimeTrack, and as required by applicable labour and tax law. Security audit logs are retained on an append-only basis (with optional archival after long retention periods). When an employee account is terminated or deleted, identity records are removed or anonymised while historical attendance records required for payroll and legal purposes are retained for the configured period."
+      ]
+    },
+    {
+      "heading": "7. Security",
+      "paragraphs": [
+        "We enforce HTTPS/TLS with HSTS, a strict Content-Security-Policy, hashed passwords, httpOnly session cookies with revocation on password change, CSRF and rate-limiting protections, role-based access control, and PostgreSQL row-level security with least-privilege database roles so each company's data is isolated from every other tenant. Weekly encrypted backups and restore drills are performed."
+      ]
+    },
+    {
+      "heading": "8. Your rights",
+      "paragraphs": [
+        "Under POPIA (and the GDPR where applicable) you may request access to, correction of, or deletion of your personal information; object to or restrict certain processing; withdraw location/notification consent at any time via device settings; and lodge a complaint with the Information Regulator (South Africa) or your local supervisory authority. Employees should ordinarily address attendance-record corrections to their company administrator first, who can amend records in-app (every amendment is audited)."
+      ]
+    },
+    {
+      "heading": "9. Children",
+      "paragraphs": [
+        "TimeTrack is a workforce tool and is not directed at children. We do not knowingly process personal information of children."
+      ]
+    },
+    {
+      "heading": "10. Changes & contact",
+      "paragraphs": [
+        "We may update this policy; the “last updated” date above always reflects the current version. Questions about this policy or privacy requests can be sent to the app support and data-protection contact: [ricardovsmart@gmail.com](mailto:ricardovsmart@gmail.com). See also our [Support page](/support)."
+      ]
+    }
+  ],
+  "footerLinks": [{ "label": "← Back to sign in", "url": "/login" }]
+}

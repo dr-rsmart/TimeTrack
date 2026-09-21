@@ -10,6 +10,10 @@
  *      probes — see checkBundleMarkers),
  *   3. OPTIONAL: if VERIFY_EMAIL/VERIFY_PASSWORD are provided, logs in and
  *      checks the NEW `geofenceIds` field on GET /api/settings/geofences/my.
+ *   4. the store-declared legal pages (/privacy, /support) serve the full
+ *      static policy text over GET **and** HEAD — Apple/Google review
+ *      crawlers must never see a blank SPA shell (2026-09-21 Play
+ *      "Invalid privacy policy" rejection guard).
  *
  * Usage: node scripts/verify-deploy-live.mjs
  */
@@ -64,6 +68,34 @@ async function checkBundleMarkers() {
   };
 }
 
+// Legal pages declared to the app stores. Each must return the FULL policy
+// text in the raw (JS-unexecuted) HTML payload over GET **and** HEAD.
+const LEGAL_PAGES = [
+  {
+    path: '/privacy',
+    markers: ['Privacy Policy', 'POPIA', 'location', 'Last updated', 'ricardovsmart@gmail.com'],
+  },
+  {
+    path: '/support',
+    markers: ['Support', 'company administrator', 'ricardovsmart@gmail.com'],
+  },
+];
+
+async function checkLegalPages() {
+  const results = {};
+  for (const page of LEGAL_PAGES) {
+    const getRes = await fetch(`${BASE}${page.path}`, { headers: { 'Cache-Control': 'no-cache' } });
+    const body = getRes.ok ? await getRes.text() : '';
+    const headRes = await fetch(`${BASE}${page.path}`, { method: 'HEAD' });
+    results[page.path] = {
+      getOk: getRes.ok,
+      headOk: headRes.ok,
+      missingMarkers: page.markers.filter((m) => !body.includes(m)),
+    };
+  }
+  return results;
+}
+
 async function checkAuthedEndpoints() {
   const res = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST',
@@ -99,11 +131,25 @@ async function main() {
     `[verify-live] bundle ${markers.asset} → geofenceIds: ${markers.geofenceIds ? 'YES' : 'NO'}, weeklySchedule: ${markers.weeklySchedule ? 'YES' : 'NO'}, autoClockFix: ${markers.autoClockFix ? 'YES' : 'NO'}, autoClockObservability: ${markers.autoClockObservability ? 'YES' : 'NO'}, hybridAutoClock: ${markers.hybridAutoClock ? 'YES' : 'NO'}, sessionSurvivingRotation: ${markers.sessionSurvivingRotation ? 'YES' : 'NO'}, offlinePunchOutbox: ${markers.offlinePunchOutbox ? 'YES' : 'NO'}, permissionTiers: ${markers.permissionTiers ? 'YES' : 'NO'}, settingsBridge: ${markers.settingsBridge ? 'YES' : 'NO'}`,
   );
 
+  const legal = await checkLegalPages();
+  const legalAllOk = Object.values(legal).every(
+    (r) => r.getOk && r.headOk && r.missingMarkers.length === 0,
+  );
+  console.log(
+    `[verify-live] legal pages → ${Object.entries(legal)
+      .map(
+        ([path, r]) =>
+          `${path} GET ${r.getOk ? '200' : 'FAIL'} / HEAD ${r.headOk ? '200' : 'FAIL'} / markers ${r.missingMarkers.length === 0 ? 'OK' : `MISSING: ${r.missingMarkers.join(', ')}`}`,
+      )
+      .join(' | ')}`,
+  );
+
   if (EMAIL && PASSWORD) {
     try {
       const ok = await checkAuthedEndpoints();
       if (
         ok &&
+        legalAllOk &&
         markers.autoClockFix &&
         markers.autoClockObservability &&
         markers.hybridAutoClock &&
@@ -121,6 +167,7 @@ async function main() {
   }
 
   if (
+    legalAllOk &&
     markers.geofenceIds &&
     markers.weeklySchedule &&
     markers.autoClockFix &&
@@ -134,7 +181,9 @@ async function main() {
     console.log('[verify-live] ✅ NEW CODE IS LIVE (bundle markers verified)');
     process.exit(0);
   } else {
-    console.log('[verify-live] ⏳ Old code still serving — deployment has not swapped over yet.');
+    console.log(
+      '[verify-live] ⏳ Old code still serving or legal pages not fully live — deployment has not swapped over yet.',
+    );
     process.exit(2);
   }
 }

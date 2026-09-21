@@ -329,20 +329,60 @@ const __dirname = path.dirname(__filename);
 const staticDistPath = path.resolve(__dirname, '../../dist');
 
 if (fs.existsSync(staticDistPath)) {
+  // HTML payloads that must never be cached immutably: the SPA entry shell
+  // (regenerated every build with hashed asset names) and the generated
+  // legal pages (a stale cached privacy policy would break store compliance).
+  const uncacheableHtml = (filePath: string) =>
+    filePath.endsWith('index.html') ||
+    filePath.endsWith('privacy.html') ||
+    filePath.endsWith('support.html');
   app.use(
     express.static(staticDistPath, {
       immutable: true,
       maxAge: config.isProduction ? '1y' : 0,
       setHeaders: (res, filePath) => {
-        if (filePath.endsWith('index.html')) {
+        if (uncacheableHtml(filePath)) {
           res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         }
       },
     }),
   );
+
+  // ── Public legal pages (GET + HEAD, full text, no JavaScript) ──
+  // /privacy and /support are the URLs declared to the Apple App Store and
+  // Google Play. Review crawlers must find the COMPLETE policy text in the
+  // raw HTML payload — the React SPA shell alone reads as a blank page to
+  // non-JS crawlers and caused the 2026-09-21 Play "Invalid privacy policy"
+  // rejection. These files are generated at build time from the same
+  // content module the React pages render (src/content/*.json via
+  // scripts/generate-static-legal-pages.mjs), so the two cannot drift.
+  // Express routes HEAD requests to GET handlers automatically.
+  const LEGAL_PAGE_FILES: Record<string, string> = {
+    '/privacy': 'privacy.html',
+    '/support': 'support.html',
+  };
+  for (const [routePath, fileName] of Object.entries(LEGAL_PAGE_FILES)) {
+    app.get(routePath, (_req, res, next) => {
+      const filePath = path.join(staticDistPath, fileName);
+      if (!fs.existsSync(filePath)) {
+        // Local dev before the generator has run — keep the SPA fallback
+        // behaviour so the React page still renders.
+        return next();
+      }
+      return res.sendFile(filePath, {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          // Legal text must propagate immediately — never let a proxy or
+          // browser serve an outdated policy.
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        },
+      });
+    });
+  }
+
   app.use((req, res, next) => {
     if (
-      req.method !== 'GET' ||
+      (req.method !== 'GET' && req.method !== 'HEAD') ||
       req.path.startsWith('/api') ||
       req.path.startsWith('/health') ||
       req.path.startsWith('/ready') ||

@@ -96,6 +96,26 @@ after build (server devDeps intentionally kept: `prisma` CLI is required by
 Remaining audit items are owner/account-gated: Sentry adoption (needs DSN),
 secret rotation (runbook steps 1–3), mobile CI (EAS remote credentials).
 
+**Store-blocker remediation #2 (2026-09-21):** Google Play REJECTED the
+production update — "Invalid privacy policy: URL provided
+https://timetrack.smartpatel.co.za/privacy does not link to a valid privacy
+policy page". Root causes verified live: (1) that hostname has NO DNS record
+(its parent `smartpatel.co.za` is a parked GoDaddy lander — the URL must never
+be re-entered in Play Console); (2) even the canonical
+`time-track.tech/privacy` returned 404 on HEAD (SPA fallback rejected non-GET)
+and served a client-side-rendered shell with zero policy text to JS-less
+crawlers. Fix: policy/support prose moved to JSON content sources
+(`src/content/privacyPolicy.json`, `supportPage.json`) rendered by BOTH the
+React pages and a new build step (`scripts/generate-static-legal-pages.mjs`
+→ `dist/privacy.html`, `dist/support.html`); the server now serves those
+static files at GET/HEAD `/privacy` and `/support` (no-cache) and the SPA
+fallback accepts HEAD. Guards: `tests/unit/legalPages.test.ts` (crawler
+markers + no-script + JSON↔HTML parity) and `verify-deploy-live.mjs`
+(GET+HEAD+markers gate). Signed-in users also get Privacy Policy/Support
+footer links in Settings. Canonical Play URL remains
+`https://time-track.tech/privacy` (same as iOS). No new AAB required — the
+mobile shell is a WebView of time-track.tech.
+
 ## Open findings (tracked)
 
 | ID      | Finding                                                                                                                                                                                                                                                                                                                                                                                                                                    | Owner                    | Target                                        |

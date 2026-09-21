@@ -1,0 +1,40 @@
+{
+  "route": "/support",
+  "htmlTitle": "Support — TimeTrack",
+  "metaDescription": "TimeTrack support: contact your company administrator first for attendance and payroll help, or email the TimeTrack support team for technical issues.",
+  "title": "Support",
+  "productLine": "TimeTrack — workforce time tracking, scheduling and payroll",
+  "siteUrl": "https://time-track.tech",
+  "contactEmail": "ricardovsmart@gmail.com",
+  "contactSubject": "TimeTrack Support",
+  "sections": [
+    {
+      "heading": "Workplace & attendance help",
+      "paragraphs": [
+        "For missed punches, shift corrections, leave and payroll questions, contact your company administrator or branch manager first — they can amend records directly in TimeTrack (every amendment is audited)."
+      ]
+    },
+    {
+      "heading": "In-app FAQ",
+      "paragraphs": [
+        "Signed-in users can open the FAQ from the navigation for setup guides: location permissions, automatic clock-in/out troubleshooting, offline behaviour and notifications."
+      ]
+    },
+    {
+      "heading": "App-level technical support",
+      "paragraphs": [
+        "For installation problems, bugs, or account-access issues you cannot resolve with your administrator, email the TimeTrack support team. Include your device, app version and a short description."
+      ]
+    },
+    {
+      "heading": "Privacy & data requests",
+      "paragraphs": [
+        "Privacy policy, POPIA/GDPR rights requests and data-protection contact details are on the [privacy page](/privacy)."
+      ]
+    }
+  ],
+  "footerLinks": [
+    { "label": "Privacy Policy", "url": "/privacy" },
+    { "label": "Sign in", "url": "/login" }
+  ]
+}

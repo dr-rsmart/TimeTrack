@@ -72,6 +72,17 @@ All screenshot assets have been generated via Playwright directly from the produ
 | **Tags**              | —               | `Business`, `Productivity`, `Time Tracking`, `Employee Management`           |
 | **Target Audience**   | —               | `18 and over` (Workforce & Enterprise)                                       |
 
+| **Privacy Policy URL** | — | `https://time-track.tech/privacy` |
+| **Support URL** | — | `https://time-track.tech/support` |
+
+> ⚠️ NEVER enter `https://timetrack.smartpatel.co.za/privacy` (or any other
+> subdomain of `smartpatel.co.za`): the parent domain is a parked GoDaddy
+> lander and the subdomain has no DNS record. Submitting it caused the
+> 2026-09-21 Play "Invalid privacy policy" rejection. The canonical policy URL
+> is `https://time-track.tech/privacy` — it serves the full policy text as
+> static HTML over GET **and** HEAD (`dist/privacy.html`, generated at build
+> time from `src/content/privacyPolicy.json`).
+
 ### 2.3 Full Description (Both Platforms)
 
 ```markdown

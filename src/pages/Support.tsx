@@ -6,35 +6,34 @@
  * channel: company administrators first (the app's real support model — the
  * in-app FAQ says the same), then the app-level contact for technical issues.
  * Rendered outside the auth guard in App.tsx.
+ *
+ * Content SSOT: src/content/supportPage.json. The same JSON is rendered to
+ * static HTML by scripts/generate-static-legal-pages.mjs (dist/support.html),
+ * which the server serves at GET/HEAD /support. Edit ONLY the JSON to keep
+ * the static page and this page in sync.
  */
 
 import { Link } from 'react-router-dom';
-import { LifeBuoy, Building2, Mail, BookOpen, ShieldCheck } from 'lucide-react';
+import { LifeBuoy, Building2, Mail, BookOpen, ShieldCheck, type LucideIcon } from 'lucide-react';
+import support from '../content/supportPage.json';
 
-const SUPPORT_EMAIL = 'ricardovsmart@gmail.com';
+const SUPPORT_EMAIL = support.contactEmail as string;
 
-const cards = [
-  {
-    icon: Building2,
-    title: 'Workplace & attendance help',
-    body: 'For missed punches, shift corrections, leave and payroll questions, contact your company administrator or branch manager first — they can amend records directly in TimeTrack (every amendment is audited).',
-  },
-  {
-    icon: BookOpen,
-    title: 'In-app FAQ',
-    body: 'Signed-in users can open the FAQ from the navigation for setup guides: location permissions, automatic clock-in/out troubleshooting, offline behaviour and notifications.',
-  },
-  {
-    icon: Mail,
-    title: 'App-level technical support',
-    body: 'For installation problems, bugs, or account-access issues you cannot resolve with your administrator, email the TimeTrack support team. Include your device, app version and a short description.',
-  },
-  {
-    icon: ShieldCheck,
-    title: 'Privacy & data requests',
-    body: 'Privacy policy, POPIA/GDPR rights requests and data-protection contact details are on the privacy page.',
-  },
-];
+const ICONS: Record<string, LucideIcon> = {
+  'Workplace & attendance help': Building2,
+  'In-app FAQ': BookOpen,
+  'App-level technical support': Mail,
+  'Privacy & data requests': ShieldCheck,
+};
+
+interface SupportContent {
+  title: string;
+  productLine: string;
+  sections: Array<{ heading: string; paragraphs?: string[] }>;
+  footerLinks: Array<{ label: string; url: string }>;
+}
+
+const content = support as SupportContent;
 
 export default function Support() {
   return (
@@ -42,25 +41,30 @@ export default function Support() {
       <div className="max-w-2xl mx-auto">
         <div className="flex items-center gap-3 mb-2">
           <LifeBuoy className="w-7 h-7 text-brand" />
-          <h1 className="text-2xl font-bold text-foreground">Support</h1>
+          <h1 className="text-2xl font-bold text-foreground">{content.title}</h1>
         </div>
-        <p className="text-xs text-muted-foreground mb-8">
-          TimeTrack — workforce time tracking, scheduling and payroll
-        </p>
+        <p className="text-xs text-muted-foreground mb-8">{content.productLine}</p>
 
         <div className="space-y-4">
-          {cards.map(({ icon: Icon, title, body }) => (
-            <div
-              key={title}
-              className="rounded-xl border border-border/50 bg-card/60 p-4 flex gap-3"
-            >
-              <Icon className="w-5 h-5 text-brand shrink-0 mt-0.5" />
-              <div>
-                <h2 className="text-sm font-semibold text-foreground mb-1">{title}</h2>
-                <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
+          {content.sections.map(({ heading, paragraphs }) => {
+            const Icon = ICONS[heading] ?? LifeBuoy;
+            return (
+              <div
+                key={heading}
+                className="rounded-xl border border-border/50 bg-card/60 p-4 flex gap-3"
+              >
+                <Icon className="w-5 h-5 text-brand shrink-0 mt-0.5" />
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground mb-1">{heading}</h2>
+                  {(paragraphs ?? []).map((body, index) => (
+                    <p key={index} className="text-sm text-muted-foreground leading-relaxed">
+                      {body}
+                    </p>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="mt-8 rounded-xl border border-border/50 bg-card/60 p-4 text-center">
@@ -74,13 +78,14 @@ export default function Support() {
         </div>
 
         <div className="mt-10 pt-6 border-t border-border/40 flex items-center justify-center gap-4 text-sm">
-          <Link to="/privacy" className="text-brand hover:underline">
-            Privacy Policy
-          </Link>
-          <span className="text-muted-foreground">·</span>
-          <Link to="/login" className="text-brand hover:underline">
-            Sign in
-          </Link>
+          {content.footerLinks.map((link, index) => (
+            <span key={link.url} className="flex items-center gap-4">
+              {index > 0 && <span className="text-muted-foreground">·</span>}
+              <Link to={link.url} className="text-brand hover:underline">
+                {link.label}
+              </Link>
+            </span>
+          ))}
         </div>
       </div>
     </div>

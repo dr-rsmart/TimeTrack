@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Save,
   Settings as SettingsIcon,
@@ -669,6 +670,19 @@ export default function Settings() {
           </CardContent>
         </Card>
       )}
+
+      {/* Public legal/support links — the Google Play User Data policy
+          requires a privacy policy link inside the app that stays reachable
+          after sign-in (not only on the login screen). */}
+      <div className="pt-2 pb-4 text-center text-[11px] text-muted-foreground">
+        <Link to="/privacy" className="hover:text-foreground hover:underline underline-offset-2">
+          Privacy Policy
+        </Link>
+        <span className="mx-2">·</span>
+        <Link to="/support" className="hover:text-foreground hover:underline underline-offset-2">
+          Support
+        </Link>
+      </div>
     </div>
   );
 }
