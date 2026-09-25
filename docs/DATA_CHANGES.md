@@ -668,3 +668,25 @@ deploy`; both are replay-safe, 21 defaults Saturday overtime OFF so no
 - **Rollout:** ships with the next deploy via `prisma migrate deploy`; the
   column is replay-safe (IF NOT EXISTS) and nullable, so existing payroll
   results are unchanged until a penalty rate is set on an employee profile.
+
+## 2026-09-25 — Migrations 22 + 23 applied to the local production clone (with recovery)
+
+- **What changed:** migrations `22_late_penalty_rate` and
+  `23_punch_provenance_duplicate_flag_export_audit` applied to the local
+  `timetrack_prod` clone at `localhost:5433`.
+- **Recovery note:** a previous `prisma migrate deploy` had run as the
+  least-privilege `timetrack_app` role and left migration 22 in a **failed**
+  state (`ERROR: must be owner of table Employee`, 42501) — the runtime role is
+  not the table owner and cannot run DDL. Recovery was: mark 22
+  `--rolled-back` (nothing had actually been altered), then re-run
+  `migrate deploy` with `DATABASE_URL` pointed at the owner role from
+  `MIGRATE_DATABASE_URL` (postgres). Both migrations then applied cleanly.
+- **What migration 23 adds:** `TimeEntry.deviceId`, `punchLatitude`,
+  `punchLongitude`, `isFlaggedDuplicate` (default false), `duplicateOfId`; a
+  `[companyProfileId, isFlaggedDuplicate]` index; and a new `PayrollExportLog`
+  table with RLS enabled + forced, created atomically in the same migration.
+- **Why:** punch provenance + corrective duplicate flagging (§7) and the payroll
+  export audit trail (§4).
+- **Operational caveat:** migrations MUST run as the owner (`MIGRATE_DATABASE_URL`),
+  never as `timetrack_app`. `DATABASE_URL` is the runtime role; `prisma migrate
+deploy` without the override will fail on any ALTER/CREATE.

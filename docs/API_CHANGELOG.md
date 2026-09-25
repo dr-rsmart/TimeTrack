@@ -8,6 +8,34 @@ committed at `server/docs/openapi.json`.
 Versions follow the `/api/v1` contract surface. The legacy `/api`
 surface remains available and backward-compatible.
 
+## v1.5.2 - 2026-09-25 (bulk shifts, self-delete, duplicate resolution, payroll exports)
+
+### Added
+
+- `PATCH /api/shifts/bulk-edit` and `POST /api/shifts/bulk-delete` — bulk
+  start/end time + shift-type updates and batch deletion, scoped to the actor's
+  company and manager direct reports; audit-logged + SSE-broadcast.
+- `POST /api/time-entries/:id/resolve-duplicate` — Option A auto-merge: keeps the
+  earliest clock-in (or latest clock-out) and deletes the flagged duplicate.
+- `DELETE /api/time-entries/:id` — employees may now delete their OWN entries
+  created within the last 24 hours (configurable via
+  `SELF_DELETE_WINDOW_HOURS`); managers/admins/master keep full scope-based
+  deletion. Payroll-locked or manually-adjusted entries remain protected.
+- `POST /api/reports/payroll/export-log` and
+  `GET /api/reports/payroll/export-logs` — payroll export audit trail
+  (`PayrollExportLog`), tenant-scoped.
+- `GET /api/reports/attendance-alerts` — now also returns `duplicate` alerts
+  (with `timeEntryId` for deep-linking) alongside late/early/no-show/absence.
+
+### Changed
+
+- `TimeEntry` now carries `deviceId`, `punchLatitude`, `punchLongitude`,
+  `isFlaggedDuplicate`, `duplicateOfId` (migration 23) — returned on clock-in and
+  timesheet reads.
+- Push notifications now stamp `companyId` on the Expo payload and resolve tokens
+  tenant-scoped (spec §2/§8); a new closed-app manager fan-out
+  (`notifyCompanyManagersPush`) pushes duplicate + no-show alerts per company.
+
 ## v1.5.1 - 2026-09-25 (late-penalty rate for Cost of Late Coming)
 
 ### Added

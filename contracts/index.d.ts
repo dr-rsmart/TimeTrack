@@ -147,6 +147,19 @@ export interface TimeEntry {
   adjustedByName: string | null;
   adjustmentReason: string | null;
   geofenceName: string | null;
+  /**
+   * Spec §7 — corrective duplicate flag. Set when this punch landed within the
+   * duplicate window of another punch by the same employee (proxy punches and
+   * out-of-order offline replays bypass the preventive re-clock guard). The
+   * flagged row is the artefact; `duplicateOfId` names the surviving entry.
+   */
+  isFlaggedDuplicate?: boolean;
+  duplicateOfId?: string | null;
+  /** Spec §7 — provenance: install id and raw device GPS at capture time. */
+  deviceId?: string | null;
+  punchLatitude?: number | null;
+  punchLongitude?: number | null;
+  isOfflineSynced?: boolean;
 }
 
 export interface ClockInRequest {
@@ -164,6 +177,8 @@ export interface ClockInRequest {
    * (cron) working-end close (409 DAILY_SESSION_LIMIT).
    */
   automatic?: boolean;
+  /** Spec §7 — stable client install id, persisted as punch provenance. */
+  deviceId?: string;
 }
 
 export interface ClockOutRequest {
@@ -175,6 +190,8 @@ export interface ClockOutRequest {
   capturedAt?: string;
   /** True when this punch was queued offline and replayed on reconnect. */
   offline?: boolean;
+  /** Spec §7 — stable client install id, persisted as punch provenance. */
+  deviceId?: string;
 }
 
 export interface ManualTimeEntryRequest {
