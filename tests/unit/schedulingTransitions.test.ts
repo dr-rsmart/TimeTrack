@@ -80,6 +80,9 @@ describe('closeActiveEntryAtShiftEnd', () => {
       'Automatic Clock Out',
       expect.stringContaining('15:00'),
       { type: 'auto_clock_out', entryId: 'te_1' },
+      // Spec §2/§8: the tenant is passed so the push-token lookup is
+      // company-scoped and `companyId` lands on the Expo payload.
+      'cp_1',
     );
     expect(deps.shift.update).toHaveBeenCalledWith({
       where: { id: 'sh_1' },

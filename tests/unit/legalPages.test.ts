@@ -25,7 +25,7 @@ const PRIVACY_MARKERS = [
   'GDPR',
   'location',
   'geofence',
-  'Last updated: 21 September 2026',
+  'Last updated: 25 September 2026',
   'ricardovsmart@gmail.com',
   'Smart Patel Tech Solutions',
 ];
