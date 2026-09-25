@@ -90,6 +90,34 @@ export function isPastGraceDeadline(opts: {
 }
 
 /**
+ * Decide whether to raise an "absence" (no clock-in) alert for a shift that has
+ * no completed entry. Feature §3 defines a no-show as "did not clock in within
+ * 10 minutes of shift start"; this gates the alert so it fires only once that
+ * grace deadline has passed — never for shifts still in the future, which would
+ * otherwise flood the manager Notification Centre first thing in the morning.
+ *
+ * - Past-day shifts are always overdue.
+ * - Future-day shifts are never overdue.
+ * - Today's shift needs a start time; it fires once now > start + grace.
+ */
+export function isAbsenceAlertDue(opts: {
+  nowDateStr: string;
+  shiftDateStr: string;
+  shiftStartMinutes: number | null;
+  graceMinutes: number;
+  nowMinutesOfDay: number;
+}): boolean {
+  if (opts.shiftDateStr < opts.nowDateStr) return true;
+  if (opts.shiftDateStr > opts.nowDateStr) return false;
+  if (opts.shiftStartMinutes === null) return false;
+  return isPastGraceDeadline({
+    nowMinutesOfDay: opts.nowMinutesOfDay,
+    shiftStartMinutes: opts.shiftStartMinutes,
+    graceMinutes: opts.graceMinutes,
+  });
+}
+
+/**
  * Decide whether a reminder that should fire `leadMinutes` before an event at
  * `eventMinutes` (minutes-of-day, business timezone) is DUE NOW, given the
  * 60-second cron cadence.

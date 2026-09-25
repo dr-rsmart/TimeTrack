@@ -391,7 +391,7 @@ export default function Reports() {
       'Email',
       'Branch',
       'Department',
-      'Hourly Rate (ZAR)',
+      'Penalty Rate (ZAR)',
       'Late Minutes',
       'Early Minutes',
       'Hours Lost',
@@ -403,7 +403,7 @@ export default function Reports() {
       r.email,
       r.branch,
       r.department,
-      r.hourlyRate ?? '',
+      r.latePenaltyRate ?? '',
       r.lateMinutes,
       r.earlyMinutes,
       r.hoursLost,
@@ -963,7 +963,7 @@ export default function Reports() {
                   <TableRow>
                     <TableHead>Employee</TableHead>
                     <TableHead>Branch</TableHead>
-                    <TableHead className="text-right">Rate (R/hr)</TableHead>
+                    <TableHead className="text-right">Penalty Rate (R/hr)</TableHead>
                     <TableHead className="text-right">Late (min)</TableHead>
                     <TableHead className="text-right">Early (min)</TableHead>
                     <TableHead className="text-right">Hours Lost</TableHead>
@@ -979,12 +979,12 @@ export default function Reports() {
                       </TableCell>
                       <TableCell>{r.branch}</TableCell>
                       <TableCell className="text-right">
-                        {r.hourlyRate !== null ? (
-                          `R ${r.hourlyRate.toFixed(2)}`
+                        {r.latePenaltyRate !== null ? (
+                          `R ${r.latePenaltyRate.toFixed(2)}`
                         ) : (
                           <span
                             className="text-muted-foreground"
-                            title="Set an hourly rate on the employee profile to see Rand lost"
+                            title="Set a late penalty rate (or hourly rate) on the employee profile to see Rand lost"
                           >
                             —
                           </span>
@@ -1004,7 +1004,7 @@ export default function Reports() {
                         {formatHours(r.hoursLost)}
                       </TableCell>
                       <TableCell className="text-right font-semibold text-red-600">
-                        {r.hourlyRate !== null ? `R ${r.randLost.toFixed(2)}` : '—'}
+                        {r.latePenaltyRate !== null ? `R ${r.randLost.toFixed(2)}` : '—'}
                       </TableCell>
                     </TableRow>
                   ))}

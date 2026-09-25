@@ -654,3 +654,17 @@ deploy`; both are replay-safe, 21 defaults Saturday overtime OFF so no
   as a separate follow-up fix.
 - **Rollback path:** local-only — re-run either sync script to re-restore,
   or drop the local databases. No production rollback exists or is needed.
+
+## 2026-09-25 — Migration 22: Employee.latePenaltyRate (Cost of Late Coming)
+
+- **What changed:** `ALTER TABLE "Employee" ADD COLUMN IF NOT EXISTS
+"latePenaltyRate" DECIMAL(10,2)` — metadata-only, nullable, no default, no
+  table rewrite, no modification of existing rows. Prisma schema aligned
+  (`latePenaltyRate Decimal? @db.Decimal(10, 2)`); Prisma Client regenerated.
+- **Why:** the Cost of Late Coming report should price late clock-ins / early
+  clock-outs at a dedicated penalty rate when one is configured, falling back
+  to `hourlyRate` otherwise. This lets payroll apply e.g. an overtime rate
+  without touching the regular hourly rate.
+- **Rollout:** ships with the next deploy via `prisma migrate deploy`; the
+  column is replay-safe (IF NOT EXISTS) and nullable, so existing payroll
+  results are unchanged until a penalty rate is set on an employee profile.

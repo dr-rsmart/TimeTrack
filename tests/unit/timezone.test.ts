@@ -4,6 +4,7 @@ import {
   getBusinessTimezone,
   timeStrToMinutes,
   isPastGraceDeadline,
+  isAbsenceAlertDue,
 } from '../../server/src/timezone';
 
 describe('Business Timezone Rules (cron no-show safety)', () => {
@@ -121,6 +122,65 @@ describe('Business Timezone Rules (cron no-show safety)', () => {
           isPreviousDay: true,
         }),
       ).toBe(true);
+    });
+  });
+
+  describe('isAbsenceAlertDue', () => {
+    const today = '2026-09-25';
+    const grace = 10; // spec §3 no-show threshold
+
+    it('flags a same-day shift only after start + grace', () => {
+      expect(
+        isAbsenceAlertDue({
+          nowDateStr: today,
+          shiftDateStr: today,
+          shiftStartMinutes: 480, // 08:00 → deadline 08:10
+          graceMinutes: grace,
+          nowMinutesOfDay: 481, // 08:01 → not yet
+        }),
+      ).toBe(false);
+      expect(
+        isAbsenceAlertDue({
+          nowDateStr: today,
+          shiftDateStr: today,
+          shiftStartMinutes: 480,
+          graceMinutes: grace,
+          nowMinutesOfDay: 491, // 08:11 → past
+        }),
+      ).toBe(true);
+    });
+
+    it('always flags past-day shifts and never future-day shifts', () => {
+      expect(
+        isAbsenceAlertDue({
+          nowDateStr: today,
+          shiftDateStr: '2026-09-24',
+          shiftStartMinutes: 480,
+          graceMinutes: grace,
+          nowMinutesOfDay: 1,
+        }),
+      ).toBe(true);
+      expect(
+        isAbsenceAlertDue({
+          nowDateStr: today,
+          shiftDateStr: '2026-09-26',
+          shiftStartMinutes: 480,
+          graceMinutes: grace,
+          nowMinutesOfDay: 1439,
+        }),
+      ).toBe(false);
+    });
+
+    it('does not flag a same-day shift with no start time', () => {
+      expect(
+        isAbsenceAlertDue({
+          nowDateStr: today,
+          shiftDateStr: today,
+          shiftStartMinutes: null,
+          graceMinutes: grace,
+          nowMinutesOfDay: 1439,
+        }),
+      ).toBe(false);
     });
   });
 });

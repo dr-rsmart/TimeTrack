@@ -66,6 +66,8 @@ export const createEmployeeSchema = z.object({
   salaryInfo: z.record(z.string(), z.unknown()).nullish(),
   /** Hourly rate (ZAR) for the Cost-of-Late-Coming report. null = not set. */
   hourlyRate: z.number().nonnegative().max(100000).nullish(),
+  /** Late-penalty rate (ZAR); falls back to hourlyRate. null = not set. */
+  latePenaltyRate: z.number().nonnegative().max(100000).nullish(),
   jurisdiction: z.string().max(50).nullish(),
   taxId: z.string().max(50).nullish(),
   employmentType: z.string().max(50).nullish(),
@@ -88,6 +90,7 @@ export const updateEmployeeSchema = createEmployeeSchema
 export const bulkEmployeeRowSchema = createEmployeeSchema.omit({
   salaryInfo: true,
   hourlyRate: true,
+  latePenaltyRate: true,
   jurisdiction: true,
   taxId: true,
   employmentType: true,

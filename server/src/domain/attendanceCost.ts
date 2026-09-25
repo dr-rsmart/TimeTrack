@@ -115,6 +115,22 @@ export function computeRandLost(
   return parseFloat(hours.times(rate).toFixed(2));
 }
 
+/**
+ * Effective late-penalty rate for the Cost-of-Late report.
+ * Uses the explicit `latePenaltyRate` when set, otherwise falls back to the
+ * employee's regular `hourlyRate`. Returns null when neither is present so
+ * callers can show "—" while still reporting hours lost.
+ */
+export function resolveLatePenaltyRate(
+  hourlyRate: Decimal | number | string | null | undefined,
+  latePenaltyRate: Decimal | number | string | null | undefined,
+): number | null {
+  const chosen = latePenaltyRate ?? hourlyRate;
+  if (chosen === null || chosen === undefined) return null;
+  const n = Number(chosen);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 /** Minutes → decimal hours, rounded to 2dp (report display convention). */
 export function minutesToHours(minutes: number): number {
   return parseFloat(new Decimal(minutes).div(60).toFixed(2));

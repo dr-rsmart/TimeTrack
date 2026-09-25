@@ -634,6 +634,11 @@
                     "minimum": 0,
                     "maximum": 100000
                   },
+                  "latePenaltyRate": {
+                    "type": ["number", "null"],
+                    "minimum": 0,
+                    "maximum": 100000
+                  },
                   "jurisdiction": {
                     "type": ["string", "null"],
                     "maxLength": 50
@@ -1151,6 +1156,11 @@
                     "additionalProperties": {}
                   },
                   "hourlyRate": {
+                    "type": ["number", "null"],
+                    "minimum": 0,
+                    "maximum": 100000
+                  },
+                  "latePenaltyRate": {
                     "type": ["number", "null"],
                     "minimum": 0,
                     "maximum": 100000

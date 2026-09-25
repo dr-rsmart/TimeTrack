@@ -100,6 +100,9 @@ model Employee {
   // Hourly rate (ZAR) used by the Cost-of-Late-Coming report: late clock-ins
   // and early clock-outs are converted to hours lost × this rate.
   hourlyRate       Decimal?           @db.Decimal(10, 2)
+  // Late-penalty rate (ZAR). When set, this rate (instead of hourlyRate)
+  // prices late clock-ins / early clock-outs in the Cost-of-Late report.
+  latePenaltyRate  Decimal?           @db.Decimal(10, 2)
   jurisdiction     String?
   taxId            String?
   employmentType   String?

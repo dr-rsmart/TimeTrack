@@ -3,6 +3,7 @@ import {
   computeAttendanceCost,
   computeRandLost,
   minutesToHours,
+  resolveLatePenaltyRate,
 } from '../../server/src/domain/attendanceCost.js';
 import { isReminderDue } from '../../server/src/timezone.js';
 
@@ -133,6 +134,32 @@ describe('computeRandLost', () => {
 
   it('accepts string rates (Prisma Decimal serialisation)', () => {
     expect(computeRandLost(60, '120.50')).toBe(120.5);
+  });
+});
+
+describe('resolveLatePenaltyRate', () => {
+  it('falls back to the hourly rate when no penalty rate is set', () => {
+    expect(resolveLatePenaltyRate(85.5, null)).toBe(85.5);
+    expect(resolveLatePenaltyRate(100, undefined)).toBe(100);
+  });
+
+  it('prefers the explicit penalty rate over the hourly rate', () => {
+    expect(resolveLatePenaltyRate(85.5, 120)).toBe(120);
+    expect(resolveLatePenaltyRate('85.50', '120.50')).toBe(120.5);
+  });
+
+  it('returns null when neither rate is present', () => {
+    expect(resolveLatePenaltyRate(null, null)).toBeNull();
+    expect(resolveLatePenaltyRate(undefined, undefined)).toBeNull();
+  });
+
+  it('honours an explicit zero penalty rate (no charge)', () => {
+    expect(resolveLatePenaltyRate(85.5, 0)).toBe(0);
+  });
+
+  it('rejects invalid numbers defensively', () => {
+    expect(resolveLatePenaltyRate(85.5, -5)).toBeNull();
+    expect(resolveLatePenaltyRate(85.5, Number.NaN)).toBeNull();
   });
 });
 

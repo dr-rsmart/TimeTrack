@@ -424,6 +424,8 @@ export interface Employee {
   hireDate: string | null;
   /** Hourly rate (ZAR) used by the Cost-of-Late-Coming report. */
   hourlyRate?: number | null;
+  /** Late-penalty rate (ZAR); falls back to hourlyRate when unset. */
+  latePenaltyRate?: number | null;
   managerId: string | null;
   geofenceId: string | null;
   geofenceIds?: string[];
@@ -719,6 +721,7 @@ export interface AttendanceCostRow {
   position: string | null;
   employeeNumber: string | null;
   hourlyRate: number | null;
+  latePenaltyRate: number | null;
   lateMinutes: number;
   earlyMinutes: number;
   totalLostMinutes: number;

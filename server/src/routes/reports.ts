@@ -17,8 +17,14 @@ import {
   computeAttendanceCost,
   computeRandLost,
   minutesToHours,
+  resolveLatePenaltyRate,
 } from '../domain/attendanceCost.js';
-import { getBusinessTimezone, businessNow, timeStrToMinutes } from '../timezone.js';
+import {
+  getBusinessTimezone,
+  businessNow,
+  timeStrToMinutes,
+  isAbsenceAlertDue,
+} from '../timezone.js';
 
 const router = Router();
 
@@ -384,6 +390,7 @@ router.get('/attendance-cost', requireAuth, async (req, res) => {
         position: true,
         employeeNumber: true,
         hourlyRate: true,
+        latePenaltyRate: true,
       },
       orderBy: [{ surname: 'asc' }, { firstName: 'asc' }],
     });
@@ -445,7 +452,7 @@ router.get('/attendance-cost', requireAuth, async (req, res) => {
       if (!emp) continue;
       const dateKey = toDateStr(e.date);
       const shift = shiftByKeyDate.get(`${key}|${dateKey}`);
-      const rate = emp.hourlyRate !== null ? Number(emp.hourlyRate) : null;
+      const penaltyRate = resolveLatePenaltyRate(emp.hourlyRate, emp.latePenaltyRate);
 
       const clockInBiz = businessNow(tz, e.clockIn);
       const clockOutBiz = e.clockOut ? businessNow(tz, e.clockOut) : null;
@@ -477,14 +484,15 @@ router.get('/attendance-cost', requireAuth, async (req, res) => {
           date: dateKey,
           lateMinutes: cost.lateMinutes,
           earlyMinutes: cost.earlyMinutes,
-          randLost: computeRandLost(cost.totalLostMinutes, rate),
+          randLost: computeRandLost(cost.totalLostMinutes, penaltyRate),
         });
       }
     }
 
     const rows = [...perEmployee.values()].map(({ emp, late, early, days }) => {
       const totalLostMinutes = late + early;
-      const rate = emp.hourlyRate !== null ? Number(emp.hourlyRate) : null;
+      const regularRate = emp.hourlyRate !== null ? Number(emp.hourlyRate) : null;
+      const penaltyRate = resolveLatePenaltyRate(emp.hourlyRate, emp.latePenaltyRate);
       return {
         employeeId: emp.id,
         name: `${emp.firstName} ${emp.surname}`,
@@ -493,12 +501,13 @@ router.get('/attendance-cost', requireAuth, async (req, res) => {
         department: emp.department,
         position: emp.position,
         employeeNumber: emp.employeeNumber,
-        hourlyRate: rate,
+        hourlyRate: regularRate,
+        latePenaltyRate: penaltyRate,
         lateMinutes: late,
         earlyMinutes: early,
         totalLostMinutes,
         hoursLost: minutesToHours(totalLostMinutes),
-        randLost: computeRandLost(totalLostMinutes, rate),
+        randLost: computeRandLost(totalLostMinutes, penaltyRate),
         days: days.sort((a, b) => a.date.localeCompare(b.date)),
       };
     });
@@ -532,6 +541,12 @@ router.get('/attendance-alerts', requireAuth, async (req, res) => {
     }
     const days = Math.min(Math.max(parseInt(req.query.days as string, 10) || 1, 1), 31);
     const graceMinutes = Math.min(Math.max(parseInt(req.query.grace as string, 10) || 5, 0), 120);
+    // No-show alert grace (spec §3: "no clock-in within 10 minutes of shift
+    // start"). Distinct from `grace` (late/early tolerance). Clamped 1..120.
+    const noShowGrace = Math.min(
+      Math.max(parseInt(req.query.noShowGrace as string, 10) || 10, 1),
+      120,
+    );
 
     const tz = getBusinessTimezone();
     const tenantWhere =
@@ -542,7 +557,8 @@ router.get('/attendance-alerts', requireAuth, async (req, res) => {
     let scopeFilter: Record<string, unknown> = {};
     if (authUser.role === 'manager') scopeFilter = await getManagerScopeFilter(authUser);
 
-    const todayBiz = businessNow(tz).dateStr;
+    const biz = businessNow(tz);
+    const todayBiz = biz.dateStr;
     const fromDate = new Date(todayBiz + 'T00:00:00Z');
     fromDate.setUTCDate(fromDate.getUTCDate() - (days - 1));
     const toDate = new Date(todayBiz + 'T23:59:59.999Z');
@@ -642,7 +658,17 @@ router.get('/attendance-alerts', requireAuth, async (req, res) => {
       const endMin = timeStrToMinutes(s.endTime);
 
       if (!entry) {
-        // Scheduled to work, not on leave, and no completed entry — absence.
+        // Scheduled to work, not on leave, and no completed entry. Only alert
+        // once the no-show grace deadline has passed (audit F4/F5): a shift
+        // later today must not surface as an "absence" before it has started.
+        const overdue = isAbsenceAlertDue({
+          nowDateStr: todayBiz,
+          shiftDateStr: dateKey,
+          shiftStartMinutes: startMin,
+          graceMinutes: noShowGrace,
+          nowMinutesOfDay: biz.minutesOfDay,
+        });
+        if (!overdue) continue;
         alerts.push({
           id: `absence:${s.id}`,
           type: 'absence',

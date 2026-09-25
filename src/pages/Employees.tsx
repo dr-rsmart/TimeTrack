@@ -69,6 +69,8 @@ const emptyForm = {
   phone: '',
   /** Hourly rate (ZAR) — Cost of Late Coming feature; '' = not set. */
   hourlyRate: '',
+  /** Late-penalty rate (ZAR) — falls back to hourlyRate; '' = not set. */
+  latePenaltyRate: '',
   managerId: '' as string,
 };
 
@@ -177,6 +179,10 @@ export default function Employees() {
       phone: emp.phone ?? '',
       hourlyRate:
         emp.hourlyRate !== null && emp.hourlyRate !== undefined ? String(emp.hourlyRate) : '',
+      latePenaltyRate:
+        emp.latePenaltyRate !== null && emp.latePenaltyRate !== undefined
+          ? String(emp.latePenaltyRate)
+          : '',
       managerId: emp.managerId ?? '',
     });
     const assigned: string[] = [];
@@ -271,6 +277,13 @@ export default function Employees() {
         if (Number.isFinite(rate) && rate >= 0) payload.hourlyRate = rate;
       } else {
         payload.hourlyRate = null;
+      }
+      // Late-penalty rate (ZAR) — optional; blank falls back to the hourly rate.
+      if (form.latePenaltyRate.trim() !== '') {
+        const lateRate = Number(form.latePenaltyRate);
+        if (Number.isFinite(lateRate) && lateRate >= 0) payload.latePenaltyRate = lateRate;
+      } else {
+        payload.latePenaltyRate = null;
       }
       // Admin controls manager assignment (assign or move employee between managers)
       if (isAdmin) {
@@ -684,7 +697,21 @@ export default function Employees() {
                 Used by the Cost of Late report to show hours and Rand lost.
               </p>
             </div>
-            <div />
+            <div className="space-y-2">
+              <Label htmlFor="f-late-penalty-rate">Late Penalty Rate (R/hr)</Label>
+              <Input
+                id="f-late-penalty-rate"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Defaults to hourly rate"
+                value={form.latePenaltyRate}
+                onChange={(e) => setForm({ ...form, latePenaltyRate: e.target.value })}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Optional. Falls back to the hourly rate when blank.
+              </p>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">

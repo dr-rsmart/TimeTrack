@@ -8,6 +8,18 @@ committed at `server/docs/openapi.json`.
 Versions follow the `/api/v1` contract surface. The legacy `/api`
 surface remains available and backward-compatible.
 
+## v1.5.1 - 2026-09-25 (late-penalty rate for Cost of Late Coming)
+
+### Added
+
+- `Employee.latePenaltyRate` (Decimal(10,2), nullable; migration 22) — accepted
+  by POST /employees and PUT /employees/:id (`latePenaltyRate: number | null`),
+  excluded from the bulk-import schema (manage-once-imported, like hourlyRate).
+- GET /reports/attendance-cost rows now return both `hourlyRate` (regular rate)
+  and `latePenaltyRate` (the effective rate used to price Rand): the report
+  prices late clock-ins / early clock-outs at `latePenaltyRate` when set,
+  otherwise falls back to `Employee.hourlyRate`.
+
 ## v1.5.0 - 2026-09-18 (per-day working-hours schedules, duplicate-clocking fixes)
 
 ### Added

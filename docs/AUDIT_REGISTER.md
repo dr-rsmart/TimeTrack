@@ -5,7 +5,7 @@ findings. Supersedes the per-cycle audit reports listed below, which are
 retained as historical artifacts only — their scores and claims are NOT
 current. For current state, trust this register + the code.
 
-**Last updated:** 2026-09-14 (post-Phase-3 remediation)
+**Last updated:** 2026-09-25 (Cycle 16 — spec-conformance audit)
 
 ## Superseded reports
 
@@ -115,6 +115,27 @@ markers + no-script + JSON↔HTML parity) and `verify-deploy-live.mjs`
 footer links in Settings. Canonical Play URL remains
 `https://time-track.tech/privacy` (same as iOS). No new AAB required — the
 mobile shell is a WebView of time-track.tech.
+
+**Cycle 16 remediation (2026-09-25):** spec-conformance audit of the Feature
+Specification §§1–9 surfaced two live Notification-Centre defects:
+
+- **F4** — `GET /reports/attendance-alerts` flagged every _future_ shift today
+  as "absence" before its start (a wall of false positives for managers early
+  in the day).
+- **F5** — the user-facing "no-show" alert fired at the wrong threshold
+  (immediate for absence; 120 min for the cron status transition) instead of
+  the spec's "no clock-in within 10 minutes of shift start".
+
+Fix: added pure `isAbsenceAlertDue()` in `server/src/timezone.ts` and gated the
+absence alert on a configurable `noShowGrace` query param (default 10 min,
+clamped 1..120). The cron `no_show` **status** transition intentionally stays
+at 120 min — there is no clock-in recovery path, so a shorter status grace
+would permanently mislabel late-but-present employees as `no_show`. Regression
+coverage: `tests/unit/timezone.test.ts` (3 new specs). See `docs/SPEC_TRACE.md`
+for the full §1–§9 code/test matrix. Remaining spec gaps (bulk shift edit/
+delete, employee self-delete ≤24 h, duplicate flag+merge, customer payroll
+templates, export audit trail, cost-centre) are tracked as P1/P2 — see the
+Cycle 16 audit report.
 
 ## Open findings (tracked)
 
