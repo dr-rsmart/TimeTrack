@@ -25,8 +25,13 @@ import {
   timeStrToMinutes,
   isAbsenceAlertDue,
 } from '../timezone.js';
+import payrollExportRouter from './payrollExports.js';
 
 const router = Router();
+
+// Spec §4 export audit trail. Its routes declare their own auth middleware
+// (this router has no blanket requireAuth), so mounting order is irrelevant.
+router.use(payrollExportRouter);
 
 function toDateStr(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -614,7 +619,7 @@ router.get('/attendance-alerts', requireAuth, async (req, res) => {
     }
     interface Alert {
       id: string;
-      type: 'late_clock_in' | 'early_clock_out' | 'no_show' | 'absence';
+      type: 'late_clock_in' | 'early_clock_out' | 'no_show' | 'absence' | 'duplicate';
       severity: 'info' | 'warning' | 'critical';
       employeeEmail: string;
       employeeName: string;
@@ -623,6 +628,8 @@ router.get('/attendance-alerts', requireAuth, async (req, res) => {
       date: string;
       message: string;
       minutes?: number;
+      /** Set for `duplicate` alerts so the UI can deep-link to the entry. */
+      timeEntryId?: string;
     }
     const alerts: Alert[] = [];
     const findEmp = (email: string) =>
@@ -720,6 +727,48 @@ router.get('/attendance-alerts', requireAuth, async (req, res) => {
           });
         }
       }
+    }
+
+    // ── Duplicate punch alerts (spec §3 "Duplicate alert type") ──
+    // Driven by ENTRIES, not shifts: a double punch can happen on an unscheduled
+    // day, so it must not depend on the shift loop above. Uses the
+    // [companyProfileId, isFlaggedDuplicate] index added by migration 23.
+    // Includes open (status='active') rows — a duplicated clock-in is exactly
+    // the case where the session may still be open.
+    const duplicates = await prisma.timeEntry.findMany({
+      where: {
+        ...tenantWhere,
+        ...identityFilter,
+        date: { gte: fromDate, lte: toDate },
+        isFlaggedDuplicate: true,
+      },
+      select: {
+        id: true,
+        employeeId: true,
+        employeeEmail: true,
+        employeeName: true,
+        date: true,
+        clockIn: true,
+      },
+      orderBy: { date: 'desc' },
+      take: 100,
+    });
+
+    for (const d of duplicates) {
+      const emp = findEmp(d.employeeEmail);
+      const name = emp ? `${emp.firstName} ${emp.surname}` : d.employeeName || d.employeeEmail;
+      alerts.push({
+        id: `duplicate:${d.id}`,
+        type: 'duplicate',
+        severity: 'warning',
+        employeeEmail: d.employeeEmail,
+        employeeName: name,
+        branch: emp?.branch ?? null,
+        department: emp?.department ?? null,
+        date: toDateStr(d.date),
+        timeEntryId: d.id,
+        message: `${name} has a possible duplicate punch on ${toDateStr(d.date)} that needs review.`,
+      });
     }
 
     // Newest first, capped to keep the feed bounded.

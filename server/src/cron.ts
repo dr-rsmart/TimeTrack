@@ -26,7 +26,7 @@ import {
   addBusinessDays,
   businessTimeToDate,
 } from './timezone.js';
-import { notifyEmployeePush } from './push.js';
+import { notifyEmployeePush, notifyCompanyManagersPush } from './push.js';
 import { parseDate } from './overlap.js';
 import { singleEmployeeIdentityFilter } from './domain/employeeIdentity.js';
 import { resolveWorkingEndFromSchedules } from './locationWorkingHours.js';
@@ -528,10 +528,19 @@ function pruneShiftReminderKeys(nowMs: number): void {
   }
 }
 
-function fireShiftReminderOnce(key: string, email: string, title: string, body: string): void {
+function fireShiftReminderOnce(
+  key: string,
+  email: string,
+  title: string,
+  body: string,
+  companyProfileId?: string | null,
+): void {
   if (sentShiftReminders.has(key)) return;
   sentShiftReminders.set(key, Date.now());
-  void notifyEmployeePush(email, title, body, { type: 'shift_reminder' });
+  // companyProfileId scopes the push-token lookup AND lands `companyId` on the
+  // Expo payload (spec §2), so a stale cross-company registration cannot receive
+  // this reminder.
+  void notifyEmployeePush(email, title, body, { type: 'shift_reminder' }, companyProfileId ?? null);
 }
 
 const WORKING_SHIFT_TYPES = new Set(['full_day', 'half_day']);
@@ -567,6 +576,7 @@ async function sendShiftReminders(): Promise<void> {
         endTime: true,
         shiftType: true,
         employeeEmail: true,
+        companyProfileId: true,
       },
     });
 
@@ -593,6 +603,7 @@ async function sendShiftReminders(): Promise<void> {
           shift.employeeEmail,
           'Shift Starting Soon',
           `Your shift starts at ${shift.startTime} — ${SHIFT_REMINDER_LEAD_MINUTES} minutes to go.`,
+          shift.companyProfileId,
         );
       }
 
@@ -618,6 +629,7 @@ async function sendShiftReminders(): Promise<void> {
             shift.employeeEmail,
             'Shift Ending Soon',
             `Your shift ends at ${shift.endTime} — ${SHIFT_REMINDER_LEAD_MINUTES} minutes to go.`,
+            shift.companyProfileId,
           );
         }
       }
@@ -694,6 +706,7 @@ async function sendShiftReminders(): Promise<void> {
             emp.email,
             'Workday Starting Soon',
             `Your workday starts at ${settings.defaultWorkingStartTime} — ${SHIFT_REMINDER_LEAD_MINUTES} minutes to go.`,
+            settings.companyProfileId,
           );
         }
         if (endDue) {
@@ -702,12 +715,101 @@ async function sendShiftReminders(): Promise<void> {
             emp.email,
             'Workday Ending Soon',
             `Your workday ends at ${settings.defaultWorkingEndTime} — ${SHIFT_REMINDER_LEAD_MINUTES} minutes to go.`,
+            settings.companyProfileId,
           );
         }
       }
     }
   } catch (err) {
     logger.error('[cron] Shift reminder error:', err);
+  } finally {
+    await releaseLock(jobName);
+  }
+}
+
+// ── Spec §3: real-time manager attendance-alert push (closed app) ─────────
+// Pushes a notification to each company's admins/managers the moment a CRITICAL
+// alert is flagged today: a duplicate punch (migration 23 flag) or a no-show
+// shift (cron grace-deadline status). Late/early/absence stay in-app only —
+// they are informational, while duplicates and no-shows need a manager decision.
+// Dedupe is per-instance in memory (company:alertId), pruned after 3h — the same
+// bounded-map pattern as the shift reminders above. Tenant isolation is enforced
+// inside notifyCompanyManagersPush (hard companyProfileId filter on token lookup).
+const sentManagerAlerts = new Map<string, number>();
+
+function pruneManagerAlertKeys(nowMs: number): void {
+  for (const [key, sentAt] of sentManagerAlerts) {
+    if (nowMs - sentAt > 3 * 3_600_000) sentManagerAlerts.delete(key);
+  }
+}
+
+function fireManagerAlertOnce(
+  key: string,
+  companyProfileId: string,
+  title: string,
+  body: string,
+  data: Record<string, unknown>,
+): void {
+  if (sentManagerAlerts.has(key)) return;
+  sentManagerAlerts.set(key, Date.now());
+  void notifyCompanyManagersPush(companyProfileId, title, body, data);
+}
+
+async function pushManagerAttendanceAlerts(): Promise<void> {
+  const jobName = 'manager-attendance-alerts';
+  if (!(await acquireLock(jobName, 55_000))) return;
+  try {
+    pruneManagerAlertKeys(Date.now());
+    const tz = getBusinessTimezone();
+    const biz = businessNow(tz);
+    const todayDate = parseDate(biz.dateStr);
+
+    const companies = await prisma.companyProfile.findMany({
+      where: { isActive: true },
+      select: { id: true },
+    });
+
+    for (const company of companies) {
+      const duplicates = await prisma.timeEntry.findMany({
+        where: {
+          companyProfileId: company.id,
+          isFlaggedDuplicate: true,
+          date: todayDate,
+        },
+        select: { id: true, employeeName: true, employeeEmail: true },
+        take: 50,
+      });
+      for (const d of duplicates) {
+        fireManagerAlertOnce(
+          `duplicate:${company.id}:${d.id}`,
+          company.id,
+          'Duplicate punch needs review',
+          `${d.employeeName ?? d.employeeEmail} has a possible duplicate punch today.`,
+          { alertType: 'duplicate', timeEntryId: d.id },
+        );
+      }
+
+      const noShows = await prisma.shift.findMany({
+        where: {
+          companyProfileId: company.id,
+          status: 'no_show',
+          date: todayDate,
+        },
+        select: { id: true, employeeName: true },
+        take: 50,
+      });
+      for (const s of noShows) {
+        fireManagerAlertOnce(
+          `no-show:${company.id}:${s.id}`,
+          company.id,
+          'Employee marked no-show',
+          `${s.employeeName ?? 'An employee'} was marked a no-show today.`,
+          { alertType: 'no_show' },
+        );
+      }
+    }
+  } catch (err) {
+    logger.error('[cron] Manager attendance-alert push error:', err);
   } finally {
     await releaseLock(jobName);
   }
@@ -730,6 +832,7 @@ export function startCron(): void {
       await autoClockOutAtShiftEnd();
       await detectNoShows();
       await sendShiftReminders();
+      await pushManagerAttendanceAlerts();
       await purgeRetentionPolicies();
       await closeStaleActiveTimeEntries();
       await reconcileOverdueActiveEntries();

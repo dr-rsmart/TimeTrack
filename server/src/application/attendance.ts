@@ -19,6 +19,7 @@ import {
   type GeoPosition,
 } from '../geoValidationService.js';
 import { getReclockGuardSeconds, isWithinReclockWindow } from '../reclockGuard.js';
+import { stampPunchProvenance } from './punchProvenance.js';
 import { assertTenantMatch } from '../tenantContext.js';
 import { tenantWhere } from '../tenantPolicy.js';
 import { ATTENDANCE_STATUS } from '../domain/attendance.js';
@@ -75,6 +76,11 @@ export interface ClockInCommand {
    */
   automatic?: boolean;
   idempotencyKey?: string | null;
+  /**
+   * Stable client install identifier (spec §7 device logging). Persisted on the
+   * entry so a disputed punch can be traced to the device that captured it.
+   */
+  deviceId?: string | null;
   clientIp: string;
 }
 
@@ -132,12 +138,6 @@ export interface AdjustTimeEntryCommand {
   clientIp: string;
 }
 
-export interface DeleteTimeEntryCommand {
-  actor: AuthUser;
-  id: string;
-  clientIp: string;
-}
-
 export interface BulkClockInResult {
   clockedIn: Array<{ email: string; id: string; employeeName: string | null }>;
   skipped: Array<{ email: string; reason: string }>;
@@ -185,7 +185,7 @@ function formatClock(date: Date): string {
   return `${String(business.hours).padStart(2, '0')}:${String(business.minutes).padStart(2, '0')}`;
 }
 
-function assertEmployeeAccess(actor: AuthUser, companyProfileId: string | null): void {
+export function assertEmployeeAccess(actor: AuthUser, companyProfileId: string | null): void {
   if (actor.role !== 'master' && companyProfileId !== actor.companyProfileId) {
     throw new AttendanceUseCaseError('Access denied.', {
       status: 403,
@@ -194,7 +194,7 @@ function assertEmployeeAccess(actor: AuthUser, companyProfileId: string | null):
   }
 }
 
-async function assertManagerEmployeeScope(actor: AuthUser, email: string): Promise<void> {
+export async function assertManagerEmployeeScope(actor: AuthUser, email: string): Promise<void> {
   if (actor.role !== 'manager') return;
   if (!(await isEmployeeInManagerScope(actor, email))) {
     throw new AttendanceUseCaseError('This employee is outside your management scope.', {
@@ -527,6 +527,22 @@ export async function clockIn(command: ClockInCommand): Promise<AttendanceMutati
       );
     }
     throw error;
+  }
+
+  // Spec §7: persist punch provenance (raw device GPS + install id) and flag
+  // corrective duplicates that the PREVENTIVE reclockGuard cannot see — proxy
+  // punches by managers (which bypass the guard by design) and out-of-order
+  // offline-outbox replays. Best-effort by contract: it never fails a punch
+  // that has already been committed and audited.
+  const provenance = await stampPunchProvenance({
+    entry,
+    position: command.position,
+    deviceId: command.deviceId ?? null,
+  });
+  if (provenance.flaggedDuplicate) {
+    // Reflect the flag on the in-memory row so the caller (and the SSE payload
+    // below) sees the same state the database now holds.
+    entry.isFlaggedDuplicate = true;
   }
 
   const changes = isManualOverride
@@ -1048,52 +1064,6 @@ export async function adjustTimeEntry(command: AdjustTimeEntryCommand): Promise<
   return entry;
 }
 
-export async function deleteTimeEntry(command: DeleteTimeEntryCommand): Promise<{ id: string }> {
-  const existing = await prisma.timeEntry.findUnique({ where: { id: command.id } });
-  if (!existing) {
-    throw new AttendanceUseCaseError('Time entry not found.', { status: 404, code: 'NOT_FOUND' });
-  }
-
-  assertTenantMatch(existing);
-  assertEmployeeAccess(command.actor, existing.companyProfileId);
-  await assertManagerEmployeeScope(command.actor, existing.employeeEmail);
-
-  await prisma.timeEntry.delete({ where: { id: command.id } });
-
-  await logAudit({
-    entity: 'TimeEntry',
-    entityId: command.id,
-    action: 'delete',
-    actorId: command.actor.id,
-    actorEmail: command.actor.email,
-    actorRole: command.actor.role,
-    justification: `Deleted time entry for ${existing.employeeEmail}`,
-    ipAddress: command.clientIp,
-    branch: existing.branch,
-    department: existing.department,
-    changes: {
-      employee_email: { before: existing.employeeEmail, after: null },
-      employee_name: { before: existing.employeeName, after: null },
-      date: { before: existing.date.toISOString().slice(0, 10), after: null },
-      clock_in: { before: existing.clockIn.toISOString(), after: null },
-      clock_out: { before: existing.clockOut?.toISOString() ?? null, after: null },
-      total_hours: { before: existing.totalHours, after: null },
-      status: { before: existing.status, after: null },
-      is_manual_override: { before: existing.isManualOverride, after: null },
-    },
-    required: true,
-  });
-
-  broadcastScoped(
-    'timeEntry',
-    'delete',
-    { id: command.id },
-    {
-      companyProfileId: existing.companyProfileId,
-      branch: existing.branch,
-      department: existing.department,
-    },
-  );
-
-  return { id: command.id };
-}
+// `deleteTimeEntry` (and `DeleteTimeEntryCommand`) moved to
+// ./timeEntryDeletion.ts — it gained the spec §5 employee self-delete rule, and
+// this module was already over the Open-09 700-line ratchet.

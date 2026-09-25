@@ -391,6 +391,94 @@ registry.registerPath({
   responses: { ...json200({ type: 'object' }), ...commonErrors },
 });
 
+// ── Spec §5: bulk shift edit / bulk delete ──
+registry.registerPath({
+  method: 'patch',
+  path: '/shifts/bulk-edit',
+  ...tag('Shifts'),
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            ids: z.array(z.string()).min(1).max(200),
+            startTime: z.string().nullish(),
+            endTime: z.string().nullish(),
+            shiftType: z.string().optional(),
+            location: z.string().nullish(),
+            notes: z.string().nullish(),
+            status: z.string().optional(),
+            skipOverlaps: z.boolean().optional(),
+            reason: z.string(),
+          }),
+        },
+      },
+    },
+  },
+  responses: { ...json200({ type: 'object' }), ...commonErrors },
+});
+registry.registerPath({
+  method: 'post',
+  path: '/shifts/bulk-delete',
+  ...tag('Shifts'),
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: z.object({ ids: z.array(z.string()).min(1).max(200), reason: z.string() }),
+        },
+      },
+    },
+  },
+  responses: { ...json200({ type: 'object' }), ...commonErrors },
+});
+
+// ── Spec §7: duplicate punch resolution ──
+registry.registerPath({
+  method: 'post',
+  path: '/time-entries/{id}/resolve-duplicate',
+  ...tag('Time Entries'),
+  request: { params: z.object({ id: z.string() }) },
+  responses: { ...json200({ type: 'object' }), ...commonErrors },
+});
+
+// ── Spec §4: payroll export audit trail ──
+registry.registerPath({
+  method: 'post',
+  path: '/reports/payroll/export-log',
+  ...tag('Reports'),
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            formatId: z.string(),
+            formatLabel: z.string(),
+            from: z.string(),
+            to: z.string(),
+            rowCount: z.number().int().optional(),
+            filters: z.record(z.string(), z.unknown()).optional(),
+          }),
+        },
+      },
+    },
+  },
+  responses: { ...json200({ type: 'object' }), ...commonErrors },
+});
+registry.registerPath({
+  method: 'get',
+  path: '/reports/payroll/export-logs',
+  ...tag('Reports'),
+  request: {
+    query: z.object({
+      limit: z.string().optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+    }),
+  },
+  responses: { ...json200({ type: 'object' }), ...commonErrors },
+});
+
 // ── Settings ──
 registry.registerPath({
   method: 'get',

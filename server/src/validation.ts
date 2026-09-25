@@ -252,6 +252,60 @@ export const updateShiftSchema = createShiftSchema.partial().extend({
   version: z.number().int().optional(),
 });
 
+/**
+ * Hard cap on how many shift ids a single bulk edit/delete may name.
+ * Bounds transaction size and audit-log fan-out; the UI paginates selections
+ * well below this. Mirrors the spirit of BULK_SHIFT_MAX_DAYS.
+ */
+export const BULK_SHIFT_OP_MAX_IDS = 200;
+
+/** Fields a bulk edit may change. At least one must be supplied. */
+export const bulkEditShiftsSchema = z
+  .object({
+    ids: z.array(z.string().min(1)).min(1).max(BULK_SHIFT_OP_MAX_IDS),
+    startTime: timeStrSchema.nullish(),
+    endTime: timeStrSchema.nullish(),
+    shiftType: shiftTypeSchema.optional(),
+    location: z.string().max(255).nullish(),
+    notes: z.string().max(2000).nullish(),
+    status: z.enum(['scheduled', 'active', 'completed', 'cancelled', 'no_show']).optional(),
+    /** Skip per-shift overlap validation (e.g. re-typing a whole week to Leave). */
+    skipOverlaps: z.boolean().optional(),
+    /** Required: bulk mutations are high-blast-radius and must be justified. */
+    reason: z.string().min(3).max(500),
+  })
+  .superRefine((data, ctx) => {
+    const patchKeys = ['startTime', 'endTime', 'shiftType', 'location', 'notes', 'status'] as const;
+    const supplied = patchKeys.filter((k) => data[k] !== undefined && data[k] !== null);
+    if (supplied.length === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ids'],
+        message:
+          'Provide at least one field to change (startTime, endTime, shiftType, location, notes, status).',
+      });
+    }
+    // Only validate ordering when BOTH are being set — a partial edit that
+    // changes just the start time is checked against the stored end time in
+    // the route, where the existing value is known.
+    if (data.startTime && data.endTime && data.endTime <= data.startTime) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['endTime'],
+        message: 'End time must be after start time.',
+      });
+    }
+  });
+
+export type BulkEditShifts = z.infer<typeof bulkEditShiftsSchema>;
+
+export const bulkDeleteShiftsSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1).max(BULK_SHIFT_OP_MAX_IDS),
+  reason: z.string().min(3).max(500),
+});
+
+export type BulkDeleteShifts = z.infer<typeof bulkDeleteShiftsSchema>;
+
 /** Maximum number of days a bulk shift assignment (POST /shifts/bulk) may span. */
 export const BULK_SHIFT_MAX_DAYS = 366;
 
@@ -306,6 +360,12 @@ export const clockInSchema = z.object({
   // Automatic punches are subject to the once-per-working-day limit after a
   // system (cron) working-end close — manual punches always remain possible.
   automatic: z.boolean().optional(),
+  /**
+   * Stable client install identifier (spec §7 device logging). Bounded and
+   * optional: legacy clients and the web app do not send it, and provenance
+   * must never be able to block a legitimate punch.
+   */
+  deviceId: z.string().min(1).max(128).optional(),
 });
 
 export const clockOutSchema = z.object({
@@ -316,6 +376,8 @@ export const clockOutSchema = z.object({
   // Offline outbox replay (bounded acceptance window — see attendance use case).
   capturedAt: isoDateTimeSchema.optional(),
   offline: z.boolean().optional(),
+  /** Stable client install identifier (spec §7 device logging). */
+  deviceId: z.string().min(1).max(128).optional(),
 });
 
 export const manualTimeEntrySchema = z.object({

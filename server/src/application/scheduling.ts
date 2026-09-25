@@ -117,6 +117,7 @@ export async function closeActiveEntryAtShiftEnd(
     'Automatic Clock Out',
     `Your shift ended at ${shift.endTime} and you were clocked out automatically.`,
     { type: 'auto_clock_out', entryId: entry.id },
+    entry.companyProfileId,
   );
 
   const note = `[Auto] Auto clock-out applied at scheduled shift end (${shift.endTime}) — closed time entry ${entry.id}`;
@@ -179,6 +180,7 @@ export async function closeActiveEntryAtWorkingEnd(
     'Automatic Clock Out',
     'You were clocked out automatically at the configured workday end.',
     { type: 'auto_clock_out', entryId: entry.id },
+    entry.companyProfileId,
   );
 
   deps.broadcast(
@@ -233,6 +235,7 @@ export async function closeStaleActiveEntry(
     'Automatic Clock Out',
     'Your session was closed automatically after exceeding the maximum active duration.',
     { type: 'auto_clock_out', entryId: entry.id },
+    entry.companyProfileId,
   );
 
   deps.broadcast(

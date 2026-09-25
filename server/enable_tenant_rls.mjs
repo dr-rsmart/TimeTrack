@@ -23,6 +23,7 @@ const TABLES = [
   'LocationPreset',
   'AuditLog',
   'EmploymentHistory',
+  'PayrollExportLog',
 ];
 
 function parseArgs(argv) {

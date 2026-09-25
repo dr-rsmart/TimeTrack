@@ -33,6 +33,7 @@ import {
 import { countOverlaps, parseDate, type ShiftTimeWindow } from '../overlap.js';
 import { employeeIdentityFilter } from '../domain/employeeIdentity.js';
 import { tenantWhere } from '../tenantPolicy.js';
+import bulkShiftRouter from './shiftsBulk.js';
 
 const DEFAULT_RANGE_WEEKLY_SCHEDULE = {
   '0': { enabled: false },
@@ -48,6 +49,11 @@ import { parsePagination, setPageHeaders } from '../pagination.js';
 const router = Router();
 
 router.use(requireAuth);
+
+// Bulk edit / bulk delete (spec §5). Mounted BEFORE the parameterised "/:id"
+// routes below so "/bulk-edit" and "/bulk-delete" can never be captured as an
+// id. The sub-router only declares those two paths and falls through otherwise.
+router.use(bulkShiftRouter);
 
 /** Detect overlapping shifts for the same employee on the same date. */
 async function findOverlaps(

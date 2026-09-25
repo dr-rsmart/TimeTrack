@@ -31,8 +31,9 @@ import {
   bulkClockIn as bulkClockInUseCase,
   bulkClockOut as bulkClockOutUseCase,
   adjustTimeEntry,
-  deleteTimeEntry,
 } from '../application/attendance.js';
+import { deleteTimeEntry, resolveDuplicatePunch } from '../application/timeEntryDeletion.js';
+
 import { accessDenied, internalError, sendError } from '../errorResponse.js';
 import { tenantWhere } from '../tenantPolicy.js';
 import { recordAutoClockOutcome } from '../metrics.js';
@@ -48,6 +49,16 @@ function scopeIdempotencyKeyForRoute(
   value: string | undefined,
 ): string | null {
   return scopeIdempotencyKey(action, actorId, value);
+}
+
+/**
+ * Extract the optional client install id (spec §7 device logging). Zod already
+ * bounded it to 1..128 chars; this just narrows the unknown body safely.
+ */
+function readDeviceId(body: Record<string, unknown>): string | null {
+  return typeof body.deviceId === 'string' && body.deviceId.trim().length > 0
+    ? body.deviceId.trim()
+    : null;
 }
 
 // ── GET / (List time entries) ──
@@ -220,6 +231,7 @@ router.post('/clock-in', requireAuth, clockRateLimit, validate(clockInSchema), a
       capturedAt,
       offline,
       automatic: body.automatic === true,
+      deviceId: readDeviceId(body),
       justification: typeof body.justification === 'string' ? body.justification : undefined,
       idempotencyKey: scopeIdempotencyKeyForRoute(
         'clock_in',
@@ -384,8 +396,30 @@ router.put('/:id', requireAdminOrManager, validate(updateTimeEntrySchema), async
   }
 });
 
+// ── POST /:id/resolve-duplicate (spec §7 "Option A: keep the first punch") ──
+// Discards the flagged artefact entry and keeps the surviving earlier punch.
+// Manager/admin only — resolution deletes a payroll-relevant row.
+router.post('/:id/resolve-duplicate', requireAdminOrManager, async (req, res) => {
+  try {
+    const result = await resolveDuplicatePunch({
+      actor: req.authUser!,
+      id: String(req.params.id),
+      clientIp: getClientIp(req),
+    });
+    res.json({ success: true, ...result });
+  } catch (error) {
+    sendAttendanceUseCaseError(res, error, 'resolving duplicate punch');
+  }
+});
+
 // ── DELETE /:id ──
-router.delete('/:id', requireAdminOrManager, async (req, res) => {
+// Spec §5: NOT restricted to admin/manager any more. An employee may delete
+// their OWN entry within the self-service window (default 24 h, see
+// TIME_ENTRY_SELF_DELETE_WINDOW_HOURS). Managers/admins/master keep their full
+// scope-based rights. All authorization now lives in the use case
+// (application/timeEntryDeletion.ts) rather than in route middleware, because
+// the rule depends on the stored entry, not just the caller's role.
+router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const result = await deleteTimeEntry({
       actor: req.authUser!,

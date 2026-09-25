@@ -23,6 +23,7 @@ const POLICY_TABLES = [
   'LocationPreset',
   'AuditLog',
   'EmploymentHistory',
+  'PayrollExportLog',
 ];
 const STRICT_NULL_TABLES = [
   'Employee',

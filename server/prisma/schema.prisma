@@ -68,6 +68,7 @@ model CompanyProfile {
   locationPresets    LocationPreset[]
   pushTokens         DevicePushToken[]
   payrollSnapshots   PayrollPeriodSnapshot[]
+  payrollExportLogs  PayrollExportLog[]
 
   @@index([ownerUserId])
 }
@@ -223,6 +224,20 @@ model TimeEntry {
   // True when the punch was captured OFFLINE and synced later from the client
   // outbox within the bounded acceptance window (application/attendance.ts).
   isOfflineSynced    Boolean         @default(false)
+  // Migration 23 (spec §7): punch provenance. The geofence* columns above record
+  // the FENCE that matched; these record where the DEVICE actually was when the
+  // punch was taken, plus which device took it. Nullable for legacy rows.
+  deviceId           String?
+  punchLatitude      Float?
+  punchLongitude     Float?
+  // Migration 23 (spec §7): corrective duplicate detection. The 120 s
+  // reclockGuard PREVENTS most double punches, but offline-outbox replays and
+  // manager proxy punches (which bypass the guard) can still land a second
+  // entry. Such entries are FLAGGED here rather than rejected, so payroll can
+  // see and resolve them. `duplicateOfId` points at the surviving entry once
+  // resolved (Option A auto-merge keeps the first punch).
+  isFlaggedDuplicate Boolean         @default(false)
+  duplicateOfId      String?
   // Retry-safe mutation keys. Nullable for legacy rows; unique indexes are
   // created by migration 3_attendance_idempotency.
   clockInIdempotencyKey  String?       @unique
@@ -248,6 +263,8 @@ model TimeEntry {
   @@index([companyProfileId, employeeId, date])
   @@index([employeeEmail, date, status])
   @@index([companyProfileId, date])
+  // Migration 23: duplicate-resolution queues are filtered by tenant + flag.
+  @@index([companyProfileId, isFlaggedDuplicate])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -321,6 +338,39 @@ model PayrollPeriodSnapshot {
 
   @@unique([companyProfileId, periodFrom, periodTo, employeeId])
   @@index([companyProfileId, periodFrom, periodTo])
+}
+
+/// Migration 23 (spec §4): payroll export audit trail.
+///
+/// Every payroll CSV download is recorded here so a tenant can answer "who
+/// exported which period, in which format, and when" — a compliance
+/// requirement for payroll data leaving the system. Append-only: rows are never
+/// updated, only inserted (and pruned by the retention job if enabled).
+model PayrollExportLog {
+  id               String          @id @default(cuid())
+  companyProfileId String
+  /// Registered export-format id (see src/utils/payrollExportFormats.ts).
+  formatId         String
+  /// Human-readable format label captured at export time (the registry is
+  /// client-side and may be renamed later; the audit row must not drift).
+  formatLabel      String
+  periodFrom       DateTime        @db.Date
+  periodTo         DateTime        @db.Date
+  /// Rows written to the file.
+  rowCount         Int             @default(0)
+  /// Filters applied, as a JSON object (branch/department/employee…).
+  filters          Json            @default("{}")
+  actorId          String
+  actorEmail       String
+  actorRole        String
+  ipAddress        String?
+  createdAt        DateTime        @default(now())
+
+  companyProfile   CompanyProfile  @relation(fields: [companyProfileId], references: [id], onDelete: Cascade)
+
+  @@index([companyProfileId, createdAt])
+  @@index([companyProfileId, periodFrom, periodTo])
+  @@index([actorId])
 }
 
 model NativeRefreshToken {
