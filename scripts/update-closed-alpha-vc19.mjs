@@ -5,8 +5,8 @@
  * "Release: 19 (1.0.0)" by shipping version code 19 (timetrack-vc19 bundle).
  *
  * The bundle path and release name are overridable for later version codes
- * (e.g. the vc20 prominent-disclosure resubmission) without editing code:
- *   TT_AAB=timetrack-vc20.aab TT_RELEASE=20 node scripts/update-closed-alpha-vc19.mjs
+ * (e.g. the vc21 prominent-disclosure resubmission) without editing code:
+ *   TT_AAB=timetrack-vc21.aab TT_RELEASE=21 node scripts/update-closed-alpha-vc19.mjs
  *
  * Log markers (for automation watchers):
  *   PLAY_CONSOLE_RESULT: DONE    -> release 19 rollout submitted on closed alpha

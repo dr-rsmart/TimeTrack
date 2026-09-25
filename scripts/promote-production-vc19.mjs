@@ -4,8 +4,8 @@
  * Ships the vc19 app bundle to the Production track with upbeat release notes.
  *
  * The bundle path and release name are overridable for later version codes
- * (e.g. the vc20 prominent-disclosure resubmission) without editing code:
- *   TT_AAB=timetrack-vc20.aab TT_RELEASE=20 node scripts/promote-production-vc19.mjs
+ * (e.g. the vc21 prominent-disclosure resubmission) without editing code:
+ *   TT_AAB=timetrack-vc21.aab TT_RELEASE=21 node scripts/promote-production-vc19.mjs
  *
  * Log markers (for automation watchers):
  *   PLAY_CONSOLE_RESULT: DONE    -> production rollout submitted
