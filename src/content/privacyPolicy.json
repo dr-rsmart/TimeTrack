@@ -4,7 +4,7 @@
   "metaDescription": "TimeTrack privacy policy: how the workforce time tracking, scheduling and payroll platform collects, uses, shares and protects employee personal information under POPIA and the GDPR.",
   "title": "Privacy Policy",
   "productLine": "TimeTrack — workforce time tracking, scheduling and payroll",
-  "updated": "21 September 2026",
+  "updated": "25 September 2026",
   "siteUrl": "https://time-track.tech",
   "sections": [
     {
@@ -34,7 +34,8 @@
     {
       "heading": "4. Location permissions in the mobile app",
       "paragraphs": [
-        "On iOS and Android, TimeTrack may request “While Using” and “Always” location access. “Always” access enables automatic clock-in when you arrive at an assigned work location and clock-out when you leave, even when the app is closed or the device is locked. Location checks are limited to the geofence perimeters your employer assigns to you. Location data is transmitted to the TimeTrack server over TLS to create attendance records and is not sold, rented or used for advertising."
+        "On iOS and Android, TimeTrack may request “While Using” and “Always” location access. “Always” access enables automatic clock-in when you arrive at an assigned work location and clock-out when you leave, even when the app is closed or the device is locked. Location checks are limited to the geofence perimeters your employer assigns to you. Location data is transmitted to the TimeTrack server over TLS to create attendance records and is not sold, rented or used for advertising.",
+        "On Android, a prominent in-app disclosure is shown and your affirmative consent is requested before any location permission is requested and before any background location access begins. While background monitoring is active, Android displays a persistent “Monitoring work location” notification together with the system background-location indicator. Location fixes are used only to detect arrival at and departure from your assigned work locations; TimeTrack does not keep or share a history of your movements, and only the confirmed clock-in/clock-out events (place and time) are retained as attendance records. You can stop background location access at any time by turning off Auto Clock In/Out in TimeTrack, signing out, or revoking the location permission in your device settings — manual Clock In / Clock Out then remains fully available."
       ]
     },
     {
