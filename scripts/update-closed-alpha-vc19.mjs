@@ -4,6 +4,10 @@
  * Promotes the Closed testing -> alpha track from "Release: 18 (1.0.0)" to
  * "Release: 19 (1.0.0)" by shipping version code 19 (timetrack-vc19 bundle).
  *
+ * The bundle path and release name are overridable for later version codes
+ * (e.g. the vc20 prominent-disclosure resubmission) without editing code:
+ *   TT_AAB=timetrack-vc20.aab TT_RELEASE=20 node scripts/update-closed-alpha-vc19.mjs
+ *
  * Log markers (for automation watchers):
  *   PLAY_CONSOLE_RESULT: DONE    -> release 19 rollout submitted on closed alpha
  *   PLAY_CONSOLE_RESULT: GUIDED  -> window left open for manual completion
@@ -16,8 +20,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const AAB_PATH = path.resolve(ROOT, 'timetrack-vc19.aab');
-const RELEASE_NAME = '19'; // track row then reads "Release: 19 (1.0.0)"
+const AAB_PATH = path.resolve(ROOT, process.env.TT_AAB || 'timetrack-vc19.aab');
+const RELEASE_NAME = process.env.TT_RELEASE || '19'; // track row then reads "Release: N (1.0.0)"
 const PROFILE_DIR = path.resolve(ROOT, '.playwright-google-profile');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));

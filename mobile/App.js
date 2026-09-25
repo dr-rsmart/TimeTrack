@@ -18,6 +18,14 @@
  *  - expo-task-manager background task processes location fixes while suspended
  *  - Local notifications confirm auto clock-in / clock-out events
  *
+ * Prominent Disclosure & Consent (Google Play User Data policy, added after
+ * the vc18 "Missing Prominent Disclosure" rejection): a full-screen native
+ * disclosure is presented BEFORE any location permission request and before
+ * any background access. Background updates can only ever start through
+ * ensureBackgroundLocationUpdates(), which hard-gates on the GRANTED background
+ * permission; later re-requests (e.g. the employee enables auto clocking from
+ * the web UI after declining) re-present the disclosure first.
+ *
  * Network resilience (added after closed-test net::ERR_NAME_NOT_RESOLVED reports):
  *  - NetInfo connectivity tracking with a dedicated offline screen
  *  - Automatic reload the moment the device reconnects
@@ -35,6 +43,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   SafeAreaView,
+  ScrollView,
   StatusBar,
   StyleSheet,
   View,
@@ -135,6 +144,8 @@ const AUTO_CLOCK_DIAGNOSTICS_KEY = 'timetrack_auto_clock_diagnostics';
 const BG_PERMISSION_PROMPTED_KEY = 'timetrack_bg_permission_prompted';
 /** Re-surface the background-permission guidance at most once per day. */
 const BG_PERMISSION_REPROMPT_MS = 24 * 60 * 60 * 1000;
+/** Persisted Prominent-Disclosure decision: 'granted' | 'declined'. */
+const BG_DISCLOSURE_CONSENT_KEY = 'timetrack_bg_disclosure_consent';
 
 /**
  * Read ALL monitored geofences. Prefers the multi-location list; falls back
@@ -636,6 +647,14 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, (payload) => {
  * retry this helper when the app returns to the foreground.
  */
 async function ensureBackgroundLocationUpdates() {
+  // POLICY GATE (Play Prominent Disclosure & Consent): background location
+  // must NEVER start unless the OS background permission is granted — which
+  // can only happen after the user accepted the in-app disclosure. Centralised
+  // here so every caller (app resume, geofence assignment, iOS BGTask
+  // watchdog) is covered by this single auditable check.
+  const bgPermission = await Location.getBackgroundPermissionsAsync().catch(() => null);
+  if (bgPermission?.status !== 'granted') return;
+
   const started = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
   if (started) return;
 
@@ -1007,6 +1026,13 @@ export default function App() {
 
   const handleAgreeDisclosure = async () => {
     setDisclosureVisible(false);
+    // Record the affirmative consent BEFORE requesting anything so the
+    // system prompts below always follow an accepted disclosure.
+    try {
+      await AsyncStorage.setItem(BG_DISCLOSURE_CONSENT_KEY, 'granted');
+    } catch {
+      // Consent recording is best-effort; the request flow still proceeds.
+    }
     try {
       const { status: fg } = await Location.requestForegroundPermissionsAsync();
       if (fg === 'granted') {
@@ -1052,6 +1078,11 @@ export default function App() {
 
   const handleDeclineDisclosure = () => {
     setDisclosureVisible(false);
+    // Record the decline so automatic (non user-initiated) paths never
+    // re-present the disclosure mid-session; background updates stay gated
+    // off until the employee opts in again from the web Auto Clock toggle
+    // (which re-presents the disclosure) or the next cold start.
+    void AsyncStorage.setItem(BG_DISCLOSURE_CONSENT_KEY, 'declined').catch(() => undefined);
     setPermissionsReady(true);
   };
 
@@ -1167,6 +1198,18 @@ export default function App() {
             }
           }
         }
+        // Safety net: if the employee never recorded a disclosure decision
+        // and background location is not granted, present the disclosure now
+        // — always BEFORE any request/start attempt. An explicit earlier
+        // decline is respected mid-session (the cold-start rule re-presents
+        // the disclosure on the next launch instead).
+        const [bgNow, consentNow] = await Promise.all([
+          Location.getBackgroundPermissionsAsync().catch(() => null),
+          AsyncStorage.getItem(BG_DISCLOSURE_CONSENT_KEY),
+        ]);
+        if (bgNow?.status !== 'granted' && consentNow == null && list.length > 0) {
+          setDisclosureVisible(true);
+        }
         // Assignment messages arrive after the WebView has authenticated and
         // are another safe opportunity to recover a background task that was
         // blocked by a temporary permission/provider failure.
@@ -1176,6 +1219,19 @@ export default function App() {
       }
       if (msg.type === 'AUTO_CLOCK_ENABLED' && typeof msg.enabled === 'boolean') {
         await AsyncStorage.setItem(AUTO_CLOCK_ENABLED_KEY, String(msg.enabled));
+        // Prominent Disclosure re-presentation: the employee just opted INTO
+        // automatic clocking from the web UI. If background location is still
+        // ungranted, the disclosure MUST precede any new permission request on
+        // this user-initiated path too — even after an earlier decline.
+        if (msg.enabled) {
+          const [bgState, consentState] = await Promise.all([
+            Location.getBackgroundPermissionsAsync().catch(() => null),
+            AsyncStorage.getItem(BG_DISCLOSURE_CONSENT_KEY),
+          ]);
+          if (bgState?.status !== 'granted' && consentState !== 'granted') {
+            setDisclosureVisible(true);
+          }
+        }
         void syncAutoClockStatusToWebview();
       }
       if (msg.type === 'CLOCK_STATE' && typeof msg.clockedIn === 'boolean') {
@@ -1305,36 +1361,53 @@ export default function App() {
     return (
       <SafeAreaView style={styles.disclosureContainer}>
         <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-        <View style={styles.disclosureContent}>
-          <Text style={styles.disclosureTitle}>Location Permission Disclosure</Text>
+        <ScrollView
+          style={styles.disclosureScroll}
+          contentContainerStyle={styles.disclosureContent}
+        >
+          <Text style={styles.disclosureTitle}>Background Location Disclosure</Text>
           <Text style={styles.disclosureSubtitle}>
-            TimeTrack requests location access to automate your shift clock-in and clock-out.
+            Please read how TimeTrack uses your location before choosing your attendance mode.
           </Text>
 
           <View style={styles.disclosureCard}>
-            <Text style={styles.disclosureCardHeader}>📍 Background Location Usage</Text>
+            <Text style={styles.disclosureCardHeader}>📍 What we collect</Text>
             <Text style={styles.disclosureCardBody}>
-              TimeTrack collects location data to automatically clock you in when entering your
-              assigned work location geofence and clock you out when leaving,{' '}
-              <Text style={styles.boldText}>
-                even when the app is closed, running in the background, or not in use
-              </Text>
-              .
+              TimeTrack accesses your device&apos;s{' '}
+              <Text style={styles.boldText}>precise location in the background</Text> — including
+              while the app is closed, running in the background, or not in use — to automatically
+              clock you in when you enter an assigned work location geofence and clock you out when
+              you leave.
             </Text>
           </View>
 
           <View style={styles.disclosureCard}>
-            <Text style={styles.disclosureCardHeader}>🔒 Privacy & Compliance Guarantee</Text>
+            <Text style={styles.disclosureCardHeader}>🏢 How it is used and shared</Text>
             <Text style={styles.disclosureCardBody}>
-              This data is strictly used to record your hours of work. We do not track you
-              continuously, store your location history, or share this data with third parties.
+              Location fixes are used only to detect arrival at and departure from your assigned
+              work locations. Confirmed clock-in/clock-out events (place and time) are sent securely
+              to your employer&apos;s TimeTrack server solely to record attendance. We do not sell
+              location data, share it with third parties, or keep a history of your movements.
+            </Text>
+          </View>
+
+          <View style={styles.disclosureCard}>
+            <Text style={styles.disclosureCardHeader}>⏱️ Duration, indicators and control</Text>
+            <Text style={styles.disclosureCardBody}>
+              Background monitoring runs only while Auto Clock In/Out is enabled and you have an
+              assigned work location. While active, Android shows a persistent “Monitoring work
+              location” notification and the system background-location indicator. You can stop it
+              at any time: turn off Auto Clock In/Out in TimeTrack, sign out, or revoke location
+              access in device settings.
             </Text>
           </View>
 
           <Text style={styles.disclosureFooterText}>
-            To enable automatic hands-free time-tracking, please click{' '}
-            <Text style={styles.boldText}>Agree & Continue</Text> and select "Allow all the time" or
-            "Always" in the following permission request.
+            If you decline, background location is never accessed and{' '}
+            <Text style={styles.boldText}>manual Clock In / Clock Out remains fully available</Text>
+            . To enable hands-free attendance, tap{' '}
+            <Text style={styles.boldText}>Agree & Continue</Text> and choose “Allow all the time”
+            (Android) or “Always” (iOS) in the following permission requests.
           </Text>
 
           <View style={styles.disclosureButtonContainer}>
@@ -1345,7 +1418,7 @@ export default function App() {
               <Text style={styles.acceptButtonText}>Agree & Continue</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -1526,9 +1599,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#ffffff',
   },
-  disclosureContent: {
+  disclosureScroll: {
     flex: 1,
+  },
+  disclosureContent: {
     padding: 24,
+    flexGrow: 1,
     justifyContent: 'center',
   },
   disclosureTitle: {

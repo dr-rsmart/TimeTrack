@@ -3,6 +3,10 @@
  * ---------------------------------------------------------------
  * Ships the vc19 app bundle to the Production track with upbeat release notes.
  *
+ * The bundle path and release name are overridable for later version codes
+ * (e.g. the vc20 prominent-disclosure resubmission) without editing code:
+ *   TT_AAB=timetrack-vc20.aab TT_RELEASE=20 node scripts/promote-production-vc19.mjs
+ *
  * Log markers (for automation watchers):
  *   PLAY_CONSOLE_RESULT: DONE    -> production rollout submitted
  *   PLAY_CONSOLE_RESULT: GUIDED  -> window left open for manual completion
@@ -15,8 +19,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const AAB_PATH = path.resolve(ROOT, 'timetrack-vc19.aab');
-const RELEASE_NAME = '19'; // production row then reads "Release: 19 (1.0.0)"
+const AAB_PATH = path.resolve(ROOT, process.env.TT_AAB || 'timetrack-vc19.aab');
+const RELEASE_NAME = process.env.TT_RELEASE || '19'; // production row then reads "Release: N (1.0.0)"
 const PROFILE_DIR = path.resolve(ROOT, '.playwright-google-profile');
 const DEV_ID = '8121995548332442173';
 const APP_ID = '4976072281005342488';

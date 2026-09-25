@@ -187,6 +187,18 @@ Both Apple and Google strictly regulate background location access (`Always Allo
 
 ---
 
+### 3.3 In-App Prominent Disclosure & Consent Flow (Android native shell, vc19+)
+
+After the vc18 rejection ("Missing Prominent Disclosure", `ACCESS_BACKGROUND_LOCATION`), the native shell (`mobile/App.js`) implements the full Play User Data Prominent Disclosure & Consent requirement:
+
+1. **Disclosure before any request.** On cold start, whenever foreground + background location are not both granted, a full-screen native disclosure ("Background Location Disclosure") is presented BEFORE any permission request or background access. It states: precise location is collected **in the background, including while the app is closed or not in use**; the purpose (automatic clock-in/out at assigned work geofences); that confirmed punch events (place + time) are sent securely **only to the employer's TimeTrack server** to record attendance; no selling, no third-party sharing, no movement history; duration and stop controls (Auto Clock toggle, sign-out, OS settings); the persistent "Monitoring work location" foreground-service notification and OS background indicator; and that **manual Clock In/Out remains fully available if the user declines**.
+2. **Affirmative consent.** "Agree & Continue" persists consent (`timetrack_bg_disclosure_consent = 'granted'`) and only then calls `requestForegroundPermissionsAsync()` → `requestBackgroundPermissionsAsync()`. "Not Now" persists `'declined'` and requests nothing.
+3. **Single background gate.** `ensureBackgroundLocationUpdates()` returns early unless the OS background permission is `granted`, so no caller (app resume, geofence assignment, iOS BGTask watchdog) can ever start background location pre-consent.
+4. **Re-disclosure on later opt-in.** If the employee enables Auto Clock In/Out from the web UI (`AUTO_CLOCK_ENABLED` bridge message) while background location is ungranted and consent ≠ granted — or a geofence assignment arrives with no recorded decision — the disclosure is re-presented BEFORE any new request.
+5. **Resubmission (vc20).** Build with `eas build --platform android --profile production` (remote auto-increment → vc20), then roll out with `TT_AAB=timetrack-vc20.aab TT_RELEASE=20 node scripts/update-closed-alpha-vc19.mjs` followed by `TT_AAB=timetrack-vc20.aab TT_RELEASE=20 node scripts/promote-production-vc19.mjs`, replacing the rejected vc18 change set. In Play Console, complete the background-location declaration with justification text mirroring the in-app disclosure plus a demo video of the flow in §3.2 item 4, verify the Data-safety location entries (§4.2), and resubmit from the Publishing overview.
+
+---
+
 ## 4. App Privacy & Data Safety Declarations
 
 ### 4.1 Apple App Privacy (App Store Connect)
@@ -241,4 +253,5 @@ The following pre-seeded test accounts can be provided to Apple and Google App R
 - [x] `mobile/ios/Info.plist` configured with background location usage descriptions and `UIBackgroundModes`.
 - [x] `mobile/android/AndroidManifest.xml` configured with `ACCESS_BACKGROUND_LOCATION` and `FOREGROUND_SERVICE_LOCATION`.
 - [x] Prominent location disclosure copy and privacy questionnaire answers prepared.
+- [x] Native full-screen Prominent Disclosure + consent gate implemented in `mobile/App.js` (vc19), hardened with persisted consent, a single background-start gate and re-disclosure on later opt-in (vc20).
 - [x] Demo credentials and reviewer test instructions validated.
