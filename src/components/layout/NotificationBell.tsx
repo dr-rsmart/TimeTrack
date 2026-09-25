@@ -9,7 +9,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, Clock, LogOut, RefreshCw, UserX, CalendarX2, Inbox } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Bell, Clock, LogOut, RefreshCw, UserX, CalendarX2, Inbox, Copy } from 'lucide-react';
 import { reportApi, type AttendanceAlert } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { cn, formatDate } from '../../lib/utils';
@@ -25,6 +26,9 @@ const TYPE_META: Record<
   early_clock_out: { icon: LogOut, label: 'Early clock-out', className: 'text-orange-500' },
   no_show: { icon: CalendarX2, label: 'No-show', className: 'text-red-500' },
   absence: { icon: UserX, label: 'Absence', className: 'text-rose-400' },
+  // Spec §3 "Duplicate alert type": a punch that landed inside the duplicate
+  // window of another and needs one-tap resolution on the Timesheet.
+  duplicate: { icon: Copy, label: 'Duplicate punch', className: 'text-red-600' },
 };
 
 const SEVERITY_DOT: Record<AttendanceAlert['severity'], string> = {
@@ -33,8 +37,23 @@ const SEVERITY_DOT: Record<AttendanceAlert['severity'], string> = {
   critical: 'bg-red-500',
 };
 
+/**
+ * Spec §3 "View Details" deep link — resolve an alert to a Timesheet URL.
+ * A duplicate alert carries the offending `timeEntryId` so the page can open
+ * the resolution modal directly; every other type filters to the employee+day.
+ */
+function alertTarget(alert: AttendanceAlert): string {
+  const qs = new URLSearchParams();
+  if (alert.timeEntryId) qs.set('entry', alert.timeEntryId);
+  if (alert.employeeEmail) qs.set('employee', alert.employeeEmail);
+  if (alert.date) qs.set('date', alert.date);
+  const suffix = qs.toString();
+  return suffix ? `/time?${suffix}` : '/time';
+}
+
 export default function NotificationBell() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const isManager = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'master';
 
   const [open, setOpen] = useState(false);
@@ -156,6 +175,18 @@ export default function NotificationBell() {
                           {meta.label} · {formatDate(alert.date)}
                           {alert.branch ? ` · ${alert.branch}` : ''}
                         </p>
+                        {/* Spec §3 "View Details" deep link — jumps straight to the
+                            flagged entry on the Timesheet. */}
+                        <button
+                          data-testid={`notification-view-details-${alert.id}`}
+                          onClick={() => {
+                            setOpen(false);
+                            navigate(alertTarget(alert));
+                          }}
+                          className="mt-1 text-[10px] font-semibold text-brand hover:underline"
+                        >
+                          View details →
+                        </button>
                       </div>
                       <span
                         className={cn(

@@ -15,6 +15,7 @@ import {
   Coins,
   Download,
   FileBarChart,
+  FileSearch,
   ListChecks,
   Pencil,
 } from 'lucide-react';
@@ -52,6 +53,15 @@ import {
 } from '../components/ui';
 import { toDateStr, downloadCsv, formatHours, formatDate, formatTime } from '../lib/utils';
 import { PAYROLL_EXPORT_FORMATS, getPayrollExportFormat } from '../utils/payrollExportFormats';
+import {
+  buildBreakdownCsv,
+  buildCostCsv,
+  buildDailyTotalsCsv,
+  buildEntriesCsv,
+  getEmployeeDayKey,
+  type CsvPayload,
+} from '../utils/reportCsvExports';
+import TestImportModal from '../components/reports/TestImportModal';
 
 export default function Reports() {
   const { user } = useAuth();
@@ -87,6 +97,14 @@ export default function Reports() {
 
   // ── Payroll export format (Feature #4) ──
   const [exportFormatId, setExportFormatId] = useState(PAYROLL_EXPORT_FORMATS[0].id);
+
+  // ── "Test Import" preview (Feature §4) ──
+  const [testImport, setTestImport] = useState<{
+    payload: CsvPayload;
+    formatId: string;
+    formatLabel: string;
+    successMessage: string;
+  } | null>(null);
 
   // ── Edit time entry modal (admin/manager corrections) ──
   const [editEntry, setEditEntry] = useState<TimeEntry | null>(null);
@@ -217,59 +235,92 @@ export default function Reports() {
     }
   }
 
+  /**
+   * Shared export path: build → download → audit-log → toast.
+   *
+   * Spec §4 requires an audit trail for payroll exports. The CSV itself is built
+   * and downloaded client-side, so the server never sees it; we report the
+   * download explicitly. Logging is BEST-EFFORT — a failed audit write must
+   * never undo or block a download the user already has.
+   */
+  const runExport = (
+    payload: CsvPayload,
+    formatId: string,
+    formatLabel: string,
+    successMessage: string,
+  ) => {
+    downloadCsv(payload.filename, payload.headers, payload.data);
+    toast.success(successMessage);
+    void reportApi
+      .logPayrollExport({
+        formatId,
+        formatLabel,
+        from,
+        to,
+        rowCount: payload.data.length,
+        filters: {
+          tab: activeTab,
+          branch: branch || null,
+          department: department || null,
+          employeeEmail: employeeEmail || null,
+        },
+      })
+      .catch(() => {
+        // Non-fatal: the export already succeeded.
+      });
+  };
+
   // Payroll Summary export uses the pluggable format registry (Feature #4):
   // the selected format decides headers, row mapping and filename.
   const handleExportSummary = () => {
     const format = getPayrollExportFormat(exportFormatId);
-    downloadCsv(
-      format.filename(from, to),
-      format.headers(),
-      format.rows(rows, { from, to, geofenceLocationsByEmail }),
+    runExport(
+      {
+        filename: format.filename(from, to),
+        headers: format.headers(),
+        data: format.rows(rows, { from, to, geofenceLocationsByEmail }),
+      },
+      format.id,
+      format.label,
+      `Payroll CSV exported (${format.label})`,
     );
-    toast.success(`Payroll CSV exported (${format.label})`);
+  };
+
+  // Spec §4 "Test Import" — build the same payroll payload and show a preview
+  // first (round-tripped through the CSV parser) so the manager can confirm the
+  // column layout their payroll system will receive before committing the file.
+  const handleTestImportSummary = () => {
+    const format = getPayrollExportFormat(exportFormatId);
+    setTestImport({
+      payload: {
+        filename: format.filename(from, to),
+        headers: format.headers(),
+        data: format.rows(rows, { from, to, geofenceLocationsByEmail }),
+      },
+      formatId: format.id,
+      formatLabel: format.label,
+      successMessage: `Payroll CSV exported (${format.label})`,
+    });
+  };
+
+  const confirmTestImport = () => {
+    if (!testImport) return;
+    runExport(
+      testImport.payload,
+      testImport.formatId,
+      testImport.formatLabel,
+      testImport.successMessage,
+    );
+    setTestImport(null);
   };
 
   const handleExportEntries = () => {
-    const headers = [
-      'Employee Number',
-      'Employee',
-      'Position',
-      'Email',
-      'Branch',
-      'Geofence Location',
-      'Department',
-      'Date',
-      'Clock In',
-      'Clock Out',
-      'Break (min)',
-      'Entry Hours',
-      'Day Total Hours',
-      'Status',
-      'Manual Override',
-    ];
-    const data = timeEntries.map((e) => {
-      const info = employeeInfoByEmail.get(e.employeeEmail);
-      const dayTotal = employeeDayTotals.get(getEmployeeDayKey(e)) ?? 0;
-      return [
-        info?.employeeNumber ?? '',
-        e.employeeName ?? '',
-        info?.position ?? '',
-        e.employeeEmail,
-        e.branch ?? '',
-        e.geofenceName ?? '',
-        e.department ?? '',
-        formatDate(e.date),
-        formatTime(e.clockIn),
-        e.clockOut ? formatTime(e.clockOut) : '',
-        e.breakMinutes ?? '',
-        e.totalHours ?? '',
-        dayTotal,
-        e.status,
-        e.isManualOverride ? 'Yes' : 'No',
-      ];
-    });
-    downloadCsv(`time-entries-${from}-to-${to}.csv`, headers, data);
-    toast.success('Time entries CSV exported');
+    runExport(
+      buildEntriesCsv({ timeEntries, from, to, employeeInfoByEmail, employeeDayTotals }),
+      'time-entries',
+      'Time Entries (detailed)',
+      'Time entries CSV exported',
+    );
   };
 
   // Totals for summary
@@ -285,8 +336,7 @@ export default function Reports() {
 
   // Per-employee/day totals make multiple entries on the same date easy to
   // reconcile without changing the existing detailed-entry rows.
-  const getEmployeeDayKey = (entry: TimeEntry) =>
-    `${entry.employeeId ?? entry.employeeEmail.toLowerCase()}|${entry.date.slice(0, 10)}`;
+  // (`getEmployeeDayKey` now lives in utils/reportCsvExports.ts.)
   const employeeDayTotals = new Map<string, number>();
   const groupedDailyTotals = new Map<
     string,
@@ -318,15 +368,12 @@ export default function Reports() {
     }));
 
   const handleExportDailyTotals = () => {
-    const headers = ['Date', 'Employees', 'Entries', 'Total Hours'];
-    const data = dailyTotals.map((day) => [
-      formatDate(day.date),
-      day.employees,
-      day.entries,
-      day.hours,
-    ]);
-    downloadCsv(`grouped-daily-totals-${from}-to-${to}.csv`, headers, data);
-    toast.success('Grouped daily totals CSV exported');
+    runExport(
+      buildDailyTotalsCsv({ dailyTotals, from, to }),
+      'grouped-daily-totals',
+      'Grouped Daily Totals',
+      'Grouped daily totals CSV exported',
+    );
   };
 
   // ── Daily Breakdown (Features #5/#6): per-employee daily clocking listed
@@ -352,77 +399,33 @@ export default function Reports() {
     });
 
   const handleExportBreakdown = () => {
-    const headers = [
-      'Employee',
-      'Date',
-      'Clock In',
-      'Clock Out',
-      'Day Hours',
-      'Normal Hours',
-      'Overtime Hours',
-      'Public Holiday Hours',
-    ];
-    const data: (string | number)[][] = [];
-    for (const b of breakdownByEmployee) {
-      for (const e of b.dayEntries) {
-        data.push([
-          b.row.name,
-          formatDate(e.date),
-          formatTime(e.clockIn),
-          e.clockOut ? formatTime(e.clockOut) : '',
-          e.totalHours ?? 0,
-          '',
-          '',
-          '',
-        ]);
-      }
-      // Per-employee breakdown line (e.g. Normal = 195 / Overtime = 20 / PH = 9).
-      data.push([b.row.name, 'Breakdown', '', '', '', b.normal, b.overtime, b.publicHoliday]);
-    }
-    downloadCsv(`daily-breakdown-${from}-to-${to}.csv`, headers, data);
-    toast.success('Daily breakdown CSV exported');
+    runExport(
+      buildBreakdownCsv({ breakdownByEmployee, from, to }),
+      'daily-breakdown',
+      'Daily Breakdown (A–Z + period totals)',
+      'Daily breakdown CSV exported',
+    );
   };
 
   // ── Cost of Late Coming export (Feature #9) ──
   const handleExportCost = () => {
-    const headers = [
-      'Employee Number',
-      'Employee',
-      'Email',
-      'Branch',
-      'Department',
-      'Penalty Rate (ZAR)',
-      'Late Minutes',
-      'Early Minutes',
-      'Hours Lost',
-      'Rand Lost (ZAR)',
-    ];
-    const data: (string | number)[][] = costRows.map((r) => [
-      r.employeeNumber ?? '',
-      r.name,
-      r.email,
-      r.branch,
-      r.department,
-      r.latePenaltyRate ?? '',
-      r.lateMinutes,
-      r.earlyMinutes,
-      r.hoursLost,
-      r.randLost,
-    ]);
-    data.push([
-      '',
-      'TOTALS',
-      '',
-      '',
-      '',
-      '',
-      costTotals.lateMinutes,
-      costTotals.earlyMinutes,
-      costTotals.hoursLost,
-      costTotals.randLost,
-    ]);
-    downloadCsv(`cost-of-late-${from}-to-${to}.csv`, headers, data);
-    toast.success('Cost of late CSV exported');
+    runExport(
+      buildCostCsv({ costRows, costTotals, from, to }),
+      'cost-of-late',
+      'Cost of Late Coming',
+      'Cost of late CSV exported',
+    );
+  };
+
+  /**
+   * Spec §6 "Reset" → today. Collapses the range to the current business day and
+   * re-runs whichever report the user is looking at, so a manager investigating
+   * "who is late TODAY" is one click away instead of re-picking two dates.
+   */
+  const handleResetToToday = () => {
+    const today = toDateStr(new Date());
+    setFrom(today);
+    setTo(today);
   };
 
   // Totals for time entries
@@ -474,6 +477,16 @@ export default function Reports() {
               ))}
             </Select>
           )}
+          {activeTab === 'summary' && (
+            <Button
+              variant="outline"
+              onClick={handleTestImportSummary}
+              disabled={rows.length === 0}
+              data-testid="test-import-button"
+            >
+              <FileSearch className="h-4 w-4" /> Test Import
+            </Button>
+          )}
           <Button
             onClick={
               activeTab === 'summary'
@@ -494,6 +507,15 @@ export default function Reports() {
         </div>
       </div>
 
+      {/* Spec §4 "Test Import" preview modal */}
+      <TestImportModal
+        open={testImport !== null}
+        onClose={() => setTestImport(null)}
+        payload={testImport?.payload ?? null}
+        formatLabel={testImport?.formatLabel ?? ''}
+        onDownload={confirmTestImport}
+      />
+
       {/* Filters */}
       <Card className="border-border/50">
         <CardContent className="flex flex-wrap items-end gap-4 p-4">
@@ -505,6 +527,16 @@ export default function Reports() {
             <Label htmlFor="r-to">To</Label>
             <Input id="r-to" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
+          {/* Spec §6 "Reset" → today: collapse the range to the current day. */}
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="reset-to-today"
+            onClick={handleResetToToday}
+            title="Set the date range to today"
+          >
+            <CalendarDays className="h-4 w-4" /> Today
+          </Button>
           <div className="space-y-1">
             <Label htmlFor="r-branch">Branch</Label>
             <Select

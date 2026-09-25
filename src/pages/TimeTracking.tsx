@@ -7,16 +7,18 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   LogIn,
   LogOut,
   MapPin,
   Clock,
-  Coffee,
   History,
   UserRound,
   CalendarPlus,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { timeEntryApi, type TimeEntry, ApiError } from '../services/api';
@@ -68,6 +70,15 @@ export default function TimeTracking() {
   // ── Manual time entry modal (backdated hours for a previous date) ──
   const [showManualEntryModal, setShowManualEntryModal] = useState(false);
 
+  // ── Spec §5 self-delete + spec §7 duplicate resolution ──
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [duplicateEntry, setDuplicateEntry] = useState<TimeEntry | null>(null);
+  const [resolving, setResolving] = useState(false);
+  // Resolving a duplicate DELETES a payroll-relevant row, so it stays a
+  // supervisory action — employees see the red warning and ask a manager.
+  const canResolveDuplicates = canClockOnBehalf;
+
   // ── Auto-geofence toggle state (read-only) for the not-clocked-in card ──
   const autoGeo = useAutoGeofenceState(user ? `${user.email}:${user.role}` : undefined);
 
@@ -104,6 +115,58 @@ export default function TimeTracking() {
       [load],
     ),
   );
+
+  // Spec §3 "View Details" deep link: /time?entry=<id> from the Notification
+  // Centre opens the duplicate-resolution modal for that entry. The param is
+  // cleared afterwards so a refresh does not re-open a stale modal.
+  useEffect(() => {
+    const entryId = searchParams.get('entry');
+    if (!entryId || loading) return;
+    const match = entries.find((e) => e.id === entryId);
+    searchParams.delete('entry');
+    setSearchParams(searchParams, { replace: true });
+    if (match?.isFlaggedDuplicate) setDuplicateEntry(match);
+  }, [searchParams, setSearchParams, entries, loading]);
+
+  /**
+   * Spec §5 — delete a time entry. Employees may remove their OWN entry within
+   * the self-service window (default 24 h); the server owns that decision and
+   * returns a human-readable reason, which we surface verbatim rather than
+   * duplicating (and drifting from) the rule on the client.
+   */
+  const handleDeleteEntry = async (entry: TimeEntry) => {
+    const when = `${formatDate(entry.date)} at ${formatTime(entry.clockIn)}`;
+    if (!window.confirm(`Delete this time entry (${when})?\n\nThis cannot be undone.`)) return;
+    setDeletingId(entry.id);
+    try {
+      await timeEntryApi.remove(entry.id);
+      toast.success('Time entry deleted');
+      await load();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Could not delete the time entry');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  /** Spec §7 Option A — keep the first punch, discard the flagged duplicate. */
+  const handleResolveDuplicate = async () => {
+    if (!duplicateEntry) return;
+    setResolving(true);
+    try {
+      await timeEntryApi.resolveDuplicate(duplicateEntry.id);
+      toast.success('Duplicate punch resolved — the first punch was kept.');
+      setDuplicateEntry(null);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Could not resolve the duplicate punch');
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  /** An open session must be clocked out, not deleted — mirrors the server rule. */
+  const canDeleteEntry = (entry: TimeEntry): boolean => entry.status !== 'active';
 
   const handleClockIn = async () => {
     setBusy(true);
@@ -294,11 +357,22 @@ export default function TimeTracking() {
                   <TableHead>Total Hours</TableHead>
                   <TableHead>Location</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {entries.map((e) => (
-                  <TableRow key={e.id}>
+                  <TableRow
+                    key={e.id}
+                    // Spec §7: a flagged duplicate renders red with a warning
+                    // icon so it cannot be missed during payroll review.
+                    className={
+                      e.isFlaggedDuplicate
+                        ? 'bg-red-500/10 hover:bg-red-500/15 border-l-2 border-l-red-500'
+                        : undefined
+                    }
+                    data-testid={e.isFlaggedDuplicate ? `entry-row-duplicate-${e.id}` : undefined}
+                  >
                     {user?.role !== 'employee' && (
                       <TableCell className="font-medium">
                         {e.employeeName || e.employeeEmail}
@@ -311,7 +385,7 @@ export default function TimeTracking() {
                     <TableCell className="font-medium">{formatHours(e.totalHours)}</TableCell>
                     <TableCell>{e.geofenceName || '—'}</TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <Badge variant={e.status === 'active' ? 'success' : 'secondary'}>
                           {e.status}
                         </Badge>
@@ -319,6 +393,54 @@ export default function TimeTracking() {
                           <Badge variant="warning" title={e.adjustmentReason ?? undefined}>
                             manual
                           </Badge>
+                        )}
+                        {e.isFlaggedDuplicate && (
+                          <Badge
+                            variant="destructive"
+                            title="Two punches landed within the duplicate window. Review before payroll."
+                          >
+                            <AlertTriangle className="h-3 w-3 mr-1" />
+                            possible duplicate
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center justify-end gap-1">
+                        {e.isFlaggedDuplicate && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            data-testid={`resolve-duplicate-${e.id}`}
+                            onClick={() => setDuplicateEntry(e)}
+                            title={
+                              canResolveDuplicates
+                                ? 'Review and resolve this duplicate punch'
+                                : 'Ask a manager to resolve this duplicate punch'
+                            }
+                          >
+                            Review
+                          </Button>
+                        )}
+                        {canDeleteEntry(e) && (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="text-muted-foreground hover:text-red-600"
+                            data-testid={`delete-entry-${e.id}`}
+                            disabled={deletingId === e.id}
+                            onClick={() => void handleDeleteEntry(e)}
+                            title="Delete this time entry (own entries within 24 h)"
+                            aria-label={`Delete time entry for ${formatDate(e.date)}`}
+                          >
+                            {deletingId === e.id ? (
+                              <Spinner className="h-4 w-4" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </Button>
                         )}
                       </div>
                     </TableCell>
@@ -397,6 +519,82 @@ export default function TimeTracking() {
               <LogOut className="h-4 w-4" /> {busy ? 'Clocking out…' : 'Confirm Clock Out'}
             </Button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Spec §7 — duplicate punch resolution modal */}
+      <Modal
+        open={duplicateEntry !== null}
+        onClose={() => !resolving && setDuplicateEntry(null)}
+        title="Possible duplicate punch"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 rounded-lg border border-red-500/40 bg-red-500/10 p-3">
+            <AlertTriangle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+            <div className="text-sm space-y-1">
+              <p className="font-semibold text-red-600">
+                Two punches were recorded within the duplicate window.
+              </p>
+              <p className="text-muted-foreground">
+                {duplicateEntry?.employeeName || duplicateEntry?.employeeEmail} ·{' '}
+                {duplicateEntry ? formatDate(duplicateEntry.date) : ''} · clocked in{' '}
+                {duplicateEntry ? formatTime(duplicateEntry.clockIn) : ''}
+              </p>
+            </div>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Double punches usually happen when the app is tapped twice, or when an offline punch
+            syncs after you have already clocked in. You only need to clock in <strong>once</strong>{' '}
+            — a second tap does not add hours, it creates a record that payroll must clean up.
+          </p>
+
+          {canResolveDuplicates ? (
+            <div className="space-y-2">
+              <Button
+                type="button"
+                className="w-full"
+                disabled={resolving}
+                data-testid="duplicate-option-a"
+                onClick={() => void handleResolveDuplicate()}
+              >
+                {resolving ? 'Resolving…' : 'Option A — Keep the first punch (recommended)'}
+              </Button>
+              <p className="text-[11px] text-muted-foreground px-1">
+                Discards the flagged duplicate and keeps the earlier punch. This is audited.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={resolving}
+                data-testid="duplicate-option-b"
+                onClick={() => {
+                  setDuplicateEntry(null);
+                  toast.info(
+                    'Option B: adjust both entries from Reports → Attendance, then resolve the flag.',
+                  );
+                }}
+              >
+                Option B — Manually adjust both entries
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm">
+                Only a manager or administrator can resolve a duplicate punch. Please contact them —
+                your hours are safe and the earlier punch is kept.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => setDuplicateEntry(null)}
+              >
+                Close
+              </Button>
+            </div>
+          )}
         </div>
       </Modal>
     </div>

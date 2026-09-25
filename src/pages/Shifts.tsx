@@ -43,6 +43,7 @@ import {
   TableRow,
   Textarea,
 } from '../components/ui';
+import BulkShiftToolbar from '../components/shifts/BulkShiftToolbar';
 import { toDateStr, formatDate } from '../lib/utils';
 
 const statusVariant: Record<
@@ -145,6 +146,8 @@ export default function Shifts() {
   const [editing, setEditing] = useState<Shift | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  // Spec §5 — bulk edit/delete selection (ids of shifts ticked in the list).
+  const [selectedShiftIds, setSelectedShiftIds] = useState<string[]>([]);
 
   // Derive the inclusive date window for the current view
   const view = useMemo(() => {
@@ -170,6 +173,10 @@ export default function Shifts() {
       const res = await shiftApi.list({ from, to, branch: branchFilter || undefined, limit: 500 });
       setItems(res.items);
       setTotal(res.total);
+      // Prune the bulk selection to rows that still exist, so a filter change or
+      // an SSE refresh can never leave a stale id inside a bulk operation.
+      const alive = new Set(res.items.map((s) => s.id));
+      setSelectedShiftIds((prev) => prev.filter((id) => alive.has(id)));
     } catch (err) {
       toast.error('Failed to load shifts');
       console.error(err);
@@ -673,6 +680,15 @@ export default function Shifts() {
         </div>
       )}
 
+      {canManage && (
+        <BulkShiftToolbar
+          selectedIds={selectedShiftIds}
+          visibleIds={items.map((s) => s.id)}
+          onSelectionChange={setSelectedShiftIds}
+          onDone={load}
+        />
+      )}
+
       {loading ? (
         <div className="flex h-48 items-center justify-center">
           <Spinner className="h-8 w-8" />
@@ -713,6 +729,11 @@ export default function Shifts() {
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          {canManage && (
+                            <TableHead className="w-8">
+                              <span className="sr-only">Select shift</span>
+                            </TableHead>
+                          )}
                           <TableHead>Employee</TableHead>
                           <TableHead>Time</TableHead>
                           <TableHead>Type</TableHead>
@@ -724,6 +745,24 @@ export default function Shifts() {
                       <TableBody>
                         {shifts.map((s) => (
                           <TableRow key={s.id}>
+                            {canManage && (
+                              <TableCell>
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 rounded border-border accent-brand"
+                                  aria-label={`Select shift for ${s.employeeName || 'unassigned'} on ${toDateStr(date)}`}
+                                  data-testid={`select-shift-${s.id}`}
+                                  checked={selectedShiftIds.includes(s.id)}
+                                  onChange={(ev) =>
+                                    setSelectedShiftIds((prev) =>
+                                      ev.target.checked
+                                        ? [...prev, s.id]
+                                        : prev.filter((id) => id !== s.id),
+                                    )
+                                  }
+                                />
+                              </TableCell>
+                            )}
                             <TableCell>
                               <div className="font-medium">{s.employeeName || 'Unassigned'}</div>
                               {s.branch && (

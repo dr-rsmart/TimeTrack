@@ -25,6 +25,8 @@ export type {
   UpdateTimeEntryRequest,
 } from '../../contracts/index.js';
 
+import { getDeviceId } from '../utils/deviceId';
+
 export class ApiError extends Error {
   status: number;
   code?: ApiErrorCode | string;
@@ -232,6 +234,16 @@ export const api = {
   put: <T>(path: string, body?: unknown) =>
     request<T>(path, {
       method: 'PUT',
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    }),
+  /**
+   * PATCH — partial update. Used by the bulk shift editor (spec §5), where only
+   * the fields the user changed may be sent; a PUT would require the whole
+   * resource and risk nulling untouched columns.
+   */
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, {
+      method: 'PATCH',
       body: body !== undefined ? JSON.stringify(body) : undefined,
     }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
@@ -581,6 +593,41 @@ export const shiftApi = {
       { enabled?: boolean; startTime?: string; endTime?: string; shiftType?: string }
     >;
   }) => api.post<BulkShiftResult>('/shifts/bulk', data),
+  /**
+   * Spec §5 — apply one change set to many shifts at once. `reason` is required
+   * by the server and lands in the audit log. Only the fields you send change;
+   * omitted fields are left untouched.
+   */
+  bulkEdit: (data: {
+    ids: string[];
+    startTime?: string | null;
+    endTime?: string | null;
+    shiftType?: string;
+    location?: string | null;
+    notes?: string | null;
+    status?: string;
+    skipOverlaps?: boolean;
+    reason: string;
+  }) =>
+    api.patch<{
+      success: boolean;
+      updated: number;
+      skipped: number;
+      skippedDetails: Array<{ id: string; reason: string }>;
+      notFound: string[];
+      outOfScope: Array<{ id: string; reason: string }>;
+      shiftIds: string[];
+    }>('/shifts/bulk-edit', data),
+
+  /** Spec §5 — delete many shifts at once. `reason` is required and audited. */
+  bulkDelete: (ids: string[], reason: string) =>
+    api.post<{
+      success: boolean;
+      deleted: number;
+      deletedIds: string[];
+      notFound: string[];
+      outOfScope: Array<{ id: string; reason: string }>;
+    }>('/shifts/bulk-delete', { ids, reason }),
 };
 
 // ── Time Entries ──
@@ -627,6 +674,8 @@ export const timeEntryApi = {
         longitude,
         employee_email: employeeEmail,
         justification,
+        // Spec §7 punch provenance: which install captured this punch.
+        deviceId: getDeviceId(),
         // Offline outbox replay: the server stamps the entry at capturedAt
         // within its bounded acceptance window (see punchOutbox.ts).
         ...(offlineOpts?.capturedAt
@@ -654,6 +703,8 @@ export const timeEntryApi = {
         latitude,
         longitude,
         employee_email: employeeEmail,
+        // Spec §7 punch provenance: which install captured this punch.
+        deviceId: getDeviceId(),
         // Offline outbox replay (see punchOutbox.ts).
         ...(offlineOpts?.capturedAt
           ? { offline: true, capturedAt: new Date(offlineOpts.capturedAt).toISOString() }
@@ -672,10 +723,25 @@ export const timeEntryApi = {
       employeeEmails,
       breakMinutes,
     }),
-  remove: (id: string) => api.delete<{ success: boolean }>(`/time-entries/${id}`),
+  /**
+   * Delete a time entry.
+   * Spec §5: employees may delete their OWN entry within the self-service window
+   * (default 24 h). Managers/admins/master keep full scope-based rights. The
+   * server rejects open sessions, manager-corrected entries and payroll-locked
+   * periods for employee callers — surface `ApiError.message` verbatim.
+   */
+  remove: (id: string) => api.delete<{ success: boolean; deleted: string }>(`/time-entries/${id}`),
   /** Admin/Manager: edit an existing time entry (manual adjustment). */
   update: (id: string, data: UpdateTimeEntryRequest) =>
     api.put<TimeEntry>(`/time-entries/${id}`, data),
+  /**
+   * Spec §7 "Option A — keep the first punch": discard the flagged duplicate and
+   * keep the surviving earlier entry. Admin/manager only.
+   */
+  resolveDuplicate: (id: string) =>
+    api.post<{ success: boolean; deleted: string; kept: string | null }>(
+      `/time-entries/${id}/resolve-duplicate`,
+    ),
 };
 
 // ── Reports ──
@@ -741,7 +807,7 @@ export interface AttendanceCostResponse {
 // ── Attendance Alerts — in-app Notification Centre (Feature #3) ──
 export interface AttendanceAlert {
   id: string;
-  type: 'late_clock_in' | 'early_clock_out' | 'no_show' | 'absence';
+  type: 'late_clock_in' | 'early_clock_out' | 'no_show' | 'absence' | 'duplicate';
   severity: 'info' | 'warning' | 'critical';
   employeeEmail: string;
   employeeName: string;
@@ -750,6 +816,8 @@ export interface AttendanceAlert {
   date: string;
   message: string;
   minutes?: number;
+  /** Present on `duplicate` alerts — deep-links "View details" to the entry. */
+  timeEntryId?: string;
 }
 
 export interface AttendanceAlertsResponse {
@@ -758,6 +826,23 @@ export interface AttendanceAlertsResponse {
   today: string;
   count: number;
   alerts: AttendanceAlert[];
+}
+
+/** Spec §4 — one row of the payroll export audit trail. */
+export interface PayrollExportLogRow {
+  id: string;
+  companyProfileId: string;
+  formatId: string;
+  formatLabel: string;
+  periodFrom: string;
+  periodTo: string;
+  rowCount: number;
+  filters: Record<string, unknown>;
+  actorId: string;
+  actorEmail: string;
+  actorRole: string;
+  ipAddress: string | null;
+  createdAt: string;
 }
 
 export const reportApi = {
@@ -817,6 +902,30 @@ export const reportApi = {
     if (to) qs.set('to', to);
     return api.get<{ snapshots: Array<Record<string, unknown>> }>(
       `/reports/payroll/snapshots?${qs.toString()}`,
+    );
+  },
+  /**
+   * Spec §4 export audit trail. Payroll CSVs are built client-side, so the
+   * download itself is invisible to the server — call this immediately after a
+   * successful `downloadCsv` so "who exported which period, when" is recorded.
+   * Best-effort: a failure here must not block or undo the user's download.
+   */
+  logPayrollExport: (data: {
+    formatId: string;
+    formatLabel: string;
+    from: string;
+    to: string;
+    rowCount: number;
+    filters?: Record<string, string | number | boolean | null>;
+  }) => api.post<{ success: boolean; id: string }>('/reports/payroll/export-log', data),
+  /** Spec §4 — tenant-scoped payroll export history (admin/manager/master). */
+  listPayrollExports: (params: { limit?: number; from?: string; to?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.from) qs.set('from', params.from);
+    if (params.to) qs.set('to', params.to);
+    return api.get<{ items: PayrollExportLogRow[]; count: number; limit: number }>(
+      `/reports/payroll/export-logs?${qs.toString()}`,
     );
   },
 };
