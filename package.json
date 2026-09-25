@@ -52,6 +52,7 @@
     "play:closedalpha": "node scripts/update-closed-alpha-vc15.mjs",
     "play:production": "node scripts/promote-production-vc15.mjs",
     "play:verify": "node scripts/verify-closed-alpha-release.mjs",
+    "play:watch": "node scripts/watch-play-review.mjs",
     "prepare": "husky || exit 0"
   },
   "dependencies": {

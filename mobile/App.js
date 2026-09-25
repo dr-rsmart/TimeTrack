@@ -868,6 +868,7 @@ async function registerBackgroundSyncWatchdog() {
 export default function App() {
   const webviewRef = useRef(null);
   const [permissionsReady, setPermissionsReady] = useState(false);
+  const [disclosureVisible, setDisclosureVisible] = useState(false);
   const [loadProgress, setLoadProgress] = useState(0);
   const [webviewKey, setWebviewKey] = useState(0);
   const [webError, setWebError] = useState(null);
@@ -978,65 +979,81 @@ export default function App() {
     });
   };
 
-  // ── Request location (incl. background) + notification permissions ──
+  // ── Request location (incl. background) + notification permissions with Prominent Disclosure ──
   useEffect(() => {
     (async () => {
       try {
-        const { status: fg } = await Location.requestForegroundPermissionsAsync();
-        if (fg === 'granted') {
-          // Background permission (Always) — required for auto clock-in/out
-          // while the app is closed. Without it the OS stops delivering
-          // location fixes as soon as the app is backgrounded, which is the
-          // most common cause of "left the location but the app didn't auto
-          // clock out" — so surface clear guidance when it isn't granted.
-          const { status: bg } = await Location.requestBackgroundPermissionsAsync();
-          if (bg !== 'granted') {
-            // Hybrid model: the foreground web monitor covers punches while
-            // the app is OPEN, but the background task remains the only path
-            // when the app is closed/locked — so "Allow all the time" still
-            // matters. Re-surface the guidance at most once per 24 h; the
-            // previous once-per-install gate meant a single "Not now" tap
-            // silenced the guidance forever. (Legacy 'true' values parse as
-            // NaN → 0, so existing installs are re-prompted once and then
-            // throttled by the stored timestamp.)
-            const lastPromptedAt =
-              Number(await AsyncStorage.getItem(BG_PERMISSION_PROMPTED_KEY)) || 0;
-            if (Date.now() - lastPromptedAt >= BG_PERMISSION_REPROMPT_MS) {
-              await AsyncStorage.setItem(BG_PERMISSION_PROMPTED_KEY, String(Date.now()));
-              Alert.alert(
-                'Auto clock-in/out needs background location',
-                'TimeTrack clocks you automatically while the app is open. To also clock you in/out when the app is closed or the phone is locked, set location access to "Allow all the time" (Android) or "Always" (iOS).',
-                [
-                  { text: 'Not now', style: 'cancel' },
-                  { text: 'Open Settings', onPress: () => Linking.openSettings() },
-                ],
-              );
-            }
-          }
-        }
-        try {
-          await configureNotifications();
-        } catch (error) {
-          console.warn(
-            '[TimeTrack] Could not configure notification channel:',
-            error?.message || error,
-          );
-        }
-        try {
-          await Notifications.requestPermissionsAsync();
-          await registerPushTokenWithServer();
-        } catch (error) {
-          console.warn(
-            '[TimeTrack] Could not request notification permission:',
-            error?.message || error,
-          );
+        const fgStatus = await Location.getForegroundPermissionsAsync();
+        const bgStatus = await Location.getBackgroundPermissionsAsync();
+        if (fgStatus.status === 'granted' && bgStatus.status === 'granted') {
+          // Both already granted, configure notifications and mark ready.
+          try {
+            await configureNotifications();
+          } catch {}
+          try {
+            await Notifications.requestPermissionsAsync();
+            await registerPushTokenWithServer();
+          } catch {}
+          setPermissionsReady(true);
+        } else {
+          // Present Prominent Disclosure first.
+          setDisclosureVisible(true);
         }
       } catch {
-        // Continue regardless; WebView still functions
+        setDisclosureVisible(true);
       }
-      setPermissionsReady(true);
     })();
   }, []);
+
+  const handleAgreeDisclosure = async () => {
+    setDisclosureVisible(false);
+    try {
+      const { status: fg } = await Location.requestForegroundPermissionsAsync();
+      if (fg === 'granted') {
+        const { status: bg } = await Location.requestBackgroundPermissionsAsync();
+        if (bg !== 'granted') {
+          const lastPromptedAt =
+            Number(await AsyncStorage.getItem(BG_PERMISSION_PROMPTED_KEY)) || 0;
+          if (Date.now() - lastPromptedAt >= BG_PERMISSION_REPROMPT_MS) {
+            await AsyncStorage.setItem(BG_PERMISSION_PROMPTED_KEY, String(Date.now()));
+            Alert.alert(
+              'Auto clock-in/out needs background location',
+              'TimeTrack clocks you automatically while the app is open. To also clock you in/out when the app is closed or the phone is locked, set location access to "Allow all the time" (Android) or "Always" (iOS).',
+              [
+                { text: 'Not now', style: 'cancel' },
+                { text: 'Open Settings', onPress: () => Linking.openSettings() },
+              ],
+            );
+          }
+        }
+      }
+      try {
+        await configureNotifications();
+      } catch (error) {
+        console.warn(
+          '[TimeTrack] Could not configure notification channel:',
+          error?.message || error,
+        );
+      }
+      try {
+        await Notifications.requestPermissionsAsync();
+        await registerPushTokenWithServer();
+      } catch (error) {
+        console.warn(
+          '[TimeTrack] Could not request notification permission:',
+          error?.message || error,
+        );
+      }
+    } catch {
+      // Continue regardless; WebView still functions
+    }
+    setPermissionsReady(true);
+  };
+
+  const handleDeclineDisclosure = () => {
+    setDisclosureVisible(false);
+    setPermissionsReady(true);
+  };
 
   const restoreNativeSession = useCallback(async () => {
     const token = await AsyncStorage.getItem(TOKEN_KEY);
@@ -1284,6 +1301,55 @@ export default function App() {
     return next;
   };
 
+  if (disclosureVisible) {
+    return (
+      <SafeAreaView style={styles.disclosureContainer}>
+        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+        <View style={styles.disclosureContent}>
+          <Text style={styles.disclosureTitle}>Location Permission Disclosure</Text>
+          <Text style={styles.disclosureSubtitle}>
+            TimeTrack requests location access to automate your shift clock-in and clock-out.
+          </Text>
+
+          <View style={styles.disclosureCard}>
+            <Text style={styles.disclosureCardHeader}>📍 Background Location Usage</Text>
+            <Text style={styles.disclosureCardBody}>
+              TimeTrack collects location data to automatically clock you in when entering your
+              assigned work location geofence and clock you out when leaving,{' '}
+              <Text style={styles.boldText}>
+                even when the app is closed, running in the background, or not in use
+              </Text>
+              .
+            </Text>
+          </View>
+
+          <View style={styles.disclosureCard}>
+            <Text style={styles.disclosureCardHeader}>🔒 Privacy & Compliance Guarantee</Text>
+            <Text style={styles.disclosureCardBody}>
+              This data is strictly used to record your hours of work. We do not track you
+              continuously, store your location history, or share this data with third parties.
+            </Text>
+          </View>
+
+          <Text style={styles.disclosureFooterText}>
+            To enable automatic hands-free time-tracking, please click{' '}
+            <Text style={styles.boldText}>Agree & Continue</Text> and select "Allow all the time" or
+            "Always" in the following permission request.
+          </Text>
+
+          <View style={styles.disclosureButtonContainer}>
+            <TouchableOpacity style={styles.declineButton} onPress={handleDeclineDisclosure}>
+              <Text style={styles.declineButtonText}>Not Now</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.acceptButton} onPress={handleAgreeDisclosure}>
+              <Text style={styles.acceptButtonText}>Agree & Continue</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
@@ -1452,6 +1518,91 @@ const styles = StyleSheet.create({
     shadowRadius: 1.41,
   },
   retryButtonText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  disclosureContainer: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+  },
+  disclosureContent: {
+    flex: 1,
+    padding: 24,
+    justifyContent: 'center',
+  },
+  disclosureTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  disclosureSubtitle: {
+    fontSize: 14,
+    color: '#475569',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  disclosureCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  disclosureCardHeader: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 6,
+  },
+  disclosureCardBody: {
+    fontSize: 13,
+    color: '#475569',
+    lineHeight: 18,
+  },
+  boldText: {
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  disclosureFooterText: {
+    fontSize: 12,
+    color: '#64748b',
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 24,
+    lineHeight: 18,
+  },
+  disclosureButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  declineButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#ffffff',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  declineButtonText: {
+    color: '#475569',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  acceptButton: {
+    flex: 1,
+    backgroundColor: '#2563eb',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  acceptButtonText: {
     color: '#ffffff',
     fontSize: 15,
     fontWeight: '600',
