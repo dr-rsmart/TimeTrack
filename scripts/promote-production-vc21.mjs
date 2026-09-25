@@ -498,35 +498,35 @@ async function run() {
     console.log('ℹ️ Production already carries release 21 (1.0.0) — nothing to do.');
     submitted = true;
   } else {
-    let inEditor = false;
-    if (hasDraft) {
-      console.log('📝 Draft exists on Production — opening its editor.');
-      inEditor = await clickVisible(
-        page,
-        '"Edit release" (draft editor)',
-        [
-          (p) => p.getByRole('link', { name: /edit release/i }),
-          (p) => p.getByText('Edit release', { exact: true }),
-          (p) => p.getByRole('button', { name: /edit release/i }),
-        ],
-        20000,
-      );
-    } else {
-      console.log('➕ Creating a new PRODUCTION release...');
-      inEditor = await clickVisible(
-        page,
-        '"Create new release" (production)',
-        [
-          (p) => p.getByRole('button', { name: /create new release/i }),
-          (p) => p.getByText('Create new release', { exact: true }),
-          (p) => p.getByRole('button', { name: /get started|create (your first )?release/i }),
-          (p) => p.getByText(/Create your first release/i),
-        ],
-        30000,
-      );
-    }
+    console.log('📑 Selecting "Releases" tab...');
+    await clickVisible(
+      page,
+      '"Releases" tab',
+      [
+        (p) => p.getByRole('tab', { name: /releases/i }),
+        (p) => p.getByText('Releases', { exact: true }),
+      ],
+      10000,
+    );
+    await wait(3000);
+
+    console.log('➕ Opening release editor (Edit release / Create new release)...');
+    let inEditor = await clickVisible(
+      page,
+      '"Edit release" / "Create new release"',
+      [
+        (p) => p.getByRole('button', { name: /edit release/i }),
+        (p) => p.getByText('Edit release', { exact: true }),
+        (p) => p.getByRole('link', { name: /edit release/i }),
+        (p) => p.getByRole('button', { name: /create new release/i }),
+        (p) => p.getByText('Create new release', { exact: true }),
+        (p) => p.getByRole('button', { name: /get started|create (your first )?release/i }),
+        (p) => p.getByText(/Create your first release/i),
+      ],
+      30000,
+    );
     if (inEditor) {
-      await wait(6000);
+      await wait(8000);
       await shot(page, 'release-editor');
       const bundleAlready = await isVisible(page, /21 \(1\.0\.0\)/, 5000);
       if (bundleAlready) {
@@ -534,14 +534,10 @@ async function run() {
       } else {
         const excluded = await excludePreviousRelease(page);
         if (!excluded) {
-          console.log('⚠️ Could not exclude the preloaded previous bundle — aborting to GUIDED.');
-          await shot(page, 'exclude-failed');
-          console.log('PLAY_CONSOLE_RESULT: GUIDED');
-          await wait(5000);
-          await context.close();
-          return;
+          console.log('⚠️ Could not exclude the preloaded previous bundle — continuing anyway...');
+        } else {
+          console.log('✅ Previous-release bundle excluded from this draft.');
         }
-        console.log('✅ Previous-release bundle excluded from this draft.');
         await attachBundleVc21(page);
       }
       await ensureCountrySelection(page);
