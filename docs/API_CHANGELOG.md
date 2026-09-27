@@ -115,6 +115,9 @@ surface remains available and backward-compatible.
   (`src/utils/payrollExportFormats.ts`): "TimeTrack Standard" (unchanged
   column set) and "Generic Payroll (Normal / OT / PH)" ship today; customer
   payroll-system formats register declaratively via `defineColumnFormat`.
+  The web-only "Payroll Import (component rows)" format (`payroll-component-hours`)
+  was later withdrawn from the selector pending clarity on the target payroll
+  import spec (factory retained for a one-line restore).
 
 ## v1.3.1 - 2026-09-16 (native session-lifecycle hotfix)
 

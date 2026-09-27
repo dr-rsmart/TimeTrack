@@ -30,9 +30,11 @@ notifications). Closed findings:
 4. **Bounded cron active-entry scan** — the working-end auto clock-out scan
    loaded every active entry platform-wide with two joins each tick; now bounded
    to 48 h / 1000 rows with a warn+metric on cap.
-5. **Component-row payroll import** — registered `componentHoursFormat` (Basic
-   Pay / Overtime @ 1.5 / Overtime @ Double Time) so payroll admins can import
-   one row per employee per component instead of hand-building it.
+5. **Component-row payroll import — withdrawn** — the `componentHoursFormat`
+   (Basic Pay / Overtime @ 1.5 / Overtime @ Double Time) was removed from the
+   export selector pending clarity on the target payroll system's import spec.
+   The `defineComponentFormat` factory is retained so it can be restored with a
+   single `defineComponentFormat({...})` once the spec is confirmed.
 6. **Payroll daily-breakdown cells** — per-day Normal/OT/PH cells were blank;
    now allocated from the authoritative period totals so columns reconcile
    exactly to the Payroll Summary.

@@ -15,7 +15,6 @@ import {
   Coins,
   Download,
   FileBarChart,
-  FileSearch,
   ListChecks,
   Pencil,
 } from 'lucide-react';
@@ -52,7 +51,7 @@ import {
   Tabs,
 } from '../components/ui';
 import { toDateStr, downloadCsv, formatHours, formatDate, formatTime } from '../lib/utils';
-import { PAYROLL_EXPORT_FORMATS, getPayrollExportFormat } from '../utils/payrollExportFormats';
+import { genericFlatFormat, timetrackStandardFormat } from '../utils/payrollExportFormats';
 import {
   buildBreakdownCsv,
   buildCostCsv,
@@ -61,7 +60,7 @@ import {
   getEmployeeDayKey,
   type CsvPayload,
 } from '../utils/reportCsvExports';
-import TestImportModal from '../components/reports/TestImportModal';
+import GenericPayrollTable from '../components/reports/GenericPayrollTable';
 
 export default function Reports() {
   const { user } = useAuth();
@@ -94,17 +93,6 @@ export default function Reports() {
   });
   const [loadingCost, setLoadingCost] = useState(false);
   const [costLoaded, setCostLoaded] = useState(false);
-
-  // ── Payroll export format (Feature #4) ──
-  const [exportFormatId, setExportFormatId] = useState(PAYROLL_EXPORT_FORMATS[0].id);
-
-  // ── "Test Import" preview (Feature §4) ──
-  const [testImport, setTestImport] = useState<{
-    payload: CsvPayload;
-    formatId: string;
-    formatLabel: string;
-    successMessage: string;
-  } | null>(null);
 
   // ── Edit time entry modal (admin/manager corrections) ──
   const [editEntry, setEditEntry] = useState<TimeEntry | null>(null);
@@ -270,48 +258,34 @@ export default function Reports() {
       });
   };
 
-  // Payroll Summary export uses the pluggable format registry (Feature #4):
-  // the selected format decides headers, row mapping and filename.
+  // Payroll Summary exports the TimeTrack Standard format — the same columns
+  // rendered on the summary table, so screen and CSV always reconcile.
   const handleExportSummary = () => {
-    const format = getPayrollExportFormat(exportFormatId);
     runExport(
       {
-        filename: format.filename(from, to),
-        headers: format.headers(),
-        data: format.rows(rows, { from, to, geofenceLocationsByEmail }),
+        filename: timetrackStandardFormat.filename(from, to),
+        headers: timetrackStandardFormat.headers(),
+        data: timetrackStandardFormat.rows(rows, { from, to, geofenceLocationsByEmail }),
       },
-      format.id,
-      format.label,
-      `Payroll CSV exported (${format.label})`,
+      timetrackStandardFormat.id,
+      timetrackStandardFormat.label,
+      `Payroll CSV exported (${timetrackStandardFormat.label})`,
     );
   };
 
-  // Spec §4 "Test Import" — build the same payroll payload and show a preview
-  // first (round-tripped through the CSV parser) so the manager can confirm the
-  // column layout their payroll system will receive before committing the file.
-  const handleTestImportSummary = () => {
-    const format = getPayrollExportFormat(exportFormatId);
-    setTestImport({
-      payload: {
-        filename: format.filename(from, to),
-        headers: format.headers(),
-        data: format.rows(rows, { from, to, geofenceLocationsByEmail }),
-      },
-      formatId: format.id,
-      formatLabel: format.label,
-      successMessage: `Payroll CSV exported (${format.label})`,
-    });
-  };
-
-  const confirmTestImport = () => {
-    if (!testImport) return;
+  // Generic Payroll tab exports its own fixed format (Normal / OT / PH) — the
+  // same values rendered on screen, via the same helpers the CSV uses.
+  const handleExportGeneric = () => {
     runExport(
-      testImport.payload,
-      testImport.formatId,
-      testImport.formatLabel,
-      testImport.successMessage,
+      {
+        filename: genericFlatFormat.filename(from, to),
+        headers: genericFlatFormat.headers(),
+        data: genericFlatFormat.rows(rows, { from, to, geofenceLocationsByEmail }),
+      },
+      genericFlatFormat.id,
+      genericFlatFormat.label,
+      `Generic Payroll CSV exported (${genericFlatFormat.label})`,
     );
-    setTestImport(null);
   };
 
   const handleExportEntries = () => {
@@ -400,7 +374,7 @@ export default function Reports() {
 
   const handleExportBreakdown = () => {
     runExport(
-      buildBreakdownCsv({ breakdownByEmployee, from, to }),
+      buildBreakdownCsv({ breakdownByEmployee, employeeDayTotals, from, to }),
       'daily-breakdown',
       'Daily Breakdown (A–Z + period totals)',
       'Daily breakdown CSV exported',
@@ -438,7 +412,7 @@ export default function Reports() {
   );
 
   const exportDisabled =
-    activeTab === 'summary'
+    activeTab === 'summary' || activeTab === 'generic'
       ? rows.length === 0
       : activeTab === 'entries'
         ? timeEntries.length === 0
@@ -462,42 +436,19 @@ export default function Reports() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Payroll export format selector (Feature #4) */}
-          {activeTab === 'summary' && (
-            <Select
-              aria-label="Payroll export format"
-              className="w-56"
-              value={exportFormatId}
-              onChange={(e) => setExportFormatId(e.target.value)}
-            >
-              {PAYROLL_EXPORT_FORMATS.map((f) => (
-                <option key={f.id} value={f.id} title={f.description}>
-                  {f.label}
-                </option>
-              ))}
-            </Select>
-          )}
-          {activeTab === 'summary' && (
-            <Button
-              variant="outline"
-              onClick={handleTestImportSummary}
-              disabled={rows.length === 0}
-              data-testid="test-import-button"
-            >
-              <FileSearch className="h-4 w-4" /> Test Import
-            </Button>
-          )}
           <Button
             onClick={
               activeTab === 'summary'
                 ? handleExportSummary
-                : activeTab === 'entries'
-                  ? handleExportEntries
-                  : activeTab === 'breakdown'
-                    ? handleExportBreakdown
-                    : activeTab === 'cost'
-                      ? handleExportCost
-                      : handleExportDailyTotals
+                : activeTab === 'generic'
+                  ? handleExportGeneric
+                  : activeTab === 'entries'
+                    ? handleExportEntries
+                    : activeTab === 'breakdown'
+                      ? handleExportBreakdown
+                      : activeTab === 'cost'
+                        ? handleExportCost
+                        : handleExportDailyTotals
             }
             disabled={exportDisabled}
             className="bg-brand hover:bg-brand-dark text-white shadow-lg shadow-brand/20 rounded-xl"
@@ -506,15 +457,6 @@ export default function Reports() {
           </Button>
         </div>
       </div>
-
-      {/* Spec §4 "Test Import" preview modal */}
-      <TestImportModal
-        open={testImport !== null}
-        onClose={() => setTestImport(null)}
-        payload={testImport?.payload ?? null}
-        formatLabel={testImport?.formatLabel ?? ''}
-        onDownload={confirmTestImport}
-      />
 
       {/* Filters */}
       <Card className="border-border/50">
@@ -570,6 +512,7 @@ export default function Reports() {
             </Select>
           </div>
           {(activeTab === 'summary' ||
+            activeTab === 'generic' ||
             activeTab === 'entries' ||
             activeTab === 'daily' ||
             activeTab === 'breakdown' ||
@@ -598,6 +541,7 @@ export default function Reports() {
       <Tabs
         tabs={[
           { id: 'summary', label: 'Payroll Summary', icon: <FileBarChart className="w-4 h-4" /> },
+          { id: 'generic', label: 'Generic Payroll', icon: <FileBarChart className="w-4 h-4" /> },
           { id: 'entries', label: 'Time Entries', icon: <Clock className="w-4 h-4" /> },
           {
             id: 'daily',
@@ -711,6 +655,11 @@ export default function Reports() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* Generic Payroll Tab — flat Normal / OT / PH (the generic import layout) */}
+      {activeTab === 'generic' && (
+        <GenericPayrollTable rows={rows} loading={loading} loaded={loaded} from={from} to={to} />
       )}
 
       {/* Time Entries Tab */}
@@ -923,29 +872,63 @@ export default function Reports() {
                       <Table>
                         <TableHeader>
                           <TableRow>
+                            <TableHead>Employee</TableHead>
+                            <TableHead>Branch</TableHead>
                             <TableHead>Date</TableHead>
                             <TableHead>Clock In</TableHead>
                             <TableHead>Clock Out</TableHead>
-                            <TableHead className="text-right">Break (min)</TableHead>
-                            <TableHead className="text-right">Day Hours</TableHead>
+                            <TableHead className="text-right">Break</TableHead>
+                            <TableHead className="text-right">Entry Hours</TableHead>
+                            <TableHead className="text-right">Day Total</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {b.dayEntries.map((e) => (
                             <TableRow key={e.id}>
+                              <TableCell className="font-medium">{b.row.name}</TableCell>
+                              <TableCell>{b.row.branch}</TableCell>
                               <TableCell>{formatDate(e.date)}</TableCell>
                               <TableCell>{formatTime(e.clockIn)}</TableCell>
                               <TableCell>{e.clockOut ? formatTime(e.clockOut) : '—'}</TableCell>
                               <TableCell className="text-right">{e.breakMinutes ?? 0}</TableCell>
-                              <TableCell className="text-right font-medium">
+                              <TableCell className="text-right">
                                 {formatHours(e.totalHours ?? 0)}
+                              </TableCell>
+                              <TableCell className="text-right font-medium">
+                                {formatHours(employeeDayTotals.get(getEmployeeDayKey(e)) ?? 0)}
                               </TableCell>
                             </TableRow>
                           ))}
                           <TableRow className="bg-muted/50 font-semibold">
-                            <TableCell colSpan={4}>Period total</TableCell>
+                            <TableCell colSpan={7}>Period total</TableCell>
                             <TableCell className="text-right">
                               {formatHours(b.row.totalHours)}
+                            </TableCell>
+                          </TableRow>
+                          <TableRow className="bg-muted/50 font-semibold">
+                            <TableCell
+                              colSpan={7}
+                              data-testid={`breakdown-normal-${b.row.employeeId}`}
+                            >
+                              Normal Hours
+                            </TableCell>
+                            <TableCell className="text-right">{formatHours(b.normal)}</TableCell>
+                          </TableRow>
+                          <TableRow className="bg-muted/50 font-semibold">
+                            <TableCell
+                              colSpan={7}
+                              data-testid={`breakdown-overtime-${b.row.employeeId}`}
+                            >
+                              Overtime
+                            </TableCell>
+                            <TableCell className="text-right">{formatHours(b.overtime)}</TableCell>
+                          </TableRow>
+                          <TableRow className="bg-muted/50 font-semibold">
+                            <TableCell colSpan={7} data-testid={`breakdown-ph-${b.row.employeeId}`}>
+                              Public Holiday
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatHours(b.publicHoliday)}
                             </TableCell>
                           </TableRow>
                         </TableBody>

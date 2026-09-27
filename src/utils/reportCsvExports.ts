@@ -113,25 +113,29 @@ function allocateAcrossDays(total: number, dayCapacities: number[]): number[] {
   });
 }
 
-/** One row per employee, with a trailing "Breakdown" line (Features #5/#6). */
+/** One row per employee/day, with a trailing "Breakdown" line (Features #5/#6). */
 export function buildBreakdownCsv(input: {
   breakdownByEmployee: Array<{
-    row: { name: string };
+    row: { name: string; branch: string };
     dayEntries: TimeEntry[];
     normal: number;
     overtime: number;
     publicHoliday: number;
   }>;
+  employeeDayTotals: Map<string, number>;
   from: string;
   to: string;
 }): CsvPayload {
-  const { breakdownByEmployee, from, to } = input;
+  const { breakdownByEmployee, employeeDayTotals, from, to } = input;
   const headers = [
     'Employee',
+    'Branch',
     'Date',
     'Clock In',
     'Clock Out',
-    'Day Hours',
+    'Break (min)',
+    'Entry Hours',
+    'Day Total',
     'Normal Hours',
     'Overtime Hours',
     'Public Holiday Hours',
@@ -155,17 +159,32 @@ export function buildBreakdownCsv(input: {
     b.dayEntries.forEach((e, i) => {
       data.push([
         b.row.name,
+        b.row.branch,
         formatDate(e.date),
         formatTime(e.clockIn),
         e.clockOut ? formatTime(e.clockOut) : '',
+        e.breakMinutes ?? '',
         e.totalHours ?? 0,
+        employeeDayTotals.get(getEmployeeDayKey(e)) ?? 0,
         normalByDay[i],
         otByDay[i],
         phByDay[i],
       ]);
     });
     // Per-employee breakdown line (e.g. Normal = 195 / Overtime = 20 / PH = 9).
-    data.push([b.row.name, 'Breakdown', '', '', '', b.normal, b.overtime, b.publicHoliday]);
+    data.push([
+      b.row.name,
+      b.row.branch,
+      'Breakdown',
+      '',
+      '',
+      '',
+      '',
+      '',
+      b.normal,
+      b.overtime,
+      b.publicHoliday,
+    ]);
   }
   return { filename: `daily-breakdown-${from}-to-${to}.csv`, headers, data };
 }

@@ -8,11 +8,10 @@ import {
 } from '../../src/utils/reportCsvExports';
 import {
   PAYROLL_EXPORT_FORMATS,
-  componentHoursFormat,
   getPayrollExportFormat,
 } from '../../src/utils/payrollExportFormats';
 import type { TimeEntry } from '../../contracts/index.js';
-import type { AttendanceCostRow, PayrollRow } from '../../src/services/api';
+import type { AttendanceCostRow } from '../../src/services/api';
 
 function entry(overrides: Partial<TimeEntry> = {}): TimeEntry {
   return {
@@ -54,33 +53,6 @@ function costRow(overrides: Partial<AttendanceCostRow> = {}): AttendanceCostRow 
     hoursLost: 0.5,
     randLost: 37.5,
     days: [],
-    ...overrides,
-  };
-}
-
-function payrollRow(overrides: Partial<PayrollRow> = {}): PayrollRow {
-  return {
-    employeeId: 'emp1',
-    name: 'Jane Doe',
-    email: 'jane@example.com',
-    branch: 'Cape Town',
-    department: 'Sales',
-    position: 'Rep',
-    employeeNumber: 'EMP001',
-    hourlyRate: 50,
-    daysWorked: 21,
-    ordinaryHours: 160,
-    dailyOvertimeHours: 5,
-    sundayOvertimeHours: 4,
-    saturdayOvertimeHours: 3,
-    holidayOvertimeHours: 8,
-    monthlyOvertimeHours: 2,
-    totalOvertimeHours: 22,
-    sundayWeightedOvertime: 6,
-    saturdayWeightedOvertime: 4.5,
-    holidayWeightedOvertime: 16,
-    totalWeightedOvertime: 26.5,
-    totalHours: 182,
     ...overrides,
   };
 }
@@ -188,25 +160,49 @@ describe('buildBreakdownCsv', () => {
     const e = entry();
     const out = buildBreakdownCsv({
       breakdownByEmployee: [
-        { row: { name: 'Jane Doe' }, dayEntries: [e], normal: 195, overtime: 20, publicHoliday: 9 },
+        {
+          row: { name: 'Jane Doe', branch: 'Cape Town' },
+          dayEntries: [e],
+          normal: 195,
+          overtime: 20,
+          publicHoliday: 9,
+        },
       ],
+      employeeDayTotals: new Map([[getEmployeeDayKey(e), 8]]),
       from: '2026-09-01',
       to: '2026-09-30',
     });
     expect(out.headers).toEqual([
       'Employee',
+      'Branch',
       'Date',
       'Clock In',
       'Clock Out',
-      'Day Hours',
+      'Break (min)',
+      'Entry Hours',
+      'Day Total',
       'Normal Hours',
       'Overtime Hours',
       'Public Holiday Hours',
     ]);
     expect(out.data).toHaveLength(2);
     expect(out.data[0][0]).toBe('Jane Doe');
-    expect(out.data[0][4]).toBe(8);
-    expect(out.data[1]).toEqual(['Jane Doe', 'Breakdown', '', '', '', 195, 20, 9]);
+    expect(out.data[0][1]).toBe('Cape Town');
+    expect(out.data[0][6]).toBe(8); // Entry Hours
+    expect(out.data[0][7]).toBe(8); // Day Total
+    expect(out.data[1]).toEqual([
+      'Jane Doe',
+      'Cape Town',
+      'Breakdown',
+      '',
+      '',
+      '',
+      '',
+      '',
+      195,
+      20,
+      9,
+    ]);
     expect(out.filename).toBe('daily-breakdown-2026-09-01-to-2026-09-30.csv');
   });
 
@@ -218,8 +214,15 @@ describe('buildBreakdownCsv', () => {
     ];
     const out = buildBreakdownCsv({
       breakdownByEmployee: [
-        { row: { name: 'Jane Doe' }, dayEntries: days, normal: 16, overtime: 5, publicHoliday: 3 },
+        {
+          row: { name: 'Jane Doe', branch: 'Cape Town' },
+          dayEntries: days,
+          normal: 16,
+          overtime: 5,
+          publicHoliday: 3,
+        },
       ],
+      employeeDayTotals: new Map(),
       from: '2026-09-01',
       to: '2026-09-30',
     });
@@ -227,20 +230,20 @@ describe('buildBreakdownCsv', () => {
     const dayRows = out.data.slice(0, 3);
     // No blank cells any more - blanks were what forced manual payroll work.
     for (const row of dayRows) {
-      expect(typeof row[5]).toBe('number');
-      expect(typeof row[6]).toBe('number');
-      expect(typeof row[7]).toBe('number');
+      expect(typeof row[8]).toBe('number');
+      expect(typeof row[9]).toBe('number');
+      expect(typeof row[10]).toBe('number');
     }
 
     const sumColumn = (i: number) => dayRows.reduce((acc, r) => acc + (r[i] as number), 0);
     // Each column reconciles EXACTLY to the payroll engine period total.
-    expect(sumColumn(5)).toBeCloseTo(16, 2);
-    expect(sumColumn(6)).toBeCloseTo(5, 2);
-    expect(sumColumn(7)).toBeCloseTo(3, 2);
+    expect(sumColumn(8)).toBeCloseTo(16, 2);
+    expect(sumColumn(9)).toBeCloseTo(5, 2);
+    expect(sumColumn(10)).toBeCloseTo(3, 2);
 
     // No day may be allocated more hours than it actually worked.
     dayRows.forEach((r, i) => {
-      const allocated = (r[5] as number) + (r[6] as number) + (r[7] as number);
+      const allocated = (r[8] as number) + (r[9] as number) + (r[10] as number);
       expect(allocated).toBeLessThanOrEqual((days[i].totalHours as number) + 0.001);
     });
   });
@@ -248,13 +251,20 @@ describe('buildBreakdownCsv', () => {
   it('emits only the Breakdown line when an employee has no day entries', () => {
     const out = buildBreakdownCsv({
       breakdownByEmployee: [
-        { row: { name: 'Ghost' }, dayEntries: [], normal: 100, overtime: 10, publicHoliday: 5 },
+        {
+          row: { name: 'Ghost', branch: 'Cape Town' },
+          dayEntries: [],
+          normal: 100,
+          overtime: 10,
+          publicHoliday: 5,
+        },
       ],
+      employeeDayTotals: new Map(),
       from: '2026-09-01',
       to: '2026-09-30',
     });
     expect(out.data).toHaveLength(1);
-    expect(out.data[0][1]).toBe('Breakdown');
+    expect(out.data[0][2]).toBe('Breakdown');
   });
 });
 
@@ -327,63 +337,9 @@ describe('buildCostCsv', () => {
   });
 });
 
-describe('componentHoursFormat (payroll component-row import)', () => {
-  const ctx = { from: '2026-09-01', to: '2026-09-30', geofenceLocationsByEmail: new Map() };
-
-  it('exports the component header set including the payroll-side columns', () => {
-    expect(componentHoursFormat.headers()).toEqual([
-      'Employee Number',
-      'Component Code Or Description',
-      'Input Type',
-      'Input Value',
-      'Cost Centre Code',
-      'Project Code',
-      'Activity Code',
-      'Closing recovery amount',
-      'Comments',
-      'Add or Overwrite',
-    ]);
-  });
-
-  it('emits one row per employee PER component, grouped by component', () => {
-    const a = payrollRow({ employeeNumber: 'CBE-012' });
-    const b = payrollRow({ employeeNumber: 'CBE-015' });
-    const rows = componentHoursFormat.rows([a, b], ctx);
-
-    // 2 employees x 3 components
-    expect(rows).toHaveLength(6);
-    expect(rows[0][1]).toBe('Basic Pay');
-    expect(rows[1][1]).toBe('Basic Pay');
-    expect(rows[2][1]).toBe('Overtime @ 1.5');
-    expect(rows[4][1]).toBe('Overtime @ Double Time');
-    // Employee code leads every row; Input Type is always Hours.
-    expect(rows[0][0]).toBe('CBE-012');
-    expect(rows[1][0]).toBe('CBE-015');
-    expect(rows[0][2]).toBe('Hours');
-  });
-
-  it('maps ordinary / overtime / public-holiday hours onto the components', () => {
-    const rows = componentHoursFormat.rows([payrollRow()], ctx);
-    expect(rows[0][3]).toBe(160); // Basic Pay = ordinary
-    expect(rows[1][3]).toBe(14); // 5 daily + 2 monthly + 4 Sunday + 3 Saturday
-    expect(rows[2][3]).toBe(8); // Double time = public holiday
-  });
-
-  it('still emits zero-value components so the importer clears them', () => {
-    const rows = componentHoursFormat.rows([payrollRow({ holidayOvertimeHours: 0 })], ctx);
-    expect(rows[2][1]).toBe('Overtime @ Double Time');
-    expect(rows[2][3]).toBe(0);
-  });
-
-  it('leaves payroll-side allocation columns empty', () => {
-    const rows = componentHoursFormat.rows([payrollRow()], ctx);
-    expect(rows[0].slice(4)).toEqual(['', '', '', '', '', '']);
-  });
-
-  it('is registered in the selector so Reports can offer it', () => {
-    expect(PAYROLL_EXPORT_FORMATS.map((f) => f.id)).toContain('payroll-component-hours');
-    expect(getPayrollExportFormat('payroll-component-hours').label).toBe(
-      'Payroll Import (component rows)',
-    );
+describe('payroll export format registry', () => {
+  it('no longer registers the component-row payroll import format (withdrawn pending clarity)', () => {
+    expect(PAYROLL_EXPORT_FORMATS.map((f) => f.id)).not.toContain('payroll-component-hours');
+    expect(getPayrollExportFormat('payroll-component-hours')).toBe(PAYROLL_EXPORT_FORMATS[0]);
   });
 });

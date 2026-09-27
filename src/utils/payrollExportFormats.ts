@@ -38,15 +38,19 @@ export interface PayrollExportFormat {
 /** Round to 2dp for export cells (payroll convention). */
 const n2 = (v: number): number => parseFloat(v.toFixed(2));
 
-/** Normal (ordinary) hours for the flat layout. */
-const normalHours = (r: PayrollRow): number => n2(r.ordinaryHours);
+/**
+ * Normal (ordinary) hours for the flat layout. Exported so the Generic Payroll
+ * table on screen and the generic CSV use the EXACT same arithmetic and can
+ * never drift from each other.
+ */
+export const normalHours = (r: PayrollRow): number => n2(r.ordinaryHours);
 /** Overtime = daily + monthly + Sunday + Saturday overtime (excluding public holidays). */
-const overtimeHours = (r: PayrollRow): number =>
+export const overtimeHours = (r: PayrollRow): number =>
   n2(
     r.dailyOvertimeHours + r.monthlyOvertimeHours + r.sundayOvertimeHours + r.saturdayOvertimeHours,
   );
 /** Public-holiday hours. */
-const publicHolidayHours = (r: PayrollRow): number => n2(r.holidayOvertimeHours);
+export const publicHolidayHours = (r: PayrollRow): number => n2(r.holidayOvertimeHours);
 
 export const timetrackStandardFormat: PayrollExportFormat = {
   id: 'timetrack-standard',
@@ -195,35 +199,26 @@ export function defineComponentFormat(opts: {
 }
 
 /**
- * Hours-based component layout (Basic Pay / Overtime @ 1.5 / Overtime @ Double
- * Time). Registered as a ready-to-use format because it is the shape most
- * component-driven payroll importers accept.
+ * NOTE: The ready-to-use "Payroll Import (component rows)" format
+ * (`payroll-component-hours`: Basic Pay / Overtime @ 1.5 / Overtime @ Double
+ * Time) has been WITHDRAWN from the registry pending clarity on the target
+ * payroll system's import spec. It is intentionally left as a one-line restore
+ * here once that spec is confirmed:
  *
- * Mapping rationale:
- *  - Basic Pay              = ordinary hours
- *  - Overtime @ 1.5         = daily + monthly + Saturday + Sunday overtime
- *  - Overtime @ Double Time = public holiday hours (the 2.0 multiplier bucket)
+ *   export const componentHoursFormat = defineComponentFormat({
+ *     id: 'payroll-component-hours',
+ *     label: 'Payroll Import (component rows)',
+ *     description: '…',
+ *     filePrefix: 'payroll-import-components',
+ *     trailingHeaders: [ 'Cost Centre Code', 'Project Code', 'Activity Code',
+ *       'Closing recovery amount', 'Comments', 'Add or Overwrite' ],
+ *     components: [
+ *       { name: 'Basic Pay',              inputType: 'Hours', value: (r) => normalHours(r) },
+ *       { name: 'Overtime @ 1.5',         inputType: 'Hours', value: (r) => overtimeHours(r) },
+ *       { name: 'Overtime @ Double Time', inputType: 'Hours', value: (r) => publicHolidayHours(r) },
+ *     ],
+ *   });
  */
-export const componentHoursFormat: PayrollExportFormat = defineComponentFormat({
-  id: 'payroll-component-hours',
-  label: 'Payroll Import (component rows)',
-  description:
-    'One row per employee per pay component (Basic Pay, Overtime @ 1.5, Overtime @ Double Time) with hours as the input value.',
-  filePrefix: 'payroll-import-components',
-  trailingHeaders: [
-    'Cost Centre Code',
-    'Project Code',
-    'Activity Code',
-    'Closing recovery amount',
-    'Comments',
-    'Add or Overwrite',
-  ],
-  components: [
-    { name: 'Basic Pay', inputType: 'Hours', value: (r) => normalHours(r) },
-    { name: 'Overtime @ 1.5', inputType: 'Hours', value: (r) => overtimeHours(r) },
-    { name: 'Overtime @ Double Time', inputType: 'Hours', value: (r) => publicHolidayHours(r) },
-  ],
-});
 
 /**
  * Declarative factory for customer payroll-system formats. Provide the exact
@@ -263,7 +258,6 @@ export function defineColumnFormat(opts: {
 export const PAYROLL_EXPORT_FORMATS: PayrollExportFormat[] = [
   timetrackStandardFormat,
   genericFlatFormat,
-  componentHoursFormat,
   // ← append customer payroll-system formats here via defineColumnFormat(...)
 ];
 
