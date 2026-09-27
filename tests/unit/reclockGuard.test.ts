@@ -20,9 +20,9 @@ afterEach(() => {
 });
 
 describe('getReclockGuardSeconds (env configuration)', () => {
-  it('defaults to 120 seconds when unset', () => {
+  it('defaults to 600 seconds (dwell window) when unset', () => {
     delete process.env.RECLOCK_GUARD_SECONDS;
-    expect(getReclockGuardSeconds()).toBe(120);
+    expect(getReclockGuardSeconds()).toBe(600);
   });
 
   it('reads a valid override', () => {
@@ -37,9 +37,9 @@ describe('getReclockGuardSeconds (env configuration)', () => {
 
   it('falls back to the default on garbage values', () => {
     process.env.RECLOCK_GUARD_SECONDS = 'not-a-number';
-    expect(getReclockGuardSeconds()).toBe(120);
+    expect(getReclockGuardSeconds()).toBe(600);
     process.env.RECLOCK_GUARD_SECONDS = '-5';
-    expect(getReclockGuardSeconds()).toBe(120);
+    expect(getReclockGuardSeconds()).toBe(600);
   });
 });
 

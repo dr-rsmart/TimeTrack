@@ -52,6 +52,10 @@ export interface NativeAutoClockStatus {
   sampleZone?: 'inside' | 'outside' | 'approaching' | null;
   poorSignal?: boolean;
   taskError?: boolean;
+  /** Cycle 17: whether the native background location service is armed. */
+  backgroundArmed?: boolean;
+  /** Cycle 17: why re-arming bailed, when it did (e.g. 'permission'). */
+  backgroundBlockedReason?: 'permission' | null;
   failure?: 'auth' | 'network' | 'server' | 'rejected' | 'reclock' | null;
   cooldownUntil?: number | null;
   /** Snapshot time (epoch ms). */
@@ -99,6 +103,8 @@ export function parseNativeAutoClockStatus(detail: unknown): NativeAutoClockStat
         : null,
     poorSignal: d.poorSignal === true,
     taskError: d.taskError === true,
+    backgroundArmed: typeof d.backgroundArmed === 'boolean' ? d.backgroundArmed : undefined,
+    backgroundBlockedReason: d.backgroundBlockedReason === 'permission' ? 'permission' : null,
     failure:
       d.failure === 'auth' ||
       d.failure === 'network' ||

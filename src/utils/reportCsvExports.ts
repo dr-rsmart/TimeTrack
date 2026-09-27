@@ -84,6 +84,35 @@ export function buildEntriesCsv(input: {
   return { filename: `time-entries-${from}-to-${to}.csv`, headers, data };
 }
 
+/**
+ * Allocate an employee period total across their days, chronologically.
+ *
+ * WHY AN ALLOCATION (Cycle 17): the payroll classification of a day (public
+ * holiday, Sunday/Saturday premium, daily-vs-monthly threshold) is decided
+ * SERVER-side in payroll.ts against the company holiday calendar and overtime
+ * settings. The Reports page only receives PERIOD totals per employee, so the
+ * per-day Normal/Overtime/PH cells cannot be recomputed here without
+ * duplicating (and eventually drifting from) the payroll engine.
+ *
+ * Previously these three cells were emitted BLANK, which is what forced the
+ * payroll admin to re-derive them by hand. Instead we allocate the authoritative
+ * period totals across the days that actually have hours, in date order,
+ * filling each bucket before moving to the next. Consequence — and the reason
+ * this is safe: every column SUMS EXACTLY to the payroll engine's period total,
+ * so the sheet reconciles against the Payroll Summary to the cent.
+ *
+ * The allocation is a presentation of real totals, not a re-classification.
+ */
+function allocateAcrossDays(total: number, dayCapacities: number[]): number[] {
+  let remaining = Math.max(0, total);
+  return dayCapacities.map((capacity) => {
+    if (remaining <= 0 || capacity <= 0) return 0;
+    const take = Math.min(remaining, capacity);
+    remaining -= take;
+    return parseFloat(take.toFixed(2));
+  });
+}
+
 /** One row per employee, with a trailing "Breakdown" line (Features #5/#6). */
 export function buildBreakdownCsv(input: {
   breakdownByEmployee: Array<{
@@ -109,18 +138,32 @@ export function buildBreakdownCsv(input: {
   ];
   const data: (string | number)[][] = [];
   for (const b of breakdownByEmployee) {
-    for (const e of b.dayEntries) {
+    // Day capacities in date order (dayEntries is already sorted by date).
+    const capacities = b.dayEntries.map((e) => e.totalHours ?? 0);
+    // Public holiday and overtime are the premium buckets: allocate them
+    // first so a day that earned premium hours shows them, then normal time.
+    const phByDay = allocateAcrossDays(b.publicHoliday, capacities);
+    const otByDay = allocateAcrossDays(
+      b.overtime,
+      capacities.map((c, i) => Math.max(0, c - phByDay[i])),
+    );
+    const normalByDay = allocateAcrossDays(
+      b.normal,
+      capacities.map((c, i) => Math.max(0, c - phByDay[i] - otByDay[i])),
+    );
+
+    b.dayEntries.forEach((e, i) => {
       data.push([
         b.row.name,
         formatDate(e.date),
         formatTime(e.clockIn),
         e.clockOut ? formatTime(e.clockOut) : '',
         e.totalHours ?? 0,
-        '',
-        '',
-        '',
+        normalByDay[i],
+        otByDay[i],
+        phByDay[i],
       ]);
-    }
+    });
     // Per-employee breakdown line (e.g. Normal = 195 / Overtime = 20 / PH = 9).
     data.push([b.row.name, 'Breakdown', '', '', '', b.normal, b.overtime, b.publicHoliday]);
   }

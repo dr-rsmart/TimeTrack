@@ -22,6 +22,7 @@ import {
   loginSchema,
   changePasswordSchema,
   registerPushTokenSchema,
+  deletePushTokenSchema,
 } from '../validation.js';
 import { logAudit, getClientIp } from '../audit.js';
 import { DEFAULT_PASSWORD, isDefaultPasswordHash } from '../passwords.js';
@@ -370,6 +371,22 @@ router.post('/push-token', requireAuth, validate(registerPushTokenSchema), async
   } catch (err) {
     logger.error('[auth] Push token registration error:', err);
     internalError(res, 'registering push token');
+  }
+});
+
+router.delete('/push-token', requireAuth, validate(deletePushTokenSchema), async (req, res) => {
+  try {
+    const authUser = req.authUser!;
+    const { token } = req.body as { token: string };
+    // Scoped strictly to the caller so a shared device sign-out only ever
+    // deactivates THIS user's token, never another account that once used it.
+    await prisma.devicePushToken.deleteMany({
+      where: { token, userId: authUser.id },
+    });
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('[auth] Push token deactivation error:', err);
+    internalError(res, 'deactivating push token');
   }
 });
 

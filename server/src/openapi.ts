@@ -28,6 +28,7 @@ import {
   updateSettingsSchema,
   createCompanySchema,
   registerPushTokenSchema,
+  deletePushTokenSchema,
 } from './validation.js';
 
 const registry = new OpenAPIRegistry();
@@ -498,6 +499,13 @@ registry.registerPath({
   path: '/auth/push-token',
   ...tag('Auth'),
   request: { body: { content: { 'application/json': { schema: registerPushTokenSchema } } } },
+  responses: { ...json200({ type: 'object' }), ...commonErrors },
+});
+registry.registerPath({
+  method: 'delete',
+  path: '/auth/push-token',
+  ...tag('Auth'),
+  request: { body: { content: { 'application/json': { schema: deletePushTokenSchema } } } },
   responses: { ...json200({ type: 'object' }), ...commonErrors },
 });
 for (const path of [

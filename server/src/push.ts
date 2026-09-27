@@ -1,5 +1,6 @@
 import prisma from './prisma.js';
 import { logger } from './logger.js';
+import { recordPushSent, recordPushFailed, recordPushTokensDeactivated } from './metrics.js';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
@@ -87,34 +88,67 @@ async function deliverPush(
   body: string,
   payload: Record<string, unknown>,
 ): Promise<void> {
-  try {
-    const response = await fetch(EXPO_PUSH_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(
-        devices.map((device) => ({
-          to: device.token,
-          title,
-          body,
-          data: payload,
-          sound: 'default',
-        })),
-      ),
-    });
-    if (!response.ok) throw new Error(`Expo returned HTTP ${response.status}`);
-    const result = (await response.json()) as {
-      data?: Array<{ status?: string; details?: { error?: string } }>;
-    };
-    const invalidIds = devices
-      .filter((_, index) => result.data?.[index]?.details?.error === 'DeviceNotRegistered')
-      .map((device) => device.id);
-    if (invalidIds.length > 0) {
-      await prisma.devicePushToken.updateMany({
-        where: { id: { in: invalidIds } },
-        data: { isActive: false },
+  const invalidIds: string[] = [];
+
+  // Expo's hard ceiling is 100 messages per request. Chunk at 90 to leave
+  // headroom, and send chunks SEQUENTIALLY (not Promise.all) to respect Expo
+  // rate limits and keep deterministic ordering.
+  const CHUNK_SIZE = 90;
+  for (let start = 0; start < devices.length; start += CHUNK_SIZE) {
+    const chunk = devices.slice(start, start + CHUNK_SIZE);
+    try {
+      const response = await fetch(EXPO_PUSH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          chunk.map((device) => ({
+            to: device.token,
+            title,
+            body,
+            data: payload,
+            sound: 'default',
+          })),
+        ),
       });
+      if (!response.ok) throw new Error(`Expo returned HTTP ${response.status}`);
+
+      const result = (await response.json()) as {
+        data?: Array<{ status?: string; details?: { error?: string } }>;
+        errors?: Array<{ code?: string; message?: string }>;
+      };
+
+      // Top-level `errors[]` (batch-level rejection) — no per-message receipts,
+      // so nothing can be mapped to a specific token. Surface and stop.
+      if (result.errors?.length) {
+        recordPushFailed();
+        logger.warn(
+          '[push] Expo batch error:',
+          result.errors.map((e) => e.code ?? e.message ?? 'unknown').join(', '),
+        );
+        continue;
+      }
+
+      recordPushSent(chunk.length);
+
+      // Per-message receipts. Guard on length so a short/malformed receipt list
+      // can never be mis-mapped to the wrong device via index.
+      const receipts = result.data ?? [];
+      for (let i = 0; i < chunk.length && i < receipts.length; i += 1) {
+        if (receipts[i]?.details?.error === 'DeviceNotRegistered') {
+          invalidIds.push(chunk[i].id);
+        }
+      }
+    } catch (error) {
+      recordPushFailed();
+      logger.warn('[push] Delivery failed:', error);
     }
-  } catch (error) {
-    logger.warn('[push] Delivery failed:', error);
+  }
+
+  if (invalidIds.length > 0) {
+    await prisma.devicePushToken.updateMany({
+      where: { id: { in: invalidIds } },
+      data: { isActive: false },
+    });
+    recordPushTokensDeactivated(invalidIds.length);
   }
 }

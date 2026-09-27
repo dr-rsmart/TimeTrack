@@ -30,8 +30,13 @@ function harness() {
       Date,
       fetch,
       injectJavaScript,
+      encodeURIComponent,
       Platform: { OS: 'ios' },
-      Notifications: { setNotificationHandler: vi.fn(), scheduleNotificationAsync: vi.fn() },
+      Notifications: {
+        setNotificationHandler: vi.fn(),
+        scheduleNotificationAsync: vi.fn(),
+        addNotificationResponseReceivedListener: vi.fn(),
+      },
       TaskManager: { defineTask: vi.fn() },
       Location: {
         hasStartedLocationUpdatesAsync: async () => true,

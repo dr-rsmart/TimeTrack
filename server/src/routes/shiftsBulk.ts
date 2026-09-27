@@ -23,6 +23,7 @@
  */
 
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { logger } from '../logger.js';
 import prisma from '../prisma.js';
 import { requireAdminOrManager } from '../middleware/auth.js';
@@ -225,9 +226,16 @@ router.patch(
       );
 
       const changedFields = Object.keys(patch).filter((k) => k !== 'updatedBy');
+      // BATCH AUDIT (Cycle 17): a bulk mutation must be reconstructable as ONE
+      // action. `batchId` is a stable, queryable identifier for the whole
+      // operation (previously entityId was the arbitrary first shift id), and
+      // `shift_ids` lists every affected shift so the full blast radius is
+      // recoverable from the audit trail alone — no re-deriving from N
+      // per-shift rows.
+      const batchId = randomUUID();
       logAudit({
         entity: 'Shift',
-        entityId: updated[0]?.id ?? 'bulk',
+        entityId: batchId,
         action: 'bulk_update',
         actorId: authUser.id,
         actorEmail: authUser.email,
@@ -238,6 +246,7 @@ router.patch(
           fields: { before: null, after: changedFields },
           shift_count: { before: null, after: updated.length },
           skipped_count: { before: null, after: skipped.length },
+          shift_ids: { before: null, after: updated.map((s) => s.id) },
           start_time: { before: null, after: patch.startTime ?? null },
           end_time: { before: null, after: patch.endTime ?? null },
           shift_type: { before: null, after: patch.shiftType ?? null },
@@ -290,9 +299,10 @@ router.post(
         actionable.map((s) => prisma.shift.delete({ where: { id: s.id } })),
       );
 
+      const batchId = randomUUID();
       logAudit({
         entity: 'Shift',
-        entityId: actionable[0].id,
+        entityId: batchId,
         action: 'bulk_delete',
         actorId: authUser.id,
         actorEmail: authUser.email,

@@ -24,6 +24,28 @@ const autoClockOutcomes: Record<string, number> = {};
 /** -1 until the cron sampler reports the first AuditLog row count. */
 let auditLogRows = -1;
 
+/** Push delivery counters — previously invisible, now surfaced at /metrics. */
+const pushMetrics = {
+  sent: 0,
+  failed: 0,
+  tokensDeactivated: 0,
+};
+
+/** Record N messages successfully handed to the Expo push API. */
+export function recordPushSent(count: number): void {
+  pushMetrics.sent += Math.max(0, count);
+}
+
+/** Record a failed push request (HTTP error, network error, or batch error). */
+export function recordPushFailed(): void {
+  pushMetrics.failed += 1;
+}
+
+/** Record a device token deactivated after Expo reported DeviceNotRegistered. */
+export function recordPushTokensDeactivated(count: number): void {
+  pushMetrics.tokensDeactivated += Math.max(0, count);
+}
+
 /** Set the AuditLog size gauge (sampled periodically by the cron runner). */
 export function setAuditLogRows(count: number): void {
   auditLogRows = Number.isFinite(count) ? count : -1;
@@ -59,6 +81,7 @@ export function getMetricSnapshot() {
     auditWriteFailures,
     auditLogRows,
     autoClockOutcomes: { ...autoClockOutcomes },
+    push: { ...pushMetrics },
   };
 }
 
@@ -108,6 +131,20 @@ export function renderMetrics(
   for (const [outcome, count] of Object.entries(autoClockOutcomes)) {
     lines.push(`timetrack_auto_clock_outcomes_total{outcome="${outcome}"} ${count}`);
   }
+
+  lines.push('# HELP timetrack_push_sent_total Push messages handed to the Expo API.');
+  lines.push('# TYPE timetrack_push_sent_total counter');
+  lines.push(`timetrack_push_sent_total ${pushMetrics.sent}`);
+
+  lines.push('# HELP timetrack_push_failed_total Failed push requests (HTTP/network/batch).');
+  lines.push('# TYPE timetrack_push_failed_total counter');
+  lines.push(`timetrack_push_failed_total ${pushMetrics.failed}`);
+
+  lines.push(
+    '# HELP timetrack_push_tokens_deactivated_total Device tokens deactivated (DeviceNotRegistered).',
+  );
+  lines.push('# TYPE timetrack_push_tokens_deactivated_total counter');
+  lines.push(`timetrack_push_tokens_deactivated_total ${pushMetrics.tokensDeactivated}`);
 
   lines.push('# HELP http_responses_total Completed HTTP responses by status class.');
   lines.push('# TYPE http_responses_total counter');

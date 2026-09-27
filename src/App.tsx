@@ -5,8 +5,9 @@
  * and animated page transitions.
  */
 
+import { useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -81,10 +82,34 @@ function SlidePage({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Receives `timetrack-native-navigate` events injected by the native shell when
+ * the user taps a push notification (mobile/App.js response listener). Sanitises
+ * the target to an in-app relative path (no `//host`, no external origin) and
+ * routes to it so a tapped "Duplicate punch needs review" opens the entry.
+ */
+function NativeNavigateListener() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ path?: unknown }>).detail;
+      const path = typeof detail?.path === 'string' ? detail.path : '';
+      // Only relative, single-slash in-app paths — rejects `//evil.com` and
+      // anything that would leave the SPA.
+      if (!path.startsWith('/') || path.startsWith('//')) return;
+      navigate(path);
+    };
+    window.addEventListener('timetrack-native-navigate', handler);
+    return () => window.removeEventListener('timetrack-native-navigate', handler);
+  }, [navigate]);
+  return null;
+}
+
 function AnimatedRoutes() {
   const location = useLocation();
   return (
     <AnimatePresence mode="wait">
+      <NativeNavigateListener />
       <Routes location={location} key={location.pathname}>
         <Route element={<AppLayout />}>
           <Route

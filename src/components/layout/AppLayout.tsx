@@ -31,7 +31,6 @@ import { useSSEStatus, useSSEConnection } from '../../hooks/useSSE';
 import { cn } from '../../lib/utils';
 import BrandLogo from './BrandLogo';
 import NotificationBell from './NotificationBell';
-import CompanySwitcher from './CompanySwitcher';
 import { masterApi } from '../../services/api';
 import { toast } from 'sonner';
 
@@ -166,7 +165,7 @@ export default function AppLayout() {
             </div>
 
             {/* Desktop Navigation — scrollable instead of overflowing onto the logo */}
-            <nav className="hidden md:flex items-center gap-1.5 p-1 rounded-xl bg-secondary/40 backdrop-blur-sm min-w-0 max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden shrink">
+            <nav className="hidden md:flex items-center gap-1 p-1 rounded-xl bg-secondary/40 backdrop-blur-sm min-w-0 max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden shrink">
               {navItems.map((item) => {
                 const isActive =
                   location.pathname === item.path ||
@@ -179,7 +178,8 @@ export default function AppLayout() {
                     aria-label={getNavLabel(item)}
                     aria-current={isActive ? 'page' : undefined}
                     className={cn(
-                      'relative flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-300',
+                      'relative flex items-center justify-center gap-2 px-2.5 py-2 rounded-lg text-sm font-medium transition-all duration-300',
+                      'lg:flex-col lg:gap-0.5 lg:px-3 lg:py-1.5 lg:min-w-[68px]',
                       isActive
                         ? 'text-primary-foreground font-semibold'
                         : 'text-muted-foreground hover:text-foreground hover:bg-secondary/40',
@@ -192,8 +192,12 @@ export default function AppLayout() {
                         transition={{ type: 'spring', stiffness: 380, damping: 30 }}
                       />
                     )}
-                    <item.icon className="w-4 h-4 relative z-10" />
-                    <span className="relative z-10 hidden lg:inline">{getNavLabel(item)}</span>
+                    <item.icon
+                      className={cn('w-5 h-5 relative z-10', isActive && 'stroke-[2.5]')}
+                    />
+                    <span className="relative z-10 hidden lg:block text-[11px] font-semibold leading-none whitespace-nowrap">
+                      {getNavLabel(item)}
+                    </span>
                   </Link>
                 );
               })}
@@ -231,9 +235,6 @@ export default function AppLayout() {
                   )}
                 </div>
               )}
-
-              {/* Company switcher — master-only (spec §3, Option A) */}
-              <CompanySwitcher />
 
               {/* Notification Centre — in-app attendance alerts for managers */}
               <NotificationBell />

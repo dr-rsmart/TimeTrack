@@ -6,10 +6,48 @@
  */
 
 import { spawnSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import path from 'path';
 
 console.log('🚀 Running TimeTrack Pre-Deployment Verification Pipeline...\n');
+
+// 0. Mobile versionCode drift guard (Cycle 17)
+// app.json android.versionCode is source-of-truth for the NEXT Play build and
+// must strictly exceed the highest versionCode already promoted (encoded in the
+// scripts/promote-production-vc<N>.mjs filenames). This catches the exact drift
+// class that left app.json stale at "2" while vc18..vc21 were already live.
+console.log('--- [0/4] Mobile versionCode Drift Guard ---');
+let versionOk = true;
+try {
+  const appJson = JSON.parse(readFileSync(path.join('app.json'), 'utf8'));
+  const versionCode = Number(appJson?.expo?.android?.versionCode);
+  if (!Number.isInteger(versionCode) || versionCode <= 0) {
+    versionOk = false;
+    console.error('❌ app.json expo.android.versionCode is missing or not a positive integer.');
+  } else {
+    const promoted = readdirSync('scripts')
+      .filter((f) => /^promote-production-vc(\d+)\.mjs$/.test(f))
+      .map((f) => Number(/vc(\d+)/.exec(f)[1]))
+      .filter((n) => Number.isFinite(n));
+    const highestPromoted = promoted.length ? Math.max(...promoted) : 0;
+    if (versionCode <= highestPromoted) {
+      versionOk = false;
+      console.error(
+        `❌ app.json versionCode ${versionCode} does not exceed the highest promoted build (vc${highestPromoted}). ` +
+          'Bump it before deploying.',
+      );
+    } else {
+      console.log(`✅ versionCode ${versionCode} > highest promoted (vc${highestPromoted}).`);
+    }
+  }
+} catch (err) {
+  versionOk = false;
+  console.error(`❌ Failed to read/parse app.json: ${err.message}`);
+}
+if (!versionOk) {
+  console.error('\n❌ versionCode drift guard failed. Aborting deployment.');
+  process.exit(1);
+}
 
 // 1. Environment and Config Check
 console.log('--- [1/4] Environment & Security Constraints Check ---');

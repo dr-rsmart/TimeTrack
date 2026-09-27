@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "com.timetrack.workforce",
-      "versionCode": 2,
+      "versionCode": 22,
       "adaptiveIcon": {
         "foregroundImage": "./TimeTrack Icon.png",
         "backgroundColor": "#ffffff"

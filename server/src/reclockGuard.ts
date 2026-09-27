@@ -13,14 +13,25 @@
  * auto clock-in firing right after a manual clock-out) and gives a clear,
  * auditable error instead of a mysterious extra session.
  *
- * Configurable via RECLOCK_GUARD_SECONDS (default 120). Set to 0 to disable.
+ * Configurable via RECLOCK_GUARD_SECONDS (default 600). Set to 0 to disable.
  * Admin/manager/master proxy punches (manual overrides) always bypass it.
+ *
+ * DWELL WINDOW (Cycle 17): the default was raised 120s -> 600s. Field reports
+ * showed employees acquiring a SECOND session while never leaving the fence:
+ * GPS bounce on a large site re-crosses the boundary on a minute scale, not a
+ * second scale, so a 120s guard let a 3-minute bounce through un-blocked AND
+ * un-flagged (duplicatePunch used the same 120s). 600s reflects the real
+ * physical constraint — nobody legitimately ends and restarts a shift inside
+ * ten minutes — and MUST stay equal to DUPLICATE_PUNCH_WINDOW_SECONDS so the
+ * preventive and corrective layers agree on what "a double punch" means.
  */
+export const DEFAULT_RECLOCK_GUARD_SECONDS = 600;
+
 export function getReclockGuardSeconds(): number {
   const raw = process.env.RECLOCK_GUARD_SECONDS;
-  if (raw === undefined || raw === null || raw === '') return 120;
+  if (raw === undefined || raw === null || raw === '') return DEFAULT_RECLOCK_GUARD_SECONDS;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) return 120;
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_RECLOCK_GUARD_SECONDS;
   return Math.floor(parsed);
 }
 

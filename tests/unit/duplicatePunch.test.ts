@@ -32,9 +32,9 @@ const C = at('2026-09-15T06:02:00.000Z'); // +120 s (exactly the default window)
 const D = at('2026-09-15T06:05:00.000Z'); // +300 s
 
 describe('getDuplicateWindowSeconds (env configuration)', () => {
-  it('defaults to 120 seconds — matching RECLOCK_GUARD_SECONDS', () => {
+  it('defaults to 600 seconds — matching RECLOCK_GUARD_SECONDS', () => {
     delete process.env.DUPLICATE_PUNCH_WINDOW_SECONDS;
-    expect(getDuplicateWindowSeconds()).toBe(120);
+    expect(getDuplicateWindowSeconds()).toBe(600);
   });
 
   it('reads a valid override', () => {
@@ -49,9 +49,9 @@ describe('getDuplicateWindowSeconds (env configuration)', () => {
 
   it('falls back to the default on garbage or negative values', () => {
     process.env.DUPLICATE_PUNCH_WINDOW_SECONDS = 'not-a-number';
-    expect(getDuplicateWindowSeconds()).toBe(120);
+    expect(getDuplicateWindowSeconds()).toBe(600);
     process.env.DUPLICATE_PUNCH_WINDOW_SECONDS = '-5';
-    expect(getDuplicateWindowSeconds()).toBe(120);
+    expect(getDuplicateWindowSeconds()).toBe(600);
   });
 
   it('truncates fractional seconds', () => {
@@ -178,5 +178,38 @@ describe('describeDuplicateGap (UI copy)', () => {
 
   it('returns null when the pair cannot be measured', () => {
     expect(describeDuplicateGap(null, B)).toBeNull();
+  });
+});
+
+// ── Cycle 17 regression: the GPS-bounce scenario (audit scenario S4) ────────
+// An employee who never left the geofence acquired a SECOND session because a
+// ~3-minute GPS bounce cleared BOTH the 120s reclock guard and the 120s
+// duplicate window. The dwell window (600s) must now catch it on both layers.
+describe('GPS bounce inside the fence (regression: multiple clock-ins on site)', () => {
+  const punchAt = (iso: string) => new Date(iso);
+
+  it('flags a 3-minute bounce that the OLD 120s window let through', () => {
+    const first = punchAt('2026-09-15T06:00:00.000Z');
+    const bounce = punchAt('2026-09-15T06:03:00.000Z'); // plus 180 s
+
+    // Old behaviour: not a duplicate — this is the bug.
+    expect(isDuplicatePunch(first, bounce, 120)).toBe(false);
+    // New behaviour: caught by the dwell window.
+    expect(isDuplicatePunch(first, bounce, getDuplicateWindowSeconds())).toBe(true);
+  });
+
+  it('flags bounces across the whole sub-10-minute range', () => {
+    const first = punchAt('2026-09-15T06:00:00.000Z');
+    const windowSeconds = getDuplicateWindowSeconds();
+    for (const offsetSeconds of [130, 180, 300, 450, 599]) {
+      const bounce = new Date(first.getTime() + offsetSeconds * 1000);
+      expect(isDuplicatePunch(first, bounce, windowSeconds)).toBe(true);
+    }
+  });
+
+  it('still treats a genuine later shift (twelve minutes on) as distinct', () => {
+    const first = punchAt('2026-09-15T06:00:00.000Z');
+    const laterShift = punchAt('2026-09-15T06:12:00.000Z'); // plus 720 s
+    expect(isDuplicatePunch(first, laterShift, getDuplicateWindowSeconds())).toBe(false);
   });
 });

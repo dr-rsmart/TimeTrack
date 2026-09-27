@@ -30,15 +30,24 @@
  * Window (seconds) inside which two punches by the SAME employee for the SAME
  * punch kind are considered duplicates of one another.
  *
- * Defaults to 120 to match `RECLOCK_GUARD_SECONDS`, so the preventive and
+ * Defaults to 600 to match `RECLOCK_GUARD_SECONDS`, so the preventive and
  * corrective layers agree on what "a double punch" means. Configurable via
  * DUPLICATE_PUNCH_WINDOW_SECONDS; set to 0 to disable flagging entirely.
+ *
+ * DWELL WINDOW (Cycle 17): raised 120s -> 600s alongside the reclock guard.
+ * The two constants are a preventive/corrective PAIR and must not drift: a
+ * punch the guard lets through is precisely the punch this module has to
+ * flag. At 120s a ~3-minute GPS bounce inside the fence was neither blocked
+ * nor flagged and silently became a second session — the root cause of the
+ * "multiple clock in/out while on site" reports.
  */
+export const DEFAULT_DUPLICATE_WINDOW_SECONDS = 600;
+
 export function getDuplicateWindowSeconds(): number {
   const raw = process.env.DUPLICATE_PUNCH_WINDOW_SECONDS;
-  if (raw === undefined || raw === null || raw === '') return 120;
+  if (raw === undefined || raw === null || raw === '') return DEFAULT_DUPLICATE_WINDOW_SECONDS;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) return 120;
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_DUPLICATE_WINDOW_SECONDS;
   return Math.floor(parsed);
 }
 

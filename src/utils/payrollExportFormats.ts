@@ -10,8 +10,8 @@
  * Shipped formats:
  *  - `timetrack-standard` — full TimeTrack detail (current default).
  *  - `generic-flat`       — the flat Normal/Overtime/Public-Holiday layout most
- *                           SA payroll importers accept (Sage/PaySpace/EasyPay
- *                           style: one row per employee, period totals).
+ *                           payroll importers accept (one row per employee,
+ *                           period totals).
  *
  * To register a customer-supplied format, append a `defineColumnFormat({...})`
  * entry with the exact column order/labels from that system's spec sheet.
@@ -126,12 +126,112 @@ export const genericFlatFormat: PayrollExportFormat = {
 };
 
 /**
+ * Component-per-row payroll import layout.
+ * ----------------------------------------
+ * Several payroll systems do NOT import one row per employee. They import one
+ * row per employee PER PAY COMPONENT: the employee code, the component name
+ * ("Basic Pay", "Overtime @ 1.5", "Overtime @ Double Time"), an input type and
+ * the value. Three components for one employee means three rows.
+ *
+ * This factory builds that shape from the same authoritative PayrollRow totals
+ * used by every other format, so the exported figures always reconcile with
+ * the Payroll Summary on screen.
+ *
+ * Zero-value components are still emitted (rather than omitted): payroll
+ * importers generally expect a complete component set per employee, and an
+ * explicit 0.00 is what clears a component that carried a value last period.
+ *
+ * Optional trailing columns (cost centre, project, activity, recovery amount,
+ * comments, add/overwrite) are exported EMPTY — they are payroll-side
+ * allocations that TimeTrack does not own. They remain in the header so the
+ * file imports without the admin re-adding columns.
+ */
+export function defineComponentFormat(opts: {
+  id: string;
+  label: string;
+  description: string;
+  filePrefix: string;
+  /** Extra trailing headers exported as empty cells. */
+  trailingHeaders?: string[];
+  /** Component rows, in the order the payroll system expects them. */
+  components: Array<{
+    name: string;
+    inputType: string;
+    value: (r: PayrollRow) => string | number;
+  }>;
+}): PayrollExportFormat {
+  const trailing = opts.trailingHeaders ?? [];
+  return {
+    id: opts.id,
+    label: opts.label,
+    description: opts.description,
+    filename: (from, to) => `${opts.filePrefix}-${from}-to-${to}.csv`,
+    headers: () => [
+      'Employee Number',
+      'Component Code Or Description',
+      'Input Type',
+      'Input Value',
+      ...trailing,
+    ],
+    rows: (data) => {
+      const out: (string | number)[][] = [];
+      // Grouped BY COMPONENT, then by employee — all "Basic Pay" rows first,
+      // then all overtime rows. This matches the layout payroll admins work
+      // with and keeps the file stable between periods.
+      for (const component of opts.components) {
+        for (const r of data) {
+          out.push([
+            r.employeeNumber ?? '',
+            component.name,
+            component.inputType,
+            component.value(r),
+            ...trailing.map(() => ''),
+          ]);
+        }
+      }
+      return out;
+    },
+  };
+}
+
+/**
+ * Hours-based component layout (Basic Pay / Overtime @ 1.5 / Overtime @ Double
+ * Time). Registered as a ready-to-use format because it is the shape most
+ * component-driven payroll importers accept.
+ *
+ * Mapping rationale:
+ *  - Basic Pay              = ordinary hours
+ *  - Overtime @ 1.5         = daily + monthly + Saturday + Sunday overtime
+ *  - Overtime @ Double Time = public holiday hours (the 2.0 multiplier bucket)
+ */
+export const componentHoursFormat: PayrollExportFormat = defineComponentFormat({
+  id: 'payroll-component-hours',
+  label: 'Payroll Import (component rows)',
+  description:
+    'One row per employee per pay component (Basic Pay, Overtime @ 1.5, Overtime @ Double Time) with hours as the input value.',
+  filePrefix: 'payroll-import-components',
+  trailingHeaders: [
+    'Cost Centre Code',
+    'Project Code',
+    'Activity Code',
+    'Closing recovery amount',
+    'Comments',
+    'Add or Overwrite',
+  ],
+  components: [
+    { name: 'Basic Pay', inputType: 'Hours', value: (r) => normalHours(r) },
+    { name: 'Overtime @ 1.5', inputType: 'Hours', value: (r) => overtimeHours(r) },
+    { name: 'Overtime @ Double Time', inputType: 'Hours', value: (r) => publicHolidayHours(r) },
+  ],
+});
+
+/**
  * Declarative factory for customer payroll-system formats. Provide the exact
  * column spec from the target system and a value selector per column.
  *
  * Example (once the customer spec is available):
  *   defineColumnFormat({
- *     id: 'sage-pastel', label: 'Sage Pastel Payroll', from/to → filename,
+ *     id: 'payroll-system-x', label: 'Payroll System X', from/to → filename,
  *     columns: [
  *       { header: 'Employee Code', value: (r) => r.employeeNumber ?? '' },
  *       { header: 'Reg Hours',     value: (r) => normalHours(r) },
@@ -163,6 +263,7 @@ export function defineColumnFormat(opts: {
 export const PAYROLL_EXPORT_FORMATS: PayrollExportFormat[] = [
   timetrackStandardFormat,
   genericFlatFormat,
+  componentHoursFormat,
   // ← append customer payroll-system formats here via defineColumnFormat(...)
 ];
 

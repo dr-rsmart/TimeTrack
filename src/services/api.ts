@@ -271,8 +271,6 @@ export const authApi = {
         refreshToken,
       },
     ),
-  registerPushToken: (token: string, platform: 'ios' | 'android' | 'web') =>
-    api.post<{ success: boolean }>('/auth/push-token', { token, platform }),
   me: () => api.get<CurrentUser>('/auth/me'),
   changePassword: (currentPassword: string, newPassword: string) =>
     api.post<{ success: boolean }>('/auth/change-password', { currentPassword, newPassword }),

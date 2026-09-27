@@ -503,6 +503,10 @@ export const registerPushTokenSchema = z.object({
   platform: z.enum(['ios', 'android', 'web']),
 });
 
+export const deletePushTokenSchema = z.object({
+  token: z.string().min(10).max(500),
+});
+
 // ── Company Profile ──
 export const createCompanySchema = z.object({
   name: z.string().min(1).max(200),

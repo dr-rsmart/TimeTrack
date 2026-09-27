@@ -64,6 +64,67 @@ import NetInfo from '@react-native-community/netinfo';
 
 const NOTIFICATION_CHANNEL_ID = 'geofence-events';
 
+// Set once by the tap-to-navigate listener below so it registers a single time.
+let notificationResponseListenerRegistered = false;
+
+const ALLOWED_NOTIFY_TYPES = new Set([
+  'geofence',
+  'auto_clock_in',
+  'auto_clock_out',
+  'shift_reminder',
+  'attendance_alert',
+]);
+
+// ── Push tap → deep link ──────────────────────────────────────────────
+// Maps a notification's data payload to an internal web-app path so tapping a
+// shift reminder / manager alert / auto-clock confirmation opens the right
+// screen instead of the last route. Only relative in-app paths are produced.
+
+const NOTIFY_DEEP_LINK_ROOTS = new Set([
+  '/',
+  '/shifts',
+  '/time',
+  '/reports',
+  '/dashboard',
+  '/profile',
+]);
+
+function deepLinkForNotification(data) {
+  const type = data && typeof data.type === 'string' ? data.type : '';
+  if (type === 'shift_reminder') return '/shifts';
+  if (type === 'auto_clock_in' || type === 'auto_clock_out' || type === 'geofence') return '/time';
+  if (type === 'attendance_alert') {
+    if (data.alertType === 'duplicate' && typeof data.timeEntryId === 'string') {
+      return `/time?entry=${encodeURIComponent(data.timeEntryId)}`;
+    }
+    return '/reports';
+  }
+  return '/';
+}
+
+function navigateWebviewTo(path) {
+  // Defence in depth: never let a data payload navigate the WebView to an
+  // external origin. Only accept a known relative in-app path.
+  const root = path.split('?')[0];
+  if (!NOTIFY_DEEP_LINK_ROOTS.has(root)) return;
+  if (!webviewBridgeRef?.current) return;
+  webviewBridgeRef.current.injectJavaScript(`
+    try {
+      window.dispatchEvent(new CustomEvent('timetrack-native-navigate', { detail: ${JSON.stringify({ path })} }));
+    } catch (_) {}
+    true;
+  `);
+}
+
+// Register the tap-to-navigate listener exactly once per process.
+if (!notificationResponseListenerRegistered) {
+  notificationResponseListenerRegistered = true;
+  Notifications.addNotificationResponseReceivedListener((response) => {
+    const data = response?.notification?.request?.content?.data;
+    navigateWebviewTo(deepLinkForNotification(data || {}));
+  });
+}
+
 // Foreground notifications are hidden by default unless an explicit handler
 // opts into displaying them. Use the same channel and sound for every
 // automatic punch, whether the app is foregrounded or backgrounded.
@@ -90,7 +151,11 @@ async function registerPushTokenWithServer() {
   try {
     const permission = await Notifications.getPermissionsAsync();
     if (permission.status !== 'granted') return;
-    const token = await Notifications.getExpoPushTokenAsync();
+    // Supply the EAS projectId explicitly so token minting also works in
+    // dev-client / bare workflows where the Expo config is not resolvable.
+    const token = await Notifications.getExpoPushTokenAsync({
+      projectId: '5e549d1f-9f6c-4f8f-bffe-ff18a20c366d',
+    });
     const accessToken = await AsyncStorage.getItem(TOKEN_KEY);
     if (!accessToken || !token?.data) return;
     await fetch(`${TIMETRACK_URL}/api/auth/push-token`, {
@@ -101,8 +166,31 @@ async function registerPushTokenWithServer() {
       },
       body: JSON.stringify({ token: token.data, platform: Platform.OS }),
     });
+    // Persist the minted token so sign-out / account switch can deactivate the
+    // server-side row (otherwise a stale DevicePushToken keeps receiving push).
+    await AsyncStorage.setItem(PUSH_TOKEN_KEY, token.data);
   } catch (error) {
     console.warn('[TimeTrack] Could not register push token:', error?.message || error);
+  }
+}
+
+async function deactivatePushTokenWithServer() {
+  try {
+    const token = await AsyncStorage.getItem(PUSH_TOKEN_KEY);
+    const accessToken = await AsyncStorage.getItem(TOKEN_KEY);
+    if (!token || !accessToken) return;
+    await fetch(`${TIMETRACK_URL}/api/auth/push-token`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ token }),
+    });
+  } catch (error) {
+    console.warn('[TimeTrack] Could not deactivate push token:', error?.message || error);
+  } finally {
+    await AsyncStorage.removeItem(PUSH_TOKEN_KEY).catch(() => undefined);
   }
 }
 
@@ -133,6 +221,8 @@ const CLOCKED_IN_KEY = 'timetrack_clocked_in';
 /** Mirrored web setting: false disables native automatic punches. */
 const AUTO_CLOCK_ENABLED_KEY = 'timetrack_auto_clock_enabled';
 const TOKEN_KEY = 'timetrack_auth_token';
+/** Expo push token last registered with the server (used to deactivate on sign-out). */
+const PUSH_TOKEN_KEY = 'timetrack_push_token';
 const REFRESH_TOKEN_KEY = 'timetrack_native_refresh_token';
 /** Employee email of the current native session (per-user state guard). */
 const SESSION_EMAIL_KEY = 'timetrack_session_email';
@@ -309,7 +399,7 @@ async function refreshNativeAccessToken() {
   return true;
 }
 
-async function notify(title, body) {
+async function notify(title, body, data = {}) {
   try {
     // Background tasks can start before the React component's permission
     // effect has created the Android channel. Ensure the channel exists at the
@@ -320,7 +410,9 @@ async function notify(title, body) {
         title,
         body,
         sound: 'default',
-        data: { source: 'geofence' },
+        // Merge caller data (e.g. deep-link type, entryId) over the default
+        // source tag so the web→native NOTIFY bridge can carry a payload.
+        data: { source: 'geofence', ...(data && typeof data === 'object' ? data : {}) },
         ...(Platform.OS === 'android' ? { channelId: NOTIFICATION_CHANNEL_ID } : {}),
       },
       trigger: null,
@@ -653,10 +745,27 @@ async function ensureBackgroundLocationUpdates() {
   // here so every caller (app resume, geofence assignment, iOS BGTask
   // watchdog) is covered by this single auditable check.
   const bgPermission = await Location.getBackgroundPermissionsAsync().catch(() => null);
-  if (bgPermission?.status !== 'granted') return;
+  if (bgPermission?.status !== 'granted') {
+    // OBSERVABILITY (Cycle 17): this bail is the single most common reason
+    // auto clocking "only works when the app is open" — the user granted
+    // "While Using the App" and nothing ever told them. Record the exact
+    // permission tier so syncAutoClockStatusToWebview can surface the
+    // foreground-only explanation (and the upgrade hint) instead of failing
+    // silently. Still a no-op for the location service itself: starting
+    // background updates without the grant would violate platform policy.
+    await updateAutoClockDiagnostics({
+      backgroundArmed: false,
+      backgroundBlockedReason: 'permission',
+      backgroundPermissionSeen: bgPermission?.status ?? 'unknown',
+    });
+    return;
+  }
 
   const started = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
-  if (started) return;
+  if (started) {
+    await updateAutoClockDiagnostics({ backgroundArmed: true, backgroundBlockedReason: null });
+    return;
+  }
 
   await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
     // High accuracy: Balanced (network-only) fixes frequently exceed
@@ -672,6 +781,12 @@ async function ensureBackgroundLocationUpdates() {
     },
     pausesUpdatesAutomatically: false,
   });
+
+  // Positive confirmation that the OS accepted the request. If this throws,
+  // the caller's .catch() leaves the previous diagnostics in place and the
+  // status ladder reports "background service status incomplete" rather than
+  // claiming healthy monitoring.
+  await updateAutoClockDiagnostics({ backgroundArmed: true, backgroundBlockedReason: null });
 }
 
 // ── Native → WebView auto-clock observability bridge ──
@@ -725,6 +840,11 @@ async function syncAutoClockStatusToWebview(requestId) {
       sampleZone: diagnostics.sampleZone ?? null,
       poorSignal: diagnostics.poorSignal === true,
       taskError: diagnostics.taskError === true,
+      // Cycle 17: why background re-arming bailed, if it did. Lets the web
+      // status ladder distinguish "foreground-only permission" from a
+      // genuinely broken background task.
+      backgroundArmed: diagnostics.backgroundArmed === true,
+      backgroundBlockedReason: diagnostics.backgroundBlockedReason ?? null,
       failure: diagnostics.failure ?? null,
       outboxCount:
         typeof diagnostics.outboxCount === 'number' && diagnostics.outboxCount >= 0
@@ -868,7 +988,13 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
 });
 
 async function registerBackgroundSyncWatchdog() {
-  if (Platform.OS !== 'ios') return;
+  // ANDROID PARITY (Cycle 17): this previously returned early on Android on the
+  // assumption that the location foreground service plus AppState retries were
+  // sufficient. They are not: OEM battery managers (and a plain reboot) can
+  // stop the foreground service, and with the app never foregrounded there is
+  // nothing left to re-arm it — the "no auto clock-in unless the app is open"
+  // report. BackgroundFetch is supported on both platforms, so the watchdog now
+  // runs everywhere; it stays best-effort and never throws.
   try {
     const registered = await BackgroundFetch.isRegisteredAsync(BACKGROUND_SYNC_TASK);
     if (!registered) {
@@ -1083,6 +1209,10 @@ export default function App() {
     // off until the employee opts in again from the web Auto Clock toggle
     // (which re-presents the disclosure) or the next cold start.
     void AsyncStorage.setItem(BG_DISCLOSURE_CONSENT_KEY, 'declined').catch(() => undefined);
+    // Notifications are independent of location: even a user who declines
+    // background location must still be able to register for push.
+    void Notifications.requestPermissionsAsync().catch(() => undefined);
+    void registerPushTokenWithServer();
     setPermissionsReady(true);
   };
 
@@ -1125,6 +1255,9 @@ export default function App() {
         void restoreNativeSession();
         void syncAutoClockStatusToWebview();
         void replayPunchOutbox();
+        // Re-affirm the push token on resume — covers users who granted
+        // notifications after the initial disclosure flow.
+        void registerPushTokenWithServer();
       }
     });
 
@@ -1142,6 +1275,27 @@ export default function App() {
         // Web UI deep-link into the OS permission screens — the recovery path
         // for "Never"/"Don't allow": the OS never lets the app re-prompt.
         Linking.openSettings().catch(() => undefined);
+        return;
+      }
+      if (msg.type === 'NOTIFY') {
+        // Web→native notification bridge (Feature: foreground auto clock in/out,
+        // any future web-raised alert). The WebView is remote content, so treat
+        // the payload as hostile: require non-empty bounded strings and an
+        // allowlisted data.type; drop anything else.
+        const title = typeof msg.title === 'string' ? msg.title.slice(0, 120) : '';
+        const body = typeof msg.body === 'string' ? msg.body.slice(0, 500) : '';
+        if (!title || !body) return;
+        const data = msg.data && typeof msg.data === 'object' ? msg.data : {};
+        const allowedTypes = new Set([
+          'geofence',
+          'auto_clock_in',
+          'auto_clock_out',
+          'shift_reminder',
+          'attendance_alert',
+        ]);
+        const safeData =
+          typeof data.type === 'string' && allowedTypes.has(data.type) ? { type: data.type } : {};
+        void notify(title, body, safeData);
         return;
       }
       if (msg.type === 'AUTO_CLOCK_STATUS_REQUEST' && typeof msg.requestId === 'string') {
@@ -1308,6 +1462,9 @@ export default function App() {
           await AsyncStorage.setItem(SESSION_EMAIL_KEY, incomingEmail);
         }
         await AsyncStorage.setItem(TOKEN_KEY, msg.token);
+        // Identity change: (re)register the push token under the NEW employee so
+        // a shared device never delivers employee A's reminders to employee B.
+        void registerPushTokenWithServer();
         await updateAutoClockDiagnostics({ failure: null });
         if (typeof msg.refreshToken === 'string' && msg.refreshToken.length > 0) {
           await AsyncStorage.setItem(REFRESH_TOKEN_KEY, msg.refreshToken);
@@ -1328,11 +1485,15 @@ export default function App() {
       }
       if (msg.type === 'SESSION_ENDED') {
         autoClockSessionGeneration += 1;
+        // Deactivate the server-side token BEFORE wiping local auth so the
+        // signed-out device stops receiving push immediately.
+        void deactivatePushTokenWithServer();
         // Sign-out: wipe everything so the next session starts clean.
         await AsyncStorage.multiRemove([
           TOKEN_KEY,
           REFRESH_TOKEN_KEY,
           SESSION_EMAIL_KEY,
+          PUSH_TOKEN_KEY,
           GEOFENCE_KEY,
           GEOFENCE_LIST_KEY,
           CLOCKED_IN_KEY,

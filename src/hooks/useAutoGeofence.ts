@@ -16,6 +16,8 @@ import {
 } from '../services/AutoGeofenceService';
 import { ApiError, timeEntryApi, settingsApi } from '../services/api';
 import { enqueueOfflinePunch } from '../services/punchOutbox';
+import { notifyUser } from '../utils/nativeNotify';
+import type { NativeNotifyType } from '../utils/nativeNotify';
 import { getCurrentPosition } from '../utils/clockInHelper';
 import { useSSE } from './useSSE';
 import { getAutoClockRuntime } from '../utils/autoClockRuntime';
@@ -128,17 +130,14 @@ export function isAutoClockEligible(
 // Notification Helpers
 // ─────────────────────────────────────────────────────────────
 
-async function sendNotification(title: string, body: string): Promise<void> {
-  if (!('Notification' in window)) return;
-  try {
-    let permission = Notification.permission;
-    if (permission === 'default') permission = await Notification.requestPermission();
-    if (permission === 'granted') {
-      new Notification(title, { body, icon: '/favicon.ico', tag: `${title}-${Date.now()}` });
-    }
-  } catch {
-    // Browser notification permission/delivery is best effort; the in-app toast remains.
-  }
+async function sendNotification(
+  title: string,
+  body: string,
+  type?: NativeNotifyType,
+): Promise<void> {
+  // Route through the single notification facade: native shell bridge on the
+  // phone, Web Notification API on desktop. Never throws.
+  await notifyUser(title, body, type ? { type } : {});
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -433,6 +432,7 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
         payload.autoClockOutAtShiftEnd
           ? 'Your shift ended and you were clocked out automatically.'
           : 'You were clocked out automatically at the configured workday end.',
+        'auto_clock_out',
       );
       showToast('info', 'Automatic clock-out', 'Your active session was closed automatically.');
       void onClockOutRef.current();
@@ -517,7 +517,11 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
             setLastAutoClockIn(result.id);
             await onClockInRef.current();
             dispatchAutoClockCompleted('in');
-            await sendNotification('Auto Clock In', `You entered \"${event.geofence.name}\".`);
+            await sendNotification(
+              'Auto Clock In',
+              `You entered "${event.geofence.name}".`,
+              'auto_clock_in',
+            );
             showToast(
               'success',
               `Auto clocked in at "${event.geofence.name}"`,
@@ -572,7 +576,11 @@ export function useAutoGeofence(options: UseAutoGeofenceOptions): UseAutoGeofenc
           setLastAutoClockOut();
           await onClockOutRef.current();
           dispatchAutoClockCompleted('out');
-          await sendNotification('Auto Clock Out', `You left \"${event.geofence.name}\".`);
+          await sendNotification(
+            'Auto Clock Out',
+            `You left \"${event.geofence.name}\".`,
+            'auto_clock_out',
+          );
           showToast(
             'success',
             `Auto clocked out — left "${event.geofence.name}"`,

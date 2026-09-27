@@ -15,7 +15,18 @@ import { reportApi, type AttendanceAlert } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { cn, formatDate } from '../../lib/utils';
 
-const LAST_SEEN_KEY = 'tt-notification-centre-last-seen';
+/**
+ * Per-identity "last seen" key (Cycle 17, spec §8 tenant isolation).
+ *
+ * This was a single global key, which leaked ACROSS COMPANIES: a master who
+ * marked Company A read then switched to Company B found B's badge already
+ * suppressed by A's timestamp. The server never leaked data (the endpoint is
+ * tenant-scoped), but the unread COUNT did. Namespacing by user + company
+ * makes each tenant context keep its own read state on the same device.
+ */
+function lastSeenKey(userId: string | undefined, companyProfileId: string | null | undefined) {
+  return `tt-notification-centre-last-seen:${userId ?? 'anon'}:${companyProfileId ?? 'none'}`;
+}
 const POLL_INTERVAL_MS = 60_000;
 
 const TYPE_META: Record<
@@ -62,13 +73,17 @@ export default function NotificationBell() {
   const [unread, setUnread] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Tenant identity for the read-state key. A change here (company switch or
+  // re-login) must reset the feed, not inherit the previous context's state.
+  const seenKey = lastSeenKey(user?.id, user?.companyProfileId);
+
   const load = useCallback(async () => {
     if (!isManager) return;
     setLoading(true);
     try {
       const res = await reportApi.attendanceAlerts(7);
       setAlerts(res.alerts);
-      const lastSeen = localStorage.getItem(LAST_SEEN_KEY);
+      const lastSeen = localStorage.getItem(seenKey);
       // Alert dates are YYYY-MM-DD; anything dated strictly after the last-seen
       // day counts as unread (day granularity keeps the badge honest).
       const seenDay = lastSeen ? lastSeen.slice(0, 10) : null;
@@ -78,7 +93,7 @@ export default function NotificationBell() {
     } finally {
       setLoading(false);
     }
-  }, [isManager]);
+  }, [isManager, seenKey]);
 
   useEffect(() => {
     void load();
@@ -99,7 +114,7 @@ export default function NotificationBell() {
   }, [open]);
 
   const markAllRead = () => {
-    localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString());
+    localStorage.setItem(seenKey, new Date().toISOString());
     setUnread(0);
   };
 

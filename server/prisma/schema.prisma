@@ -495,6 +495,27 @@ model CronLock {
   @@index([expiresAt])
 }
 
+// Durable dedupe ledger for cron reminder/alert pushes (Cycle 17).
+//
+// The shift-reminder and manager-alert jobs previously deduped ONLY in process
+// memory. That was correct for a single immortal process but wrong across a
+// deploy/restart inside a reminder window, or a second replica winning the
+// CronLock lease on a later tick — the same "Workday Starting Soon" or manager
+// alert could fire twice. `dedupeKey` is the same stable key already computed
+// by the caller (`start:<shiftId>`, `default-start:<companyId>:<date>:<empId>`,
+// `duplicate:<companyId>:<entryId>`, …); a unique constraint makes the dedupe
+// atomic and durable. The in-memory Map remains as a fast-path cache in front
+// of this table. Rows are pruned after 72h by the retention job.
+model ReminderLog {
+  id        String   @id @default(cuid())
+  dedupeKey String   @unique
+  kind      String   @default("shift_reminder")
+  sentAt    DateTime @default(now())
+
+  @@index([kind])
+  @@index([sentAt])
+}
+
 model EmploymentHistory {
   id               String    @id @default(cuid())
   employeeId       String

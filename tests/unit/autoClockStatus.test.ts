@@ -326,3 +326,35 @@ describe('native diagnostic accuracy (native-owned: web monitor stopped in the s
     expect(status).toMatchObject({ pendingEnter: 0, failure: null, backgroundStarted: null });
   });
 });
+
+describe('parseNativeAutoClockStatus — Cycle 17 background-armed diagnostics', () => {
+  const base = {
+    suppressed: false,
+    at: 1_700_000_000_000,
+    backgroundStarted: false,
+  };
+
+  it('parses the background-armed flag and blocked reason from the shell', () => {
+    const out = parseNativeAutoClockStatus({
+      ...base,
+      backgroundArmed: false,
+      backgroundBlockedReason: 'permission',
+    });
+    expect(out?.backgroundArmed).toBe(false);
+    expect(out?.backgroundBlockedReason).toBe('permission');
+  });
+
+  it('defaults to undefined/null when the shell does not supply them', () => {
+    const out = parseNativeAutoClockStatus(base);
+    expect(out?.backgroundArmed).toBeUndefined();
+    expect(out?.backgroundBlockedReason).toBeNull();
+  });
+
+  it('rejects unknown blocked-reason tokens', () => {
+    const out = parseNativeAutoClockStatus({
+      ...base,
+      backgroundBlockedReason: 'battery-manager',
+    });
+    expect(out?.backgroundBlockedReason).toBeNull();
+  });
+});

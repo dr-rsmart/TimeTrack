@@ -966,7 +966,7 @@ export default function Reports() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
                 <Coins className="w-4 h-4 text-brand" />
-                Cost of Late Coming ({from} → {to})
+                Cost of Late Coming — totals for {from} → {to}
               </CardTitle>
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                 <span>{costRows.length} employees</span>

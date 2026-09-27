@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   recordHttpRequest,
   recordAutoClockOutcome,
+  recordPushSent,
+  recordPushFailed,
+  recordPushTokensDeactivated,
   getMetricSnapshot,
   renderMetrics,
 } from '../../server/src/metrics';
@@ -58,5 +61,20 @@ describe('Prometheus Metrics Module', () => {
       1,
     );
     expect(renderMetrics()).toContain('timetrack_auto_clock_outcomes_total{outcome="test_closed"}');
+  });
+
+  it('records push delivery counters for the /metrics surface', () => {
+    const before = getMetricSnapshot();
+    recordPushSent(90);
+    recordPushFailed();
+    recordPushTokensDeactivated(2);
+    const after = getMetricSnapshot();
+    expect(after.push.sent - before.push.sent).toBe(90);
+    expect(after.push.failed - before.push.failed).toBe(1);
+    expect(after.push.tokensDeactivated - before.push.tokensDeactivated).toBe(2);
+    const body = renderMetrics();
+    expect(body).toContain('timetrack_push_sent_total 90');
+    expect(body).toContain('timetrack_push_failed_total 1');
+    expect(body).toContain('timetrack_push_tokens_deactivated_total 2');
   });
 });

@@ -230,6 +230,30 @@ async function purgeRetentionPolicies(): Promise<void> {
 }
 
 /**
+ * Prune the durable reminder/alert dedupe ledger.
+ *
+ * ReminderLog rows only need to outlive the longest plausible reminder window
+ * (a 5-minute lead + the 2-minute window + CronLock churn + a restart). 72h is
+ * generous headroom and keeps the table at roughly (reminders + alerts)/day × 3,
+ * so it stays tiny forever. Runs under its own lock on the retention cadence.
+ */
+async function pruneReminderLogs(): Promise<void> {
+  const jobName = 'reminder-log-prune';
+  if (!(await acquireLock(jobName, 60_000))) return;
+  try {
+    const cutoff = new Date(Date.now() - 72 * 3_600_000);
+    const { count } = await prisma.reminderLog.deleteMany({
+      where: { sentAt: { lt: cutoff } },
+    });
+    if (count > 0) logger.info(`[cron] Pruned ${count} ReminderLog row(s) older than 72h.`);
+  } catch (err) {
+    logger.error('[cron] Reminder log prune error:', err);
+  } finally {
+    await releaseLock(jobName);
+  }
+}
+
+/**
  * Close stale active time entries.
  * If an employee forgets to clock out (dead phone, walked off site), the
  * entry would otherwise stay "active" forever and block their next clock-in
@@ -381,10 +405,30 @@ async function autoClockOutAtShiftEnd(): Promise<void> {
     // A shift remains authoritative; this fallback is skipped whenever an
     // open scheduled/active shift with an end time exists for the employee
     // on the current business day.
+    // BOUNDED SCAN (Cycle 17): this previously loaded EVERY active entry
+    // platform-wide with two joins on every 60s tick — unbounded growth as the
+    // tenant/employee count rises. Entries older than 48h are the stale-close
+    // job's responsibility, not this working-end fallback, so they are excluded
+    // here. A hard cap keeps a single tick from ballooning: reaching it is a
+    // visibility event (warn + metric), never a silent truncation.
+    const WORKING_END_SCAN_MAX_AGE_MS = 48 * 3_600_000;
+    const WORKING_END_SCAN_MAX_ROWS = 1000;
     const locationEntries = await prisma.timeEntry.findMany({
-      where: { status: 'active' },
+      where: {
+        status: 'active',
+        clockIn: { gte: new Date(Date.now() - WORKING_END_SCAN_MAX_AGE_MS) },
+      },
       include: { geofence: true, companyProfile: { include: { settings: true } } },
+      orderBy: { clockIn: 'asc' },
+      take: WORKING_END_SCAN_MAX_ROWS,
     });
+    if (locationEntries.length >= WORKING_END_SCAN_MAX_ROWS) {
+      recordAutoClockOutcome('working_end_scan_capped');
+      logger.warn(
+        `[cron] Shift-end auto clock-out scan hit the ${WORKING_END_SCAN_MAX_ROWS} active-entry cap. ` +
+          'Consider increasing the cap or the job cadence if this recurs.',
+      );
+    }
     const candidateDates = [parseDate(biz.dateStr), parseDate(yesterdayBiz.dateStr)];
     const openShifts = await prisma.shift.findMany({
       where: {
@@ -515,9 +559,11 @@ async function detectNoShows(): Promise<void> {
 // Push a notification ~5 minutes BEFORE the beginning and the ending of every
 // scheduled shift. Employees with NO shift assigned fall back to their
 // company's normal business hours (CompanySettings.defaultWorking*), matching
-// the auto clock-out fallback semantics. Dedupe is per-instance in memory:
-// the CronLock guarantees only one instance runs the job per tick, and keys
-// are pruned after 3 hours so the map stays bounded.
+// the auto clock-out fallback semantics. Dedupe is two layers: an in-memory
+// Map (fast path for same-process repeats, keys pruned after 3 h) AND a
+// durable ReminderLog insert (Cycle 17) so a restart or second replica inside
+// the reminder window cannot re-fire. The CronLock still guarantees only one
+// instance runs the job per tick.
 const SHIFT_REMINDER_LEAD_MINUTES = 5;
 const SHIFT_REMINDER_WINDOW_MINUTES = 2; // > 60s tick so jitter cannot skip a window
 const sentShiftReminders = new Map<string, number>();
@@ -540,7 +586,20 @@ function fireShiftReminderOnce(
   // companyProfileId scopes the push-token lookup AND lands `companyId` on the
   // Expo payload (spec §2), so a stale cross-company registration cannot receive
   // this reminder.
-  void notifyEmployeePush(email, title, body, { type: 'shift_reminder' }, companyProfileId ?? null);
+  // DURABLE DEDUPE (Cycle 17): the in-memory set only protects a single process.
+  // claimReminderOnce() additionally records the key in ReminderLog and skips
+  // the send if a prior process/replica already claimed it, so a deploy inside
+  // the reminder window cannot fire twice. The push stays fire-and-forget.
+  void claimReminderOnce(key, 'shift_reminder').then((first) => {
+    if (first)
+      void notifyEmployeePush(
+        email,
+        title,
+        body,
+        { type: 'shift_reminder' },
+        companyProfileId ?? null,
+      );
+  });
 }
 
 const WORKING_SHIFT_TYPES = new Set(['full_day', 'half_day']);
@@ -671,13 +730,24 @@ async function sendShiftReminders(): Promise<void> {
         });
       if (!startDue && !endDue) continue;
 
-      // Employees of this company WITHOUT a working shift today.
+      // Employees of this company WITHOUT ANY shift today.
+      //
+      // LEAVE EXCLUSION (Cycle 17): this probe must NOT filter to working
+      // shift types. It answers "is this employee already accounted for
+      // today?", not "is this employee working today?". Filtering to
+      // full_day/half_day made an employee on approved Leave/Sick/PTO look
+      // UNSCHEDULED, so they fell through to the company-default branch below
+      // and were told "Your workday starts at 08:00" while on leave.
+      //
+      // Note the deliberate asymmetry with the shift-based branch above, which
+      // DOES filter by WORKING_SHIFT_TYPES: there we decide whether to send a
+      // reminder FOR a shift (leave earns none); here we decide whether a
+      // shift row exists AT ALL (leave must still suppress the fallback).
       const scheduledToday = await prisma.shift.findMany({
         where: {
           companyProfileId: settings.companyProfileId,
           status: { in: ['scheduled', 'active'] },
           date: parseDate(biz.dateStr),
-          shiftType: { in: ['full_day', 'half_day'] },
         },
         select: { employeeId: true, employeeEmail: true },
       });
@@ -752,7 +822,33 @@ function fireManagerAlertOnce(
 ): void {
   if (sentManagerAlerts.has(key)) return;
   sentManagerAlerts.set(key, Date.now());
-  void notifyCompanyManagersPush(companyProfileId, title, body, data);
+  // DURABLE DEDUPE (Cycle 17): same rationale as fireShiftReminderOnce — a
+  // restart or a second replica within the alert window must not re-send a
+  // duplicate/no-show alert a manager already actioned.
+  void claimReminderOnce(key, 'manager_alert').then((first) => {
+    if (first) void notifyCompanyManagersPush(companyProfileId, title, body, data);
+  });
+}
+
+/**
+ * Claim a cron reminder/alert dedupe key durably in ReminderLog.
+ *
+ * Returns `true` when this call is the FIRST claimant (the caller should send),
+ * `false` when a previous process/replica already claimed it. The in-memory Map
+ * handles same-process repeats synchronously; this table makes the claim survive
+ * restarts and multi-replica scheduling. A P2002 unique-constraint violation is
+ * the expected \"already sent\" signal, not an error.
+ */
+async function claimReminderOnce(key: string, kind: string): Promise<boolean> {
+  try {
+    await prisma.reminderLog.create({ data: { dedupeKey: key, kind } });
+    return true;
+  } catch (err) {
+    const code = (err as { code?: string })?.code;
+    if (code === 'P2002') return false; // already claimed — skip the send
+    logger.warn('[cron] Reminder dedupe claim failed (failing open to send):', err);
+    return true; // a dedupe error must never suppress a legitimate reminder
+  }
 }
 
 async function pushManagerAttendanceAlerts(): Promise<void> {
@@ -834,6 +930,7 @@ export function startCron(): void {
       await sendShiftReminders();
       await pushManagerAttendanceAlerts();
       await purgeRetentionPolicies();
+      await pruneReminderLogs();
       await closeStaleActiveTimeEntries();
       await reconcileOverdueActiveEntries();
       await sampleAuditLogGrowth();

@@ -5,7 +5,55 @@ findings. Supersedes the per-cycle audit reports listed below, which are
 retained as historical artifacts only — their scores and claims are NOT
 current. For current state, trust this register + the code.
 
-**Last updated:** 2026-09-25 (Cycle 16 — spec-conformance audit)
+**Last updated:** 2026-09-27 (Cycle 17 — feature-conformance + reliability audit)
+
+## Cycle 17 (2026-09-27) — closed this cycle
+
+Eleven product problems audited end-to-end (reminders, auto clock-in/out in
+background, manager notification centre, payroll export/breakdown, bulk shifts,
+cost-of-late, time-entry delete, multiple clock-ins, tenant-scoped
+notifications). Closed findings:
+
+1. **Dwell window 120s → 600s** — `reclockGuard.ts` + `duplicatePunch.ts` were a
+   matched preventive/corrective pair at 120 s; a ~3-minute GPS bounce inside
+   the geofence cleared both and silently created a second session (the
+   "multiple clock in/out on site" report). Both defaults now 600 s and exposed
+   as `DEFAULT_RECLOCK_GUARD_SECONDS` / `DEFAULT_DUPLICATE_WINDOW_SECONDS`.
+2. **Leave-day false reminders** — `sendShiftReminders`'s "does this employee
+   have a shift today?" probe filtered to working shift types, so an approved
+   Leave/Sick/PTO row made the employee look unscheduled and they received the
+   default-hours reminder while on leave. Filter removed.
+3. **Durable cron dedupe** — shift/manager alert dedupe was process-local; a
+   deploy inside the 2-minute reminder window or a second replica could re-send.
+   Added `ReminderLog` (migration 24) with a unique `dedupeKey`; in-memory Maps
+   remain as a fast-path cache. Pruned after 72 h.
+4. **Bounded cron active-entry scan** — the working-end auto clock-out scan
+   loaded every active entry platform-wide with two joins each tick; now bounded
+   to 48 h / 1000 rows with a warn+metric on cap.
+5. **Component-row payroll import** — registered `componentHoursFormat` (Basic
+   Pay / Overtime @ 1.5 / Overtime @ Double Time) so payroll admins can import
+   one row per employee per component instead of hand-building it.
+6. **Payroll daily-breakdown cells** — per-day Normal/OT/PH cells were blank;
+   now allocated from the authoritative period totals so columns reconcile
+   exactly to the Payroll Summary.
+7. **Notification-centre last-seen key** — now namespaced by user+company so a
+   master switching companies no longer inherits the previous tenant's read
+   state.
+8. **Background auto-clock visibility + Android watchdog** — `ensureBackgroundLocationUpdates`
+   records why it bailed (permission tier); the iOS-only watchdog now runs on
+   Android too; `backgroundArmed`/`backgroundBlockedReason` bridge to the WebView.
+9. **Batch-level audit** — bulk shift edit/delete now record a stable `batchId`
+   (previously the arbitrary first shift id) plus the full `shift_ids` list, so a
+   bulk mutation is reconstructable as one action from the audit trail alone.
+10. **E2E boundaries** — added `tests/e2e/bulk-shifts-audit.spec.ts` covering
+    role gating, mandatory-reason validation, and cross-tenant NOT_FOUND for
+    bulk shift ops + time-entry delete.
+
+**Near-miss (corrected):** `app.json` android.versionCode was stale at `2` while
+vc18–vc21 were already promoted; a naive fix set it to `20` (≤ vc21, would be
+rejected). Set to `22` and added a predeploy drift guard that fails the build
+when versionCode does not exceed the highest `promote-production-vc*.mjs`
+suffix.
 
 ## Superseded reports
 
