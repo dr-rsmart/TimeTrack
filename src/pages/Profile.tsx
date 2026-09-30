@@ -29,6 +29,66 @@ import { Card, CardContent, Button, Input, Spinner, Badge } from '../components/
 import { toast } from 'sonner';
 import ChangePasswordModal from '../components/auth/ChangePasswordModal';
 import { useAuth } from '../context/AuthContext';
+import {
+  disableWebPush,
+  enableWebPush,
+  getWebPushState,
+  isWebPushSupported,
+  type WebPushState,
+} from '../utils/webPush';
+
+/** Opt-in toggle for browser push notifications (hidden inside the mobile app). */
+function WebPushCard() {
+  const [state, setState] = useState<WebPushState | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!isWebPushSupported()) return;
+    void getWebPushState()
+      .then(setState)
+      .catch(() => setState('off'));
+  }, []);
+
+  if (!isWebPushSupported() || state === null) return null;
+
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      const next = state === 'on' ? await disableWebPush() : await enableWebPush();
+      setState(next);
+      if (next === 'on') toast.success('Browser notifications enabled');
+      else if (next === 'denied')
+        toast.error('Notifications are blocked — allow them in your browser site settings.');
+      else if (next === 'unconfigured')
+        toast.error('Browser notifications are not configured on this server yet.');
+      else toast.success('Browser notifications disabled');
+    } catch {
+      toast.error('Could not update browser notifications');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="border-border/50 rounded-3xl shadow-lg p-5 flex items-center justify-between">
+      <div>
+        <h3 className="font-bold text-base">Browser notifications</h3>
+        <p className="text-muted-foreground text-xs mt-0.5">
+          {state === 'denied'
+            ? 'Blocked in this browser — allow notifications in site settings.'
+            : 'Receive clock-in/out confirmations, reminders and alerts even when this tab is closed.'}
+        </p>
+      </div>
+      <button
+        onClick={() => void toggle()}
+        disabled={busy || state === 'denied'}
+        className="text-sm font-bold text-primary hover:underline transition-all disabled:opacity-50"
+      >
+        {state === 'on' ? 'Turn off' : 'Turn on'}
+      </button>
+    </Card>
+  );
+}
 
 interface ProfileData {
   id: string;
@@ -505,6 +565,9 @@ export default function ProfilePage() {
           Change Password
         </button>
       </Card>
+
+      {/* ────────────────── BROWSER NOTIFICATIONS (web only) ────────────────── */}
+      <WebPushCard />
 
       {/* ────────────────── DANGER ZONE CARD ────────────────── */}
       <Card className="border-red-200/50 bg-red-50/5 dark:bg-red-950/10 rounded-3xl shadow-sm p-6 space-y-4">

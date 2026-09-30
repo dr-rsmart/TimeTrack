@@ -40,6 +40,12 @@ export interface AttendanceCostInput {
   clockOutMinutesOfDay: number | null;
   /** True when the clock-out happened on the following calendar day. */
   clockOutNextDay?: boolean;
+  /**
+   * Company grace (minutes, CompanySettings.lateGraceMinutes). A deviation of
+   * up to `graceMinutes` is ignored; beyond it the FULL deviation counts.
+   * Default 0 = strict. Shared with the attendance-alerts feed.
+   */
+  graceMinutes?: number;
 }
 
 export interface AttendanceCostResult {
@@ -96,6 +102,10 @@ export function computeAttendanceCost(input: AttendanceCostInput): AttendanceCos
     }
   }
 
+  const grace = Math.max(0, Math.floor(input.graceMinutes ?? 0));
+  if (lateMinutes <= grace) lateMinutes = 0;
+  if (earlyMinutes <= grace) earlyMinutes = 0;
+
   return { lateMinutes, earlyMinutes, totalLostMinutes: lateMinutes + earlyMinutes };
 }
 
@@ -129,6 +139,112 @@ export function resolveLatePenaltyRate(
   if (chosen === null || chosen === undefined) return null;
   const n = Number(chosen);
   return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+// ── Expected working window resolution ──
+// Precedence: explicit scheduled shift (with times) → working hours of the
+// location the employee clocked in at → company default working hours.
+// Leave-type shifts are returned as-is so computeAttendanceCost zeroes them.
+
+export interface WindowSchedule {
+  days: string[];
+  startTime: string;
+  endTime: string;
+}
+
+export interface ExpectedWindow {
+  start: string | null;
+  end: string | null;
+  shiftType: string | null;
+  source: 'shift' | 'location' | 'company' | 'none';
+}
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** Day name for a YYYY-MM-DD business date (UTC-noon anchored). */
+export function weekdayName(dateStr: string): string {
+  return WEEKDAYS[new Date(`${dateStr}T12:00:00Z`).getUTCDay()];
+}
+
+export function resolveExpectedWindow(input: {
+  dateStr: string;
+  shift: { startTime: string | null; endTime: string | null; shiftType: string | null } | null;
+  locationSchedules: WindowSchedule[];
+  companySchedules: WindowSchedule[];
+}): ExpectedWindow {
+  const { shift } = input;
+  if (shift) {
+    const leave = normaliseLeaveType(shift.shiftType);
+    if (leave || shift.shiftType === 'half_day') {
+      return { start: null, end: null, shiftType: shift.shiftType, source: 'shift' };
+    }
+    if (shift.startTime && shift.endTime) {
+      return {
+        start: shift.startTime,
+        end: shift.endTime,
+        shiftType: shift.shiftType,
+        source: 'shift',
+      };
+    }
+  }
+  const day = weekdayName(input.dateStr);
+  const fromList = (list: WindowSchedule[]) => list.find((s) => s.days.includes(day)) ?? null;
+  const loc = fromList(input.locationSchedules);
+  if (loc) return { start: loc.startTime, end: loc.endTime, shiftType: null, source: 'location' };
+  const co = fromList(input.companySchedules);
+  if (co) return { start: co.startTime, end: co.endTime, shiftType: null, source: 'company' };
+  return { start: null, end: null, shiftType: null, source: 'none' };
+}
+
+/**
+ * Flatten every location schedule assigned to an employee (legacy
+ * Employee.geofence + EmployeeGeofence join rows). Used when there is no
+ * clock-in yet to tell us WHICH location applies (reminders, absences).
+ * Raw JSON is parsed by the injected parser so this module stays pure.
+ */
+export function collectEmployeeLocationSchedules(
+  emp: {
+    geofence?: { workingHoursSchedules: unknown } | null;
+    employeeGeofences?: { geofence: { workingHoursSchedules: unknown } | null }[];
+  },
+  parse: (raw: unknown) => WindowSchedule[] = defaultParseSchedules,
+): WindowSchedule[] {
+  const raws: unknown[] = [];
+  if (emp.geofence) raws.push(emp.geofence.workingHoursSchedules);
+  for (const eg of emp.employeeGeofences ?? []) {
+    if (eg.geofence) raws.push(eg.geofence.workingHoursSchedules);
+  }
+  return raws.flatMap((r) => parse(r));
+}
+
+function defaultParseSchedules(raw: unknown): WindowSchedule[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (s): s is WindowSchedule =>
+      !!s &&
+      typeof s === 'object' &&
+      Array.isArray((s as WindowSchedule).days) &&
+      typeof (s as WindowSchedule).startTime === 'string' &&
+      typeof (s as WindowSchedule).endTime === 'string',
+  );
+}
+
+/**
+ * Collapse a day's punches into ONE attendance span: earliest clock-in and
+ * latest clock-out. Mid-day breaks (out 12:00 / in 12:30) therefore never
+ * register as early-leave + late-arrival. Returns null for an empty list.
+ */
+export function collapseDayPunches<T extends { clockIn: Date; clockOut: Date | null }>(
+  entries: T[],
+): { first: T; clockIn: Date; clockOut: Date | null } | null {
+  if (entries.length === 0) return null;
+  let first = entries[0];
+  let lastOut: Date | null = null;
+  for (const e of entries) {
+    if (e.clockIn.getTime() < first.clockIn.getTime()) first = e;
+    if (e.clockOut && (!lastOut || e.clockOut.getTime() > lastOut.getTime())) lastOut = e.clockOut;
+  }
+  return { first, clockIn: first.clockIn, clockOut: lastOut };
 }
 
 /** Minutes → decimal hours, rounded to 2dp (report display convention). */

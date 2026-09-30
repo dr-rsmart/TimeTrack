@@ -41,8 +41,12 @@ export function toDateStr(d: Date, timeZone = DEFAULT_BUSINESS_TIMEZONE): string
 /** Download rows as a CSV file. */
 export function downloadCsv(filename: string, headers: string[], rows: (string | number)[][]) {
   const escape = (v: string | number) => {
-    const s = String(v);
-    return s.includes(',') || s.includes('"') || s.includes('\n')
+    let s = String(v);
+    // CSV/formula injection guard (OWASP): text cells beginning with = + - @
+    // (or tab/CR) are executed by Excel/Sheets. Numbers are left untouched so
+    // negative payroll values stay numeric.
+    if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+    return s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')
       ? `"${s.replace(/"/g, '""')}"`
       : s;
   };

@@ -401,7 +401,9 @@ onInvalidationCommand((cmd) => {
 
 export async function requireAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
   if (!req.authUser) {
-    res.status(401).json({ error: 'Authentication required.' });
+    // Defensive: a route mounted without requireAuth must still authenticate
+    // (never a blanket 401 that the SPA reads as a forced sign-out).
+    await requireAuth(req, res, () => void requireAdmin(req, res, next));
     return;
   }
   // Fast path: JWT says not elevated → deny without DB hit
@@ -435,7 +437,8 @@ export async function requireAdminOrManager(
   next: NextFunction,
 ): Promise<void> {
   if (!req.authUser) {
-    res.status(401).json({ error: 'Authentication required.' });
+    // Defensive: see requireAdmin — authenticate first instead of a bare 401.
+    await requireAuth(req, res, () => void requireAdminOrManager(req, res, next));
     return;
   }
   // Fast path: JWT says not elevated → deny without DB hit

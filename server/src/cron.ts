@@ -32,6 +32,10 @@ import { singleEmployeeIdentityFilter } from './domain/employeeIdentity.js';
 import { resolveWorkingEndFromSchedules } from './locationWorkingHours.js';
 import { parseWorkingHoursSchedules, type WorkingHoursSchedule } from './workingHoursSchedules.js';
 import { runUnrestricted } from './tenantDatabase.js';
+import {
+  resolveExpectedWindow,
+  collectEmployeeLocationSchedules,
+} from './domain/attendanceCost.js';
 import { recordAutoClockOutcome, setAuditLogRows } from './metrics.js';
 import {
   closeActiveEntryAtShiftEnd,
@@ -604,13 +608,6 @@ function fireShiftReminderOnce(
 
 const WORKING_SHIFT_TYPES = new Set(['full_day', 'half_day']);
 
-function weekdayName(dateStr: string): string {
-  return new Date(`${dateStr}T12:00:00Z`).toLocaleDateString('en-US', {
-    weekday: 'long',
-    timeZone: 'UTC',
-  });
-}
-
 async function sendShiftReminders(): Promise<void> {
   const jobName = 'shift-reminders';
   if (!(await acquireLock(jobName, 90_000))) return;
@@ -697,38 +694,49 @@ async function sendShiftReminders(): Promise<void> {
     // Normal business hours apply (CompanySettings.defaultWorking*), mirroring
     // the auto clock-out fallback. The employee query only runs when a company's
     // default start/end reminder window is actually due (≤2×/day/company).
-    const dayName = weekdayName(biz.dateStr);
+    // Precedence (client decision, Cycle 18): assigned LOCATION working hours
+    // first, then company per-day default schedules (migration 20), with the
+    // legacy single default block as the last resort for pre-migration rows.
     const companySettings = await prisma.companySettings.findMany({
       where: { companyProfileId: { not: null } },
+      orderBy: { updatedAt: 'desc' },
       select: {
         companyProfileId: true,
         defaultWorkingStartTime: true,
         defaultWorkingEndTime: true,
         defaultWorkingDays: true,
+        defaultWorkingHoursSchedules: true,
       },
     });
+    const seenCompanies = new Set<string>();
 
     for (const settings of companySettings) {
       if (!settings.companyProfileId) continue;
-      if (!settings.defaultWorkingDays.includes(dayName)) continue;
+      if (seenCompanies.has(settings.companyProfileId)) continue;
+      seenCompanies.add(settings.companyProfileId);
 
-      const startDue =
-        timeStrToMinutes(settings.defaultWorkingStartTime) !== null &&
-        isReminderDue({
-          nowMinutesOfDay: biz.minutesOfDay,
-          eventMinutes: timeStrToMinutes(settings.defaultWorkingStartTime)!,
-          leadMinutes: SHIFT_REMINDER_LEAD_MINUTES,
-          windowMinutes: SHIFT_REMINDER_WINDOW_MINUTES,
-        });
-      const endDue =
-        timeStrToMinutes(settings.defaultWorkingEndTime) !== null &&
-        isReminderDue({
-          nowMinutesOfDay: biz.minutesOfDay,
-          eventMinutes: timeStrToMinutes(settings.defaultWorkingEndTime)!,
-          leadMinutes: SHIFT_REMINDER_LEAD_MINUTES,
-          windowMinutes: SHIFT_REMINDER_WINDOW_MINUTES,
-        });
-      if (!startDue && !endDue) continue;
+      let companySchedules = parseWorkingHoursSchedules(settings.defaultWorkingHoursSchedules);
+      if (companySchedules.length === 0 && settings.defaultWorkingDays.length > 0) {
+        companySchedules = [
+          {
+            days: settings.defaultWorkingDays,
+            startTime: settings.defaultWorkingStartTime,
+            endTime: settings.defaultWorkingEndTime,
+          },
+        ];
+      }
+      const isDue = (time: string | null): boolean => {
+        const mins = timeStrToMinutes(time);
+        return (
+          mins !== null &&
+          isReminderDue({
+            nowMinutesOfDay: biz.minutesOfDay,
+            eventMinutes: mins,
+            leadMinutes: SHIFT_REMINDER_LEAD_MINUTES,
+            windowMinutes: SHIFT_REMINDER_WINDOW_MINUTES,
+          })
+        );
+      };
 
       // Employees of this company WITHOUT ANY shift today.
       //
@@ -761,7 +769,12 @@ async function sendShiftReminders(): Promise<void> {
       );
       const unscheduled = await prisma.employee.findMany({
         where: { companyProfileId: settings.companyProfileId, status: 'active' },
-        select: { id: true, email: true },
+        select: {
+          id: true,
+          email: true,
+          geofence: { select: { workingHoursSchedules: true } },
+          employeeGeofences: { select: { geofence: { select: { workingHoursSchedules: true } } } },
+        },
       });
 
       for (const emp of unscheduled) {
@@ -770,21 +783,28 @@ async function sendShiftReminders(): Promise<void> {
           scheduledKeys.has(`email:${emp.email.toLowerCase()}`)
         )
           continue;
-        if (startDue) {
+        const window = resolveExpectedWindow({
+          dateStr: biz.dateStr,
+          shift: null,
+          locationSchedules: collectEmployeeLocationSchedules(emp),
+          companySchedules,
+        });
+        if (window.source === 'none') continue;
+        if (isDue(window.start)) {
           fireShiftReminderOnce(
             `default-start:${settings.companyProfileId}:${biz.dateStr}:${emp.id}`,
             emp.email,
             'Workday Starting Soon',
-            `Your workday starts at ${settings.defaultWorkingStartTime} — ${SHIFT_REMINDER_LEAD_MINUTES} minutes to go.`,
+            `Your workday starts at ${window.start} — ${SHIFT_REMINDER_LEAD_MINUTES} minutes to go. Remember to clock in.`,
             settings.companyProfileId,
           );
         }
-        if (endDue) {
+        if (isDue(window.end)) {
           fireShiftReminderOnce(
             `default-end:${settings.companyProfileId}:${biz.dateStr}:${emp.id}`,
             emp.email,
             'Workday Ending Soon',
-            `Your workday ends at ${settings.defaultWorkingEndTime} — ${SHIFT_REMINDER_LEAD_MINUTES} minutes to go.`,
+            `Your workday ends at ${window.end} — ${SHIFT_REMINDER_LEAD_MINUTES} minutes to go. Remember to clock out.`,
             settings.companyProfileId,
           );
         }

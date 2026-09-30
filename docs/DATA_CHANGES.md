@@ -690,3 +690,57 @@ deploy`; both are replay-safe, 21 defaults Saturday overtime OFF so no
 - **Operational caveat:** migrations MUST run as the owner (`MIGRATE_DATABASE_URL`),
   never as `timetrack_app`. `DATABASE_URL` is the runtime role; `prisma migrate
 deploy` without the override will fail on any ALTER/CREATE.
+
+## 2026-09-30 — Railway production → local `timetrack_prod` → local `timetrack_pre-prod` refresh
+
+- **Source:** Railway production `railway` DB (project `TimeTrack`, env `production`,
+  service `Postgres`) via the public TCP proxy; credentials read at runtime with
+  `railway variable list -s Postgres --kv`, never written to disk.
+- **Rollback dumps (git-ignored, verified with `pg_restore -l`, taken WITH privileges):**
+  - `backups/timetrack_prod-before-railway-20260930-191834.dump` — 450,648 bytes, 210 TOC,
+    SHA-256 `E7AB9C679F3F26A59D70079A572ECF33CBD817F49BEBD383142BE80A436F8129`
+  - `backups/timetrack_pre-prod-before-prod-sync-20260930-192005.dump` — 445,287 bytes, 201 TOC,
+    SHA-256 `2FBD1B33BF076D74EEE0DCAFFF8593C0662B5D2C96EDAEF07F35E0FD77D67615`
+- **Method (both steps):** `pg_dump -Fc --no-owner --no-privileges` of the source →
+  `dropdb --if-exists --force` → `createdb -O postgres -E UTF8 -T template0`
+  (`English_South Africa.1252`) → `pg_restore --no-owner --no-privileges --exit-on-error
+--single-transaction`. Temporary snapshots deleted.
+- **Verification:** Railway = `timetrack_prod` = `timetrack_pre-prod` on every public table
+  row count, 151 indexes, 53 FKs, 31 applied migrations, 28 RLS policies / 16 RLS tables.
+  Key counts: `AuditLog` 4,811; `CompanyProfile` 5; `CompanySettings` 6; `Employee` 100;
+  `EmployeeGeofence` 44; `EmploymentHistory` 183; `Geofence` 31; `NativeRefreshToken` 1,869;
+  `ReminderLog` 677; `Shift` 934; `TimeEntry` 1,176; `User` 105.
+- **Consequences:** both clones now mirror production schema (incl. production-only tables such
+  as `tenants`/`customers`/`id_sequences` and migrations `0001_init`, `0002_fk_rls`, `2026092*`).
+  Grants to `timetrack_app` were not restored — re-run `cd server && npm run db:runtime-role -- --apply`
+  before using the runtime `DATABASE_URL`.
+- **Rollback:** drop/create the DB and `pg_restore --no-owner` the matching dump above.
+
+## 2026-09-30 — Railway production: migration 25 (`25_grace_minutes_web_push`) + VAPID keys
+
+- **Target:** Railway production `railway` DB (project `TimeTrack`, env `production`), applied by
+  `scripts/production-start.mjs` → `prisma migrate deploy` on the Cycle-18 deploy. Runtime
+  `DATABASE_URL` is the owner role (`postgres`), so no `MIGRATE_DATABASE_URL` override is needed.
+- **Pre-deploy rollback dump (git-ignored, full `pg_dump -Fc` WITH owner/privileges, verified
+  with `pg_restore -l`, 340 TOC entries):**
+  - `backups/timetrack_prod-before-deploy-mig25-20260930-223047.dump` — 651,096 bytes,
+    SHA-256 `1A45B902CE6052A5C6F3DCC41682849FE8F9CD8FF2E63527FD343A283754870F`
+- **Pre-deploy state:** `migrate status` → last common migration `24_reminder_log`; only
+  `25_grace_minutes_web_push` pending. Production-only migrations (`0001_init`, `0002_fk_rls`,
+  `20260925113551_0003_id_sequences`, `20260926220000_unique_team_member_email`,
+  `20260927120000_token_version`, `20260927130000_list_indexes`) are not in this repo — known
+  divergence, untouched by this deploy. No failed/in-progress migration rows.
+  Row counts: `CompanyProfile` 5; `CompanySettings` 6; `Employee` 100; `User` 105; `Shift` 934;
+  `TimeEntry` 1,176; `Geofence` 31; `AuditLog` 4,815; `_prisma_migrations` 31.
+- **What changes (additive only, no row mutation):** `CompanySettings.lateGraceMinutes INT NOT NULL
+DEFAULT 0` (0 = existing strict late/early behaviour) and new table `WebPushSubscription`
+  (+ endpoint unique index, 2 lookup indexes, FK → `User` ON DELETE CASCADE).
+- **Config:** Railway service variables `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`
+  (`mailto:support@time-track.tech`) set with `--skip-deploys`; the private key exists only in
+  Railway (never written to disk or git).
+- **Rollback:** code — `railway redeploy` of the previous deployment `000a223f-…` (old code ignores
+  the new column/table). Schema — the footer of `migration.sql`
+  (`DROP TABLE IF EXISTS "WebPushSubscription"; ALTER TABLE "CompanySettings" DROP COLUMN IF EXISTS
+"lateGraceMinutes";`) then `DELETE FROM _prisma_migrations WHERE migration_name =
+'25_grace_minutes_web_push'`. Full restore only if data were affected: `pg_restore --clean
+--if-exists` of the dump above.

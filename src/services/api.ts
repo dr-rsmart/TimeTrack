@@ -915,7 +915,13 @@ export const reportApi = {
     to: string;
     rowCount: number;
     filters?: Record<string, string | number | boolean | null>;
-  }) => api.post<{ success: boolean; id: string }>('/reports/payroll/export-log', data),
+    /** Master platform exports only — employee ids contained in the file. */
+    employeeIds?: string[];
+  }) =>
+    api.post<{ success: boolean; id?: string; logged?: number }>(
+      '/reports/payroll/export-log',
+      data,
+    ),
   /** Spec §4 — tenant-scoped payroll export history (admin/manager/master). */
   listPayrollExports: (params: { limit?: number; from?: string; to?: string } = {}) => {
     const qs = new URLSearchParams();
@@ -955,6 +961,8 @@ export interface CompanySettings {
   defaultWorkingDays: string[];
   /** Per-day default schedules; empty = company-default auto clock-out disabled. */
   defaultWorkingHoursSchedules: WorkingHoursSchedule[];
+  /** Shared late/early grace (minutes) for the Cost-of-Late report + alerts. */
+  lateGraceMinutes?: number;
 }
 
 export interface Geofence {

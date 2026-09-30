@@ -43,6 +43,8 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
+          // Web Push (migration 25): push + notificationclick handlers.
+          importScripts: ['/push-sw.js'],
           globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
           navigateFallbackDenylist: [/^\/api\//],
           runtimeCaching: [

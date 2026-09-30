@@ -135,7 +135,29 @@ if (redisUrl) {
   console.log('ℹ️  Redis: Not configured — application will run in standalone in-memory mode.');
 }
 
-// 5. Port
+// 5. Web Push (VAPID) — optional; without it browser push is silently disabled.
+const vapidPublic = process.env.VAPID_PUBLIC_KEY?.trim();
+const vapidPrivate = process.env.VAPID_PRIVATE_KEY?.trim();
+if (vapidPublic && vapidPrivate) {
+  console.log(
+    `✅ Web Push: VAPID keys configured (subject: ${process.env.VAPID_SUBJECT?.trim() || 'mailto:support@time-track.tech (default)'}).`,
+  );
+} else if (vapidPublic || vapidPrivate) {
+  console.error(
+    '❌ FATAL: Only one of VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY is set. Set both (npx web-push generate-vapid-keys).',
+  );
+  hasErrors = true;
+} else if (isProd) {
+  console.warn(
+    '⚠️  WARNING: VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY not set — browser Web Push notifications are DISABLED.\n' +
+      '   Generate with: npx web-push generate-vapid-keys',
+  );
+  hasWarnings = true;
+} else {
+  console.log('ℹ️  Web Push: VAPID keys not configured — browser push disabled.');
+}
+
+// 6. Port
 const port = parseInt(process.env.PORT || '4000', 10);
 console.log(`✅ Server Port: ${port}`);
 

@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { ShieldAlert, Save } from 'lucide-react';
+import { ShieldAlert, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { timeEntryApi, type TimeEntry, ApiError } from '../../services/api';
 import { Button, Input, Label, Modal, Textarea } from '../ui';
@@ -120,6 +120,24 @@ export default function EditTimeEntryModal({
       } else {
         toast.error(err instanceof ApiError ? err.message : 'Failed to update time entry');
       }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Delete the entry outright (duplicate / erroneous punch). Server enforces scope. */
+  const handleDelete = async () => {
+    if (!entry) return;
+    const who = entry.employeeName ?? entry.employeeEmail;
+    if (!window.confirm(`Delete this time entry for ${who}?\n\nThis cannot be undone.`)) return;
+    setBusy(true);
+    try {
+      await timeEntryApi.remove(entry.id);
+      toast.success(`Time entry deleted for ${who}`);
+      onDone?.();
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Could not delete the time entry');
     } finally {
       setBusy(false);
     }
@@ -244,6 +262,19 @@ export default function EditTimeEntryModal({
 
         {/* Actions */}
         <div className="flex justify-end gap-2">
+          {entry && entry.status !== 'active' && (
+            <Button
+              variant="outline"
+              onClick={handleDelete}
+              disabled={busy}
+              data-testid="edit-modal-delete-entry"
+              className="mr-auto text-red-600 border-red-300 hover:bg-red-50"
+              title="Delete this entry (e.g. a double clock-in)"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete entry
+            </Button>
+          )}
           <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancel
           </Button>

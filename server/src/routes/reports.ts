@@ -18,6 +18,8 @@ import {
   computeRandLost,
   minutesToHours,
   resolveLatePenaltyRate,
+  resolveExpectedWindow,
+  collapseDayPunches,
 } from '../domain/attendanceCost.js';
 import {
   getBusinessTimezone,
@@ -26,6 +28,7 @@ import {
   isAbsenceAlertDue,
 } from '../timezone.js';
 import payrollExportRouter from './payrollExports.js';
+import { parseWorkingHoursSchedules, type WorkingHoursSchedule } from '../workingHoursSchedules.js';
 
 const router = Router();
 
@@ -418,6 +421,8 @@ router.get('/attendance-cost', requireAuth, async (req, res) => {
           date: true,
           clockIn: true,
           clockOut: true,
+          companyProfileId: true,
+          geofence: { select: { workingHoursSchedules: true } },
         },
       }),
       prisma.shift.findMany({
@@ -432,6 +437,34 @@ router.get('/attendance-cost', requireAuth, async (req, res) => {
         },
       }),
     ]);
+
+    // Company default working hours (fallback when neither a shift nor the
+    // clock-in location defines the expected window).
+    const companyIds = [
+      ...new Set(entries.map((e) => e.companyProfileId).filter((x): x is string => !!x)),
+    ];
+    const companySettingsRows = companyIds.length
+      ? await prisma.companySettings.findMany({
+          where: { companyProfileId: { in: companyIds } },
+          select: {
+            companyProfileId: true,
+            defaultWorkingHoursSchedules: true,
+            lateGraceMinutes: true,
+          },
+          orderBy: { updatedAt: 'desc' },
+        })
+      : [];
+    const companySchedulesById = new Map<string, WorkingHoursSchedule[]>();
+    const graceByCompany = new Map<string, number>();
+    for (const row of companySettingsRows) {
+      if (row.companyProfileId && !companySchedulesById.has(row.companyProfileId)) {
+        companySchedulesById.set(
+          row.companyProfileId,
+          parseWorkingHoursSchedules(row.defaultWorkingHoursSchedules),
+        );
+        graceByCompany.set(row.companyProfileId, row.lateGraceMinutes);
+      }
+    }
 
     // Index shifts by identity+date for O(1) lookup against each entry.
     const shiftByKeyDate = new Map<string, (typeof shifts)[number]>();
@@ -451,30 +484,57 @@ router.get('/attendance-cost', requireAuth, async (req, res) => {
       { emp: (typeof employees)[number]; late: number; early: number; days: DayDetail[] }
     >();
 
+    // Group punches per employee+day: lateness is measured on the FIRST
+    // clock-in and early-leave on the LAST clock-out, so breaks are never
+    // charged as early-out + late-in.
+    const entriesByDay = new Map<string, (typeof entries)[number][]>();
     for (const e of entries) {
+      const dayKey = `${identityKey(e.employeeId, e.employeeEmail)}|${toDateStr(e.date)}`;
+      const list = entriesByDay.get(dayKey);
+      if (list) list.push(e);
+      else entriesByDay.set(dayKey, [e]);
+    }
+
+    for (const [dayKey, dayEntries] of entriesByDay) {
+      const span = collapseDayPunches(dayEntries);
+      if (!span) continue;
+      const e = span.first;
       const key = identityKey(e.employeeId, e.employeeEmail);
       const emp = employeeByKey.get(key);
       if (!emp) continue;
-      const dateKey = toDateStr(e.date);
+      const dateKey = dayKey.slice(dayKey.lastIndexOf('|') + 1);
       const shift = shiftByKeyDate.get(`${key}|${dateKey}`);
       const penaltyRate = resolveLatePenaltyRate(emp.hourlyRate, emp.latePenaltyRate);
 
-      const clockInBiz = businessNow(tz, e.clockIn);
-      const clockOutBiz = e.clockOut ? businessNow(tz, e.clockOut) : null;
-      const startMin = timeStrToMinutes(shift?.startTime ?? null);
-      const endMin = timeStrToMinutes(shift?.endTime ?? null);
+      // Expected window: shift → clock-in location hours → company default.
+      const window = resolveExpectedWindow({
+        dateStr: dateKey,
+        shift: shift
+          ? { startTime: shift.startTime, endTime: shift.endTime, shiftType: shift.shiftType }
+          : null,
+        locationSchedules: parseWorkingHoursSchedules(e.geofence?.workingHoursSchedules),
+        companySchedules: e.companyProfileId
+          ? (companySchedulesById.get(e.companyProfileId) ?? [])
+          : [],
+      });
+
+      const clockInBiz = businessNow(tz, span.clockIn);
+      const clockOutBiz = span.clockOut ? businessNow(tz, span.clockOut) : null;
+      const startMin = timeStrToMinutes(window.start);
+      const endMin = timeStrToMinutes(window.end);
       const crossesMidnight = startMin !== null && endMin !== null && endMin <= startMin;
       // A clock-out whose business date is after the entry date rolled past midnight.
       const clockOutNextDay = clockOutBiz !== null && clockOutBiz.dateStr > dateKey;
 
       const cost = computeAttendanceCost({
-        shiftStart: shift?.startTime ?? null,
-        shiftEnd: shift?.endTime ?? null,
-        shiftType: shift?.shiftType,
+        shiftStart: window.start,
+        shiftEnd: window.end,
+        shiftType: window.shiftType,
         crossesMidnight,
         clockInMinutesOfDay: clockInBiz.minutesOfDay,
         clockOutMinutesOfDay: clockOutBiz ? clockOutBiz.minutesOfDay : null,
         clockOutNextDay,
+        graceMinutes: e.companyProfileId ? (graceByCompany.get(e.companyProfileId) ?? 0) : 0,
       });
 
       let agg = perEmployee.get(key);
@@ -545,7 +605,17 @@ router.get('/attendance-alerts', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Attendance alerts require a manager context.' });
     }
     const days = Math.min(Math.max(parseInt(req.query.days as string, 10) || 1, 1), 31);
-    const graceMinutes = Math.min(Math.max(parseInt(req.query.grace as string, 10) || 5, 0), 120);
+    // Late/early grace comes from the company setting shared with the
+    // Cost-of-Late report (CompanySettings.lateGraceMinutes) so the alert feed
+    // and the report always agree. The legacy ?grace= query is ignored.
+    const graceSettings = authUser.companyProfileId
+      ? await prisma.companySettings.findFirst({
+          where: { companyProfileId: authUser.companyProfileId },
+          orderBy: { updatedAt: 'desc' },
+          select: { lateGraceMinutes: true },
+        })
+      : null;
+    const graceMinutes = graceSettings?.lateGraceMinutes ?? 0;
     // No-show alert grace (spec §3: "no clock-in within 10 minutes of shift
     // start"). Distinct from `grace` (late/early tolerance). Clamped 1..120.
     const noShowGrace = Math.min(
@@ -601,7 +671,9 @@ router.get('/attendance-alerts', requireAuth, async (req, res) => {
           ...tenantWhere,
           ...identityFilter,
           date: { gte: fromDate, lte: toDate },
-          status: 'completed',
+          // Active entries included so a late arrival alerts immediately
+          // (not only after clock-out); early-leave still needs a clock-out.
+          status: { in: ['completed', 'active'] },
         },
         select: {
           employeeId: true,
@@ -609,13 +681,68 @@ router.get('/attendance-alerts', requireAuth, async (req, res) => {
           date: true,
           clockIn: true,
           clockOut: true,
+          status: true,
+          companyProfileId: true,
+          geofence: { select: { workingHoursSchedules: true } },
         },
       }),
     ]);
 
-    const entriesByKeyDate = new Map<string, (typeof entries)[number]>();
+    // Company default schedules — same fallback chain as the Cost-of-Late
+    // report (shift → clock-in location hours → company default) so the
+    // alert feed and the report can never disagree on the expected window.
+    const alertCompanyIds = [
+      ...new Set(entries.map((e) => e.companyProfileId).filter((x): x is string => !!x)),
+    ];
+    const alertCompanySettings = alertCompanyIds.length
+      ? await prisma.companySettings.findMany({
+          where: { companyProfileId: { in: alertCompanyIds } },
+          select: { companyProfileId: true, defaultWorkingHoursSchedules: true },
+          orderBy: { updatedAt: 'desc' },
+        })
+      : [];
+    const alertCompanySchedules = new Map<string, WorkingHoursSchedule[]>();
+    for (const row of alertCompanySettings) {
+      if (row.companyProfileId && !alertCompanySchedules.has(row.companyProfileId)) {
+        alertCompanySchedules.set(
+          row.companyProfileId,
+          parseWorkingHoursSchedules(row.defaultWorkingHoursSchedules),
+        );
+      }
+    }
+
+    // Same day-collapse as the Cost-of-Late report: first clock-in, last
+    // clock-out (early-leave only once no session is still open that day).
+    const groupedByKeyDate = new Map<string, (typeof entries)[number][]>();
     for (const e of entries) {
-      entriesByKeyDate.set(`${identityKey(e.employeeId, e.employeeEmail)}|${toDateStr(e.date)}`, e);
+      const k = `${identityKey(e.employeeId, e.employeeEmail)}|${toDateStr(e.date)}`;
+      const list = groupedByKeyDate.get(k);
+      if (list) list.push(e);
+      else groupedByKeyDate.set(k, [e]);
+    }
+    const entriesByKeyDate = new Map<
+      string,
+      {
+        clockIn: Date;
+        clockOut: Date | null;
+        employeeEmail: string;
+        locationSchedules: WorkingHoursSchedule[];
+        companySchedules: WorkingHoursSchedule[];
+      }
+    >();
+    for (const [k, list] of groupedByKeyDate) {
+      const span = collapseDayPunches(list);
+      if (!span) continue;
+      const stillOpen = list.some((e) => e.status === 'active');
+      entriesByKeyDate.set(k, {
+        clockIn: span.clockIn,
+        clockOut: stillOpen ? null : span.clockOut,
+        employeeEmail: span.first.employeeEmail,
+        locationSchedules: parseWorkingHoursSchedules(span.first.geofence?.workingHoursSchedules),
+        companySchedules: span.first.companyProfileId
+          ? (alertCompanySchedules.get(span.first.companyProfileId) ?? [])
+          : [],
+      });
     }
     interface Alert {
       id: string;
@@ -662,7 +789,6 @@ router.get('/attendance-alerts', requireAuth, async (req, res) => {
       if (isLeave || s.status === 'cancelled') continue; // approved leave — nothing to alert
 
       const startMin = timeStrToMinutes(s.startTime);
-      const endMin = timeStrToMinutes(s.endTime);
 
       if (!entry) {
         // Scheduled to work, not on leave, and no completed entry. Only alert
@@ -688,44 +814,87 @@ router.get('/attendance-alerts', requireAuth, async (req, res) => {
         });
         continue;
       }
+      // Late/early for days WITH an entry are handled in the entry loop below.
+    }
 
+    // ── Late clock-in / early clock-out (entry-driven) ──
+    // Every worked day is evaluated against the SAME expected window as the
+    // Cost-of-Late report: shift → clock-in location hours → company default.
+    // Previously this only ran for shift rows and compared against the raw
+    // shift.startTime, so an unscheduled day never alerted while a stray/stale
+    // shift row (e.g. a 06:00 bulk-created default) produced "180 min late"
+    // alerts that the report did not agree with. The message now names the
+    // reference used so managers can see WHY an alert fired.
+    const shiftByKeyDate = new Map<string, (typeof shifts)[number]>();
+    for (const s of shifts) {
+      if (!s.employeeEmail || s.status === 'cancelled') continue;
+      shiftByKeyDate.set(`${identityKey(s.employeeId, s.employeeEmail)}|${toDateStr(s.date)}`, s);
+    }
+    const sourceLabel = (src: string, start: string | null): string =>
+      src === 'shift'
+        ? `scheduled shift ${start}`
+        : src === 'location'
+          ? `location hours ${start}`
+          : `company working hours ${start}`;
+
+    for (const [k, entry] of entriesByKeyDate) {
+      const dateKey = k.slice(k.lastIndexOf('|') + 1);
+      const shift = shiftByKeyDate.get(k);
+      if (shift?.status === 'no_show') continue;
+      const window = resolveExpectedWindow({
+        dateStr: dateKey,
+        shift: shift
+          ? { startTime: shift.startTime, endTime: shift.endTime, shiftType: shift.shiftType }
+          : null,
+        locationSchedules: entry.locationSchedules,
+        companySchedules: entry.companySchedules,
+      });
+      if (window.source === 'none' || !window.start) continue;
+      const startMin = timeStrToMinutes(window.start);
+      const endMin = timeStrToMinutes(window.end);
+      const crossesMidnight = startMin !== null && endMin !== null && endMin <= startMin;
       const clockInBiz = businessNow(tz, entry.clockIn);
-      if (startMin !== null && clockInBiz.minutesOfDay > startMin + graceMinutes) {
-        const mins = clockInBiz.minutesOfDay - startMin;
+      const clockOutBiz = entry.clockOut ? businessNow(tz, entry.clockOut) : null;
+      const cost = computeAttendanceCost({
+        shiftStart: window.start,
+        shiftEnd: window.end,
+        shiftType: window.shiftType,
+        crossesMidnight,
+        clockInMinutesOfDay: clockInBiz.minutesOfDay,
+        clockOutMinutesOfDay: clockOutBiz ? clockOutBiz.minutesOfDay : null,
+        clockOutNextDay: clockOutBiz !== null && clockOutBiz.dateStr > dateKey,
+        graceMinutes,
+      });
+      const emp = findEmp(entry.employeeEmail);
+      const name = emp ? `${emp.firstName} ${emp.surname}` : entry.employeeEmail;
+      const scope = { branch: emp?.branch ?? null, department: emp?.department ?? null };
+      const idBase = shift?.id ?? `${entry.employeeEmail.toLowerCase()}:${dateKey}`;
+
+      if (cost.lateMinutes > 0) {
         alerts.push({
-          id: `late:${s.id}`,
+          id: `late:${idBase}`,
           type: 'late_clock_in',
-          severity: mins >= 30 ? 'warning' : 'info',
-          employeeEmail: s.employeeEmail,
+          severity: cost.lateMinutes >= 30 ? 'warning' : 'info',
+          employeeEmail: entry.employeeEmail,
           employeeName: name,
           ...scope,
           date: dateKey,
-          minutes: mins,
-          message: `${name} clocked in ${mins} min late on ${dateKey}.`,
+          minutes: cost.lateMinutes,
+          message: `${name} clocked in ${cost.lateMinutes} min late on ${dateKey} (vs ${sourceLabel(window.source, window.start)}).`,
         });
       }
-      if (endMin !== null && entry.clockOut) {
-        const clockOutBiz = businessNow(tz, entry.clockOut);
-        const crossesMidnight = startMin !== null && endMin <= startMin;
-        const outAxis =
-          clockOutBiz.dateStr > dateKey
-            ? clockOutBiz.minutesOfDay + 1440
-            : clockOutBiz.minutesOfDay;
-        const endAxis = crossesMidnight ? endMin + 1440 : endMin;
-        if (outAxis < endAxis - graceMinutes) {
-          const mins = endAxis - outAxis;
-          alerts.push({
-            id: `early:${s.id}`,
-            type: 'early_clock_out',
-            severity: mins >= 30 ? 'warning' : 'info',
-            employeeEmail: s.employeeEmail,
-            employeeName: name,
-            ...scope,
-            date: dateKey,
-            minutes: mins,
-            message: `${name} clocked out ${mins} min early on ${dateKey}.`,
-          });
-        }
+      if (cost.earlyMinutes > 0) {
+        alerts.push({
+          id: `early:${idBase}`,
+          type: 'early_clock_out',
+          severity: cost.earlyMinutes >= 30 ? 'warning' : 'info',
+          employeeEmail: entry.employeeEmail,
+          employeeName: name,
+          ...scope,
+          date: dateKey,
+          minutes: cost.earlyMinutes,
+          message: `${name} clocked out ${cost.earlyMinutes} min early on ${dateKey} (vs ${sourceLabel(window.source, window.end)}).`,
+        });
       }
     }
 

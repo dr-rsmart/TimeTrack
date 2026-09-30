@@ -39,6 +39,7 @@ model User {
   companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id])
   ownedCompanies   CompanyProfile[] @relation("CompanyOwner")
   pushTokens       DevicePushToken[]
+  webPushSubscriptions WebPushSubscription[]
   nativeRefreshTokens NativeRefreshToken[]
 
   @@index([companyProfileId])
@@ -294,6 +295,11 @@ model CompanySettings {
   // Multiple slots let admins express e.g. Mon-Thu 08:00-17:00, Fri 08:00-15:00.
   // Empty array = NOT explicitly configured (no company-default auto clock-out).
   defaultWorkingHoursSchedules       Json            @default("[]")
+  // Migration 25: shared late/early grace (minutes) used by BOTH the
+  // Cost-of-Late report and the attendance-alerts feed. 0 = strict (09:05 on a
+  // 09:00 start is 5 minutes late). Deviations within the grace are ignored;
+  // deviations beyond it are counted in full.
+  lateGraceMinutes                  Int             @default(0)
   companyProfileId                  String?
   createdAt                         DateTime        @default(now())
   updatedAt                         DateTime        @updatedAt
@@ -371,6 +377,27 @@ model PayrollExportLog {
   @@index([companyProfileId, createdAt])
   @@index([companyProfileId, periodFrom, periodTo])
   @@index([actorId])
+}
+
+// Migration 25: browser Web Push (VAPID) subscriptions for users of the web
+// version. Mirrors DevicePushToken (Expo) — one row per browser endpoint.
+model WebPushSubscription {
+  id               String    @id @default(cuid())
+  endpoint         String    @unique
+  p256dh           String
+  auth             String
+  userId           String
+  employeeEmail    String?
+  companyProfileId String?
+  userAgent        String?
+  isActive         Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@index([companyProfileId, isActive])
 }
 
 model NativeRefreshToken {

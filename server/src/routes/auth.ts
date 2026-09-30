@@ -23,7 +23,10 @@ import {
   changePasswordSchema,
   registerPushTokenSchema,
   deletePushTokenSchema,
+  webPushSubscribeSchema,
+  webPushUnsubscribeSchema,
 } from '../validation.js';
+import { getVapidPublicKey } from '../webPush.js';
 import { logAudit, getClientIp } from '../audit.js';
 import { DEFAULT_PASSWORD, isDefaultPasswordHash } from '../passwords.js';
 import { disconnectUserClusterWide } from '../invalidation.js';
@@ -387,6 +390,53 @@ router.delete('/push-token', requireAuth, validate(deletePushTokenSchema), async
   } catch (err) {
     logger.error('[auth] Push token deactivation error:', err);
     internalError(res, 'deactivating push token');
+  }
+});
+
+// ── Browser Web Push (migration 25) ──
+// GET the VAPID public key (null → web push not configured on this server).
+router.get('/web-push/public-key', requireAuth, (_req, res) => {
+  res.json({ publicKey: getVapidPublicKey() });
+});
+
+router.post('/web-push', requireAuth, validate(webPushSubscribeSchema), async (req, res) => {
+  try {
+    const authUser = req.authUser!;
+    const { endpoint, keys } = req.body as {
+      endpoint: string;
+      keys: { p256dh: string; auth: string };
+    };
+    const userAgent = (req.get('user-agent') ?? '').slice(0, 300) || null;
+    const fields = {
+      p256dh: keys.p256dh,
+      auth: keys.auth,
+      userId: authUser.id,
+      employeeEmail: authUser.email,
+      companyProfileId: authUser.companyProfileId,
+      userAgent,
+      isActive: true,
+    };
+    await prisma.webPushSubscription.upsert({
+      where: { endpoint },
+      create: { endpoint, ...fields },
+      update: fields,
+    });
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('[auth] Web push subscribe error:', err);
+    internalError(res, 'registering web push subscription');
+  }
+});
+
+router.delete('/web-push', requireAuth, validate(webPushUnsubscribeSchema), async (req, res) => {
+  try {
+    const authUser = req.authUser!;
+    const { endpoint } = req.body as { endpoint: string };
+    await prisma.webPushSubscription.deleteMany({ where: { endpoint, userId: authUser.id } });
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('[auth] Web push unsubscribe error:', err);
+    internalError(res, 'removing web push subscription');
   }
 });
 

@@ -376,6 +376,8 @@ export const clockOutSchema = z.object({
   // Offline outbox replay (bounded acceptance window — see attendance use case).
   capturedAt: isoDateTimeSchema.optional(),
   offline: z.boolean().optional(),
+  /** True when fired by geofence automation (native background task). */
+  automatic: z.boolean().optional(),
   /** Stable client install identifier (spec §7 device logging). */
   deviceId: z.string().min(1).max(128).optional(),
 });
@@ -496,6 +498,8 @@ export const updateSettingsSchema = z.object({
     .optional(),
   /** Per-day default schedules (migration 20). Empty array disables the company-default auto clock-out. */
   defaultWorkingHoursSchedules: workingHoursSchedulesSchema.optional(),
+  /** Migration 25: shared late/early grace for the Cost-of-Late report + alerts. */
+  lateGraceMinutes: z.number().int().min(0).max(120).optional(),
 });
 
 export const registerPushTokenSchema = z.object({
@@ -505,6 +509,19 @@ export const registerPushTokenSchema = z.object({
 
 export const deletePushTokenSchema = z.object({
   token: z.string().min(10).max(500),
+});
+
+/** Browser PushSubscription.toJSON() shape (migration 25). */
+export const webPushSubscribeSchema = z.object({
+  endpoint: z.string().url().max(1000),
+  keys: z.object({
+    p256dh: z.string().min(10).max(200),
+    auth: z.string().min(8).max(100),
+  }),
+});
+
+export const webPushUnsubscribeSchema = z.object({
+  endpoint: z.string().url().max(1000),
 });
 
 // ── Company Profile ──

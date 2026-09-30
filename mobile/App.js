@@ -270,6 +270,15 @@ const EXIT_BUFFER_METERS = 200; // grace distance outside radius before clock-ou
 const MAX_ACCURACY_METERS = 150; // fixes worse than this are ignored
 const CONFIRMATIONS = 3; // consecutive samples required to confirm a crossing (mirrors src/constants/geofence.ts GEOFENCE_CONFIRMATIONS)
 const EVENT_COOLDOWN_MS = 60_000; // minimum time between clock events
+/**
+ * Sustained-exit dwell (Cycle 18): an auto clock-out additionally requires the
+ * FIRST outside sample of the current streak to be at least this old. Three
+ * samples can arrive within seconds during a GPS jump on site; requiring the
+ * employee to stay outside for a few minutes removes the "multiple clock
+ * in/out while inside the location" pattern. The server also re-opens a
+ * same-location session on a quick automatic re-entry as a second layer.
+ */
+const EXIT_DWELL_MS = 3 * 60_000;
 /** Safety expiry for the clockedOutInside suppression (mirrors web AWAITING_EXIT_TTL_MS). */
 const CLOCKED_OUT_INSIDE_TTL_MS = 12 * 60 * 60 * 1000;
 
@@ -302,7 +311,7 @@ async function requestClock(kind, pos, idempotencyKey, offlineInfo) {
       // subjects them to the server's once-per-working-day limit after a
       // system (cron) working-end close (409 DAILY_SESSION_LIMIT).
       { latitude: pos.latitude, longitude: pos.longitude, automatic: true }
-    : { breakMinutes: 0, latitude: pos.latitude, longitude: pos.longitude };
+    : { breakMinutes: 0, latitude: pos.latitude, longitude: pos.longitude, automatic: true };
   if (offlineInfo && typeof offlineInfo.capturedAt === 'number') {
     // Offline outbox replay: the server stamps the entry at the ORIGINAL
     // capture instant within its bounded acceptance window and flags it
@@ -317,6 +326,9 @@ async function requestClock(kind, pos, idempotencyKey, offlineInfo) {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
       'Idempotency-Key': requestKey,
+      // Server skips its Expo push for this event (the shell notifies locally)
+      // but still delivers web push to the employee's browsers.
+      'X-TimeTrack-Source': 'native',
     },
     body: JSON.stringify(body),
   });
@@ -328,6 +340,9 @@ async function requestClock(kind, pos, idempotencyKey, offlineInfo) {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${nextToken}`,
         'Idempotency-Key': requestKey,
+        // Server skips its Expo push for this event (the shell notifies locally)
+        // but still delivers web push to the employee's browsers.
+        'X-TimeTrack-Source': 'native',
       },
       body: JSON.stringify(body),
     });
@@ -621,8 +636,12 @@ async function processBackgroundLocation({ data, error }) {
           await AsyncStorage.setItem(GEOFENCE_STATE_KEY, JSON.stringify(st));
           const { status, data: resBody } = await apiClock('in', pos, pendingAction.key);
           const reclockBlocked = status === 409 && resBody?.code === 'RECLOCK_GUARD';
+          // DAILY_SESSION_LIMIT is also a 409 — it must NOT be misread as
+          // "already clocked in" (that marked the zone inside + clockedIn=true).
+          const dailyLimited = status === 409 && resBody?.code === 'DAILY_SESSION_LIMIT';
           const alreadyActive =
             !reclockBlocked &&
+            !dailyLimited &&
             (status === 409 ||
               resBody?.code === 'DUPLICATE_ACTIVE' ||
               String(resBody?.error || '')
@@ -665,13 +684,19 @@ async function processBackgroundLocation({ data, error }) {
         }
       } else if (outside && st.zone !== 'outside') {
         st.pendingEnter = 0;
+        if (st.pendingExit === 0 || typeof st.exitStreakStartedAt !== 'number') {
+          st.exitStreakStartedAt = now;
+        }
         st.pendingExit += 1;
+        const exitDwellMet = now - st.exitStreakStartedAt >= EXIT_DWELL_MS;
         if (
           st.pendingExit >= CONFIRMATIONS &&
+          exitDwellMet &&
           clockedIn &&
           now - st.lastEventAt >= EVENT_COOLDOWN_MS
         ) {
           st.pendingExit = 0;
+          st.exitStreakStartedAt = null;
           const pendingAction =
             st.pendingAction?.kind === 'out' && typeof st.pendingAction.key === 'string'
               ? st.pendingAction
@@ -711,6 +736,7 @@ async function processBackgroundLocation({ data, error }) {
         // Approaching zone or no crossing in progress — reset pending counters.
         st.pendingEnter = 0;
         st.pendingExit = 0;
+        st.exitStreakStartedAt = null;
       }
     }
 
@@ -731,6 +757,94 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, (payload) => {
   backgroundTaskQueue = next.catch(() => undefined);
   return next;
 });
+
+// ── OS geofencing wake-up (app fully closed / swiped away) ─────────────────
+// Continuous location updates stop when iOS terminates the app, and OEM
+// battery managers can kill the Android foreground service. OS-level region
+// monitoring (startGeofencingAsync) is owned by the operating system and
+// RELAUNCHES the app in the background on an enter/exit crossing even after it
+// was swiped away. The crossing itself is NOT trusted to punch: it
+// (1) re-arms the continuous location task and (2) takes a few fresh
+// high-accuracy fixes and feeds them through the SAME state machine
+// (processBackgroundLocation) — so accuracy gate, 3-sample confirmation,
+// cooldown, awaiting-exit suppression and all server guards apply unchanged.
+const GEOFENCE_REGION_TASK = 'timetrack-geofence-region-task';
+/** iOS caps monitored regions at 20 per app. */
+const MAX_OS_REGIONS = 20;
+/** OS region radius floor: iOS/Android are unreliable below ~100 m. */
+const MIN_OS_REGION_RADIUS_M = 100;
+
+async function sampleFreshFixes(count) {
+  const locations = [];
+  for (let i = 0; i < count; i += 1) {
+    try {
+      const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      if (fix?.coords) locations.push(fix);
+    } catch {
+      /* a failed sample is simply skipped */
+    }
+  }
+  return locations;
+}
+
+TaskManager.defineTask(GEOFENCE_REGION_TASK, (payload) => {
+  const next = backgroundTaskQueue.then(async () => {
+    if (payload?.error) return;
+    await updateAutoClockDiagnostics({ lastRegionEventAt: Date.now() });
+    // Re-arm continuous updates first (they may have been killed with the app).
+    await ensureBackgroundLocationUpdates().catch(() => undefined);
+    const locations = await sampleFreshFixes(CONFIRMATIONS);
+    if (locations.length > 0) await processBackgroundLocation({ data: { locations } });
+  });
+  backgroundTaskQueue = next.catch(() => undefined);
+  return next;
+});
+
+/**
+ * Register one OS region per assigned geofence (idempotent: re-calling
+ * replaces the set). Called whenever monitoring is (re)armed. Same policy
+ * gate as continuous updates: background permission must be granted.
+ */
+async function syncOsGeofenceRegions() {
+  try {
+    const bg = await Location.getBackgroundPermissionsAsync().catch(() => null);
+    const enabled = (await AsyncStorage.getItem(AUTO_CLOCK_ENABLED_KEY)) !== 'false';
+    const geofences = await readGeofences();
+    const running = await Location.hasStartedGeofencingAsync(GEOFENCE_REGION_TASK).catch(
+      () => false,
+    );
+    if (bg?.status !== 'granted' || !enabled || geofences.length === 0) {
+      if (running) await Location.stopGeofencingAsync(GEOFENCE_REGION_TASK).catch(() => undefined);
+      await updateAutoClockDiagnostics({ osRegionsArmed: 0 });
+      return;
+    }
+    const regions = geofences
+      .filter((gf) => Number.isFinite(gf.latitude) && Number.isFinite(gf.longitude))
+      .slice(0, MAX_OS_REGIONS)
+      .map((gf) => ({
+        identifier: String(gf.id ?? `${gf.latitude},${gf.longitude}`),
+        latitude: gf.latitude,
+        longitude: gf.longitude,
+        radius: Math.max(MIN_OS_REGION_RADIUS_M, gf.radiusMeters || 300),
+        notifyOnEnter: true,
+        notifyOnExit: true,
+      }));
+    await Location.startGeofencingAsync(GEOFENCE_REGION_TASK, regions);
+    await updateAutoClockDiagnostics({ osRegionsArmed: regions.length });
+  } catch {
+    // Best effort: continuous updates + the BackgroundFetch watchdog remain.
+  }
+}
+
+async function stopOsGeofenceRegions() {
+  try {
+    if (await Location.hasStartedGeofencingAsync(GEOFENCE_REGION_TASK)) {
+      await Location.stopGeofencingAsync(GEOFENCE_REGION_TASK);
+    }
+  } catch {
+    /* ignore */
+  }
+}
 
 /**
  * Start native background updates whenever permissions become available.
@@ -760,6 +874,10 @@ async function ensureBackgroundLocationUpdates() {
     });
     return;
   }
+
+  // Keep the OS wake-up regions in sync with the current assignment on every
+  // (re)arm — this is what survives the app being fully closed.
+  await syncOsGeofenceRegions();
 
   const started = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
   if (started) {
@@ -1013,6 +1131,8 @@ async function registerBackgroundSyncWatchdog() {
 export default function App() {
   const webviewRef = useRef(null);
   const [permissionsReady, setPermissionsReady] = useState(false);
+  const [checkingPermissions, setCheckingPermissions] = useState(true);
+  const [consentGranted, setConsentGranted] = useState(false);
   const [disclosureVisible, setDisclosureVisible] = useState(false);
   const [loadProgress, setLoadProgress] = useState(0);
   const [webviewKey, setWebviewKey] = useState(0);
@@ -1130,6 +1250,15 @@ export default function App() {
       try {
         const fgStatus = await Location.getForegroundPermissionsAsync();
         const bgStatus = await Location.getBackgroundPermissionsAsync();
+
+        // Retrieve persisted consent
+        const consent = await AsyncStorage.getItem(BG_DISCLOSURE_CONSENT_KEY).catch(() => null);
+        if (consent === 'granted') {
+          setConsentGranted(true);
+        } else {
+          setConsentGranted(false);
+        }
+
         if (fgStatus.status === 'granted' && bgStatus.status === 'granted') {
           // Both already granted, configure notifications and mark ready.
           try {
@@ -1146,12 +1275,15 @@ export default function App() {
         }
       } catch {
         setDisclosureVisible(true);
+      } finally {
+        setCheckingPermissions(false);
       }
     })();
   }, []);
 
   const handleAgreeDisclosure = async () => {
     setDisclosureVisible(false);
+    setConsentGranted(true);
     // Record the affirmative consent BEFORE requesting anything so the
     // system prompts below always follow an accepted disclosure.
     try {
@@ -1204,6 +1336,7 @@ export default function App() {
 
   const handleDeclineDisclosure = () => {
     setDisclosureVisible(false);
+    setConsentGranted(false);
     // Record the decline so automatic (non user-initiated) paths never
     // re-present the disclosure mid-session; background updates stay gated
     // off until the employee opts in again from the web Auto Clock toggle
@@ -1373,6 +1506,8 @@ export default function App() {
       }
       if (msg.type === 'AUTO_CLOCK_ENABLED' && typeof msg.enabled === 'boolean') {
         await AsyncStorage.setItem(AUTO_CLOCK_ENABLED_KEY, String(msg.enabled));
+        // Arm/disarm the OS wake-up regions to match the setting.
+        void syncOsGeofenceRegions();
         // Prominent Disclosure re-presentation: the employee just opted INTO
         // automatic clocking from the web UI. If background location is still
         // ungranted, the disclosure MUST precede any new permission request on
@@ -1501,6 +1636,8 @@ export default function App() {
           AUTO_CLOCK_ENABLED_KEY,
           AUTO_CLOCK_DIAGNOSTICS_KEY,
         ]);
+        // No OS region may keep relaunching the app for a signed-out user.
+        await stopOsGeofenceRegions();
       }
     } catch {
       // Ignore malformed bridge messages
@@ -1584,6 +1721,15 @@ export default function App() {
     );
   }
 
+  if (checkingPermissions) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+        {/* Simple blank loading screen while permissions are evaluated */}
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
@@ -1628,7 +1774,7 @@ export default function App() {
           javaScriptEnabled
           domStorageEnabled
           allowsBackForwardNavigationGestures
-          geolocationEnabled
+          geolocationEnabled={consentGranted}
           mediaPlaybackRequiresUserAction={false}
           allowsInlineMediaPlayback
           startInLoadingState={false}

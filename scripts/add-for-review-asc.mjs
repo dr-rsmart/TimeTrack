@@ -114,41 +114,12 @@ async function waitForValidBuild(timeoutMs = 45 * 60 * 1000) {
   throw new Error('Timed out waiting for App Store Connect to finish processing the build.');
 }
 
-async function findVersion() {
-  const versions = await api(
-    `/apps/${APP_NUMERIC_ID}/appStoreVersions?fields[appStoreVersions]=versionString,appStoreState&limit=5`,
-  );
-  const list = versions.data || [];
-  console.log('App Store versions:');
-  for (const v of list)
-    console.log(`  • ${v.attributes.versionString} → ${v.attributes.appStoreState}`);
-  const target =
-    list.find((v) => v.attributes.appStoreState === 'PREPARE_FOR_SUBMISSION') ||
-    list.find((v) => v.attributes.appStoreState === 'DEVELOPER_REJECTED') ||
-    list[0];
-  if (!target)
-    throw new Error(
-      'No App Store version found — create version 1.0.0 in App Store Connect first.',
-    );
-  return target;
-}
-
 async function main() {
   console.log('⏳ Step 1/3: waiting for the newest build to become VALID…');
   const build = await waitForValidBuild();
   console.log(
     `✅ Build ${build.attributes.version} is VALID (export compliance auto-passes via ITSAppUsesNonExemptEncryption=false).`,
   );
-
-  console.log('\n⏳ Step 2/3: locating App Store version…');
-  const version = await findVersion();
-  const state = version.attributes.appStoreState;
-  console.log(`Target version ${version.attributes.versionString} is in state ${state}.`);
-
-  if (['WAITING_FOR_REVIEW', 'IN_REVIEW', 'PENDING_APPROVED', 'READY_FOR_SALE'].includes(state)) {
-    console.log(`ℹ️ Version is already "${state}" — nothing left to do.`);
-    return;
-  }
 
   // Apple requires the build's CFBundleShortVersionString to match the App
   // Store version string when attaching. NOTE: build.attributes.version is
@@ -157,19 +128,111 @@ async function main() {
   // build number here previously renamed the ASC version to "11"/"19".
   const prv = await api(`/builds/${build.id}/preReleaseVersion?fields[preReleaseVersions]=version`);
   const buildVersion = prv.data?.attributes?.version ?? build.attributes.version;
-  if (version.attributes.versionString !== buildVersion) {
-    console.log(
-      `🔧 Aligning ASC version string "${version.attributes.versionString}" → "${buildVersion}"…`,
+  console.log(`Detected build marketing version: ${buildVersion}`);
+
+  console.log('\n⏳ Step 2/3: locating/creating App Store version…');
+  const versions = await api(
+    `/apps/${APP_NUMERIC_ID}/appStoreVersions?fields[appStoreVersions]=versionString,appStoreState&limit=10`,
+  );
+  const list = versions.data || [];
+  console.log('App Store versions:');
+  for (const v of list) {
+    console.log(`  • ${v.attributes.versionString} → ${v.attributes.appStoreState}`);
+  }
+
+  // 1. Check if there's an existing draft version that matches buildVersion
+  let version = list.find(
+    (v) =>
+      v.attributes.versionString === buildVersion &&
+      ['PREPARE_FOR_SUBMISSION', 'DEVELOPER_REJECTED'].includes(v.attributes.appStoreState),
+  );
+
+  // 2. If no exact match draft, find ANY draft that we can rename
+  if (!version) {
+    const anyDraft = list.find((v) =>
+      ['PREPARE_FOR_SUBMISSION', 'DEVELOPER_REJECTED'].includes(v.attributes.appStoreState),
     );
-    await api(`/appStoreVersions/${version.id}`, 'PATCH', {
+    if (anyDraft) {
+      console.log(
+        `🔧 Aligning ASC version string "${anyDraft.attributes.versionString}" → "${buildVersion}"…`,
+      );
+      await api(`/appStoreVersions/${anyDraft.id}`, 'PATCH', {
+        data: {
+          type: 'appStoreVersions',
+          id: anyDraft.id,
+          attributes: { versionString: buildVersion },
+        },
+      });
+      anyDraft.attributes.versionString = buildVersion;
+      version = anyDraft;
+      console.log('✅ Version string updated.');
+    }
+  }
+
+  // 3. If there is NO draft version at all, create a brand new draft version
+  if (!version) {
+    console.log(`➕ Creating new App Store version draft for "${buildVersion}"…`);
+    const newVersion = await api('/appStoreVersions', 'POST', {
       data: {
         type: 'appStoreVersions',
-        id: version.id,
-        attributes: { versionString: buildVersion },
+        attributes: {
+          platform: 'IOS',
+          versionString: buildVersion,
+        },
+        relationships: {
+          app: {
+            data: {
+              type: 'apps',
+              id: APP_NUMERIC_ID,
+            },
+          },
+        },
       },
     });
-    version.attributes.versionString = buildVersion;
-    console.log('✅ Version string updated.');
+    version = newVersion.data;
+    console.log(`✅ App Store version draft created for "${buildVersion}".`);
+  }
+
+  const state = version.attributes.appStoreState;
+  console.log(`Target version ${version.attributes.versionString} is in state ${state}.`);
+
+  if (['WAITING_FOR_REVIEW', 'IN_REVIEW', 'PENDING_APPROVED', 'READY_FOR_SALE'].includes(state)) {
+    console.log(`ℹ️ Version is already "${state}" — nothing left to do.`);
+    return;
+  }
+
+  // ── Fill "What's New in This Version" localized metadata ──
+  console.log('\n📝 Step 2.5: filling in localized metadata ("What\'s New in This Version")…');
+  const WHATS_NEW_NOTES = [
+    'New: shift reminders - a heads-up 5 minutes before your shift starts and ends',
+    'Auto clock-in/out keeps getting better: punches captured offline are saved and sync automatically',
+    'Managers: new in-app notification centre for late-ins, early-outs and no-shows',
+    'New reports: daily breakdown per employee and cost-of-late insights',
+    'Stability improvements and polish',
+    'Thank you for using TimeTrack!',
+  ].join('\n');
+
+  try {
+    const localizations = await api(`/appStoreVersions/${version.id}/appStoreVersionLocalizations`);
+    if (localizations.data && localizations.data.length > 0) {
+      for (const loc of localizations.data) {
+        console.log(`  Updating localization for locale ${loc.attributes.locale}…`);
+        await api(`/appStoreVersionLocalizations/${loc.id}`, 'PATCH', {
+          data: {
+            type: 'appStoreVersionLocalizations',
+            id: loc.id,
+            attributes: {
+              whatsNew: WHATS_NEW_NOTES,
+            },
+          },
+        });
+      }
+      console.log('✅ Localized metadata updated successfully.');
+    } else {
+      console.log('⚠️ No localizations found for this version.');
+    }
+  } catch (err) {
+    console.log(`⚠️ Failed to update localized metadata: ${err.message}`);
   }
 
   console.log(

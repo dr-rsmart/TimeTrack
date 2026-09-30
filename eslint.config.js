@@ -116,6 +116,14 @@ export default tseslint.config(
     },
   },
   {
+    // Web Push service worker (imported by the Workbox SW via importScripts).
+    files: ['public/push-sw.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      globals: { ...globals.serviceworker },
+    },
+  },
+  {
     files: ['**/*.{js,mjs,cjs}'],
     extends: [js.configs.recommended],
     languageOptions: {

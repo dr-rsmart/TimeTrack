@@ -1,6 +1,7 @@
 import prisma from './prisma.js';
 import { logger } from './logger.js';
 import { recordPushSent, recordPushFailed, recordPushTokensDeactivated } from './metrics.js';
+import { deliverWebPush } from './webPush.js';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
@@ -23,7 +24,24 @@ export async function notifyEmployeePush(
   body: string,
   data: Record<string, unknown> = {},
   companyProfileId?: string | null,
+  options: { skipExpo?: boolean } = {},
 ): Promise<void> {
+  // Never let a caller-supplied `companyId` be silently overwritten, and never
+  // send a payload without one when we know the tenant.
+  const payload: Record<string, unknown> =
+    companyProfileId && data.companyId === undefined
+      ? { ...data, companyId: companyProfileId }
+      : data;
+
+  // Browser Web Push (web-version users) — independent, best-effort.
+  void deliverWebPush({ employeeEmail, companyProfileId }, title, body, payload).catch((err) =>
+    logger.warn('[push] Web push fan-out failed:', err),
+  );
+
+  // skipExpo: the originating phone already raised a LOCAL notification for
+  // this event (native background punch) — avoid a duplicate on that device.
+  if (options.skipExpo) return;
+
   const devices = await prisma.devicePushToken.findMany({
     where: {
       employeeEmail: { equals: employeeEmail, mode: 'insensitive' },
@@ -35,13 +53,6 @@ export async function notifyEmployeePush(
     select: { id: true, token: true },
   });
   if (devices.length === 0) return;
-
-  // Never let a caller-supplied `companyId` be silently overwritten, and never
-  // send a payload without one when we know the tenant.
-  const payload: Record<string, unknown> =
-    companyProfileId && data.companyId === undefined
-      ? { ...data, companyId: companyProfileId }
-      : data;
 
   await deliverPush(devices, title, body, payload);
 }
@@ -63,6 +74,18 @@ export async function notifyCompanyManagersPush(
   body: string,
   data: Record<string, unknown> = {},
 ): Promise<void> {
+  const payload: Record<string, unknown> = {
+    ...data,
+    companyId: companyProfileId,
+    type: 'attendance_alert',
+  };
+  void deliverWebPush(
+    { companyProfileId, roles: ['admin', 'manager'] },
+    title,
+    body,
+    payload,
+  ).catch((err) => logger.warn('[push] Manager web push fan-out failed:', err));
+
   const devices = await prisma.devicePushToken.findMany({
     where: {
       companyProfileId,
@@ -72,12 +95,6 @@ export async function notifyCompanyManagersPush(
     select: { id: true, token: true },
   });
   if (devices.length === 0) return;
-
-  const payload: Record<string, unknown> = {
-    ...data,
-    companyId: companyProfileId,
-    type: 'attendance_alert',
-  };
   await deliverPush(devices, title, body, payload);
 }
 

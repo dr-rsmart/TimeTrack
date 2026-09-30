@@ -1,7 +1,7 @@
 {
   "name": "TimeTrack",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "main": "index.js",
   "description": "TimeTrack — multi-tenant time tracking, scheduling and payroll platform (rebuilt from TimeTrack)",
@@ -49,8 +49,8 @@
     "verify:stores": "node scripts/verify-store-release.mjs",
     "update:ios": "node scripts/update-ios-review-build.mjs",
     "browser:asc": "node scripts/open-browser-asc.mjs",
-    "play:closedalpha": "node scripts/update-closed-alpha-vc15.mjs",
-    "play:production": "node scripts/promote-production-vc15.mjs",
+    "play:closedalpha": "node scripts/update-closed-alpha-vc25.mjs",
+    "play:production": "node scripts/promote-production-vc25.mjs",
     "play:verify": "node scripts/verify-closed-alpha-release.mjs",
     "play:watch": "node scripts/watch-play-review.mjs",
     "prepare": "husky || exit 0"

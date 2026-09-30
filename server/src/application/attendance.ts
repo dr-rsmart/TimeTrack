@@ -20,11 +20,13 @@ import {
 } from '../geoValidationService.js';
 import { getReclockGuardSeconds, isWithinReclockWindow } from '../reclockGuard.js';
 import { stampPunchProvenance } from './punchProvenance.js';
+import { notifyManagersOfPunch, tryReopenInFenceSession } from './managerAttendanceNotify.js';
 import { assertTenantMatch } from '../tenantContext.js';
 import { tenantWhere } from '../tenantPolicy.js';
 import { ATTENDANCE_STATUS } from '../domain/attendance.js';
 import { calculateWorkedDuration } from '../domain/duration.js';
 import { recordAutoClockOutcome } from '../metrics.js';
+import { notifyEmployeePush } from '../push.js';
 import {
   normalizeEmployeeEmail,
   singleEmployeeIdentityFilter,
@@ -75,6 +77,8 @@ export interface ClockInCommand {
    * the once-per-working-day limit after a system (cron) working-end close.
    */
   automatic?: boolean;
+  /** 'native' when sent by the phone's background task (it notifies locally). */
+  source?: 'native' | 'web';
   idempotencyKey?: string | null;
   /**
    * Stable client install identifier (spec §7 device logging). Persisted on the
@@ -93,6 +97,10 @@ export interface ClockOutCommand {
   capturedAt?: Date | null;
   /** True when the punch was queued offline and replayed on reconnect. */
   offline?: boolean;
+  /** True when fired by geofence automation (native background task). */
+  automatic?: boolean;
+  /** 'native' when sent by the phone's background task (it notifies locally). */
+  source?: 'native' | 'web';
   idempotencyKey?: string | null;
   clientIp: string;
 }
@@ -383,6 +391,10 @@ export async function clockIn(command: ClockInCommand): Promise<AttendanceMutati
     }
   }
 
+  // Automatic punches defer the reclock guard until after the in-fence
+  // re-open attempt below: a GPS bounce should resume the session, not be
+  // rejected (which left an on-site employee clocked out).
+  let deferredGuardError: AttendanceUseCaseError | null = null;
   if (!isManualOverride) {
     const guardSeconds = getReclockGuardSeconds();
     if (guardSeconds > 0) {
@@ -405,7 +417,7 @@ export async function clockIn(command: ClockInCommand): Promise<AttendanceMutati
           guardSeconds,
         )
       ) {
-        throw new AttendanceUseCaseError(
+        deferredGuardError = new AttendanceUseCaseError(
           `You clocked out less than ${guardSeconds} seconds ago. To prevent duplicate records, please wait a moment before clocking in again, or ask a manager to clock you in.`,
           {
             status: 409,
@@ -419,6 +431,8 @@ export async function clockIn(command: ClockInCommand): Promise<AttendanceMutati
       }
     }
   }
+  // Non-automatic punches keep the original fail-fast behaviour.
+  if (deferredGuardError && !command.automatic) throw deferredGuardError;
 
   // Once-per-working-day limit for AUTOMATIC punches: when cron already closed
   // a session today at the configured working end (system:cron), geofence
@@ -475,6 +489,47 @@ export async function clockIn(command: ClockInCommand): Promise<AttendanceMutati
   // Offline replays stamp the entry at the accepted capture instant; the
   // business date derives from the same instant (correct shift-day attribution).
   const now = offlineCapturedAt ?? new Date();
+
+  // Cycle 18 — GPS-bounce merge: an AUTOMATIC re-entry at the same location
+  // shortly after an automatic/self exit re-opens that session instead of
+  // creating a second one (see managerAttendanceNotify.ts for the rules).
+  if (command.automatic && !isManualOverride && !offlineCapturedAt) {
+    const reopened = await tryReopenInFenceSession({
+      companyProfileId: employee.companyProfileId,
+      employeeId: employee.id,
+      geofenceId: (geofenceData.geofenceId as string | undefined) ?? null,
+      now,
+      actorId: actor.id,
+    });
+    if (reopened) {
+      await logAudit({
+        entity: 'TimeEntry',
+        entityId: reopened.id,
+        action: 'clock_in',
+        actorId: actor.id,
+        actorEmail: actor.email,
+        actorRole: actor.role,
+        justification:
+          'Automatic re-entry within the same location — previous session re-opened (GPS bounce merge).',
+        ipAddress: command.clientIp,
+        branch: reopened.branch,
+        department: reopened.department,
+        changes: {
+          status: { before: ATTENDANCE_STATUS.COMPLETED, after: ATTENDANCE_STATUS.ACTIVE },
+          reopened: { before: false, after: true },
+        },
+        required: true,
+      });
+      broadcastScoped('timeEntry', 'clockIn', reopened, {
+        companyProfileId: reopened.companyProfileId,
+        branch: reopened.branch,
+        department: reopened.department,
+      });
+      return { entry: reopened, replayed: false };
+    }
+  }
+  if (deferredGuardError) throw deferredGuardError;
+
   let entry: TimeEntry;
   try {
     entry = await prisma.$transaction(async (tx) => {
@@ -583,6 +638,25 @@ export async function clockIn(command: ClockInCommand): Promise<AttendanceMutati
   });
 
   if (offlineCapturedAt) recordAutoClockOutcome('offline_synced');
+
+  // Server-side confirmation push for EVERY automatic clock-in (Expo + web
+  // push). Fire-and-forget: attendance persistence never depends on delivery.
+  if (command.automatic && !isManualOverride) {
+    const place = entry.geofenceName ? ` at ${entry.geofenceName}` : '';
+    void notifyEmployeePush(
+      entry.employeeEmail,
+      'Auto Clock In',
+      `You were clocked in automatically${place}.`,
+      { type: 'auto_clock_in', entryId: entry.id },
+      entry.companyProfileId,
+      { skipExpo: command.source === 'native' },
+    ).catch(() => undefined);
+  }
+
+  // Manager push (closed app): auto clock-ins always, manual ones when late.
+  if (!isManualOverride) {
+    void notifyManagersOfPunch(entry, 'in', { automatic: Boolean(command.automatic) });
+  }
 
   return { entry, replayed: false };
 }
@@ -716,6 +790,23 @@ export async function clockOut(command: ClockOutCommand): Promise<AttendanceMuta
     branch: entry.branch,
     department: entry.department,
   });
+
+  if (command.automatic && !isForceClockOut) {
+    const place = entry.geofenceName ? ` from ${entry.geofenceName}` : '';
+    void notifyEmployeePush(
+      entry.employeeEmail,
+      'Auto Clock Out',
+      `You were clocked out automatically${place}.`,
+      { type: 'auto_clock_out', entryId: entry.id },
+      entry.companyProfileId,
+      { skipExpo: command.source === 'native' },
+    ).catch(() => undefined);
+  }
+
+  // Manager push (closed app): auto clock-outs always, manual ones when early.
+  if (!isForceClockOut) {
+    void notifyManagersOfPunch(entry, 'out', { automatic: Boolean(command.automatic) });
+  }
 
   return { entry, replayed: false };
 }

@@ -231,6 +231,7 @@ router.post('/clock-in', requireAuth, clockRateLimit, validate(clockInSchema), a
       capturedAt,
       offline,
       automatic: body.automatic === true,
+      source: req.get('X-TimeTrack-Source') === 'native' ? 'native' : 'web',
       deviceId: readDeviceId(body),
       justification: typeof body.justification === 'string' ? body.justification : undefined,
       idempotencyKey: scopeIdempotencyKeyForRoute(
@@ -278,6 +279,8 @@ router.post(
         capturedAt,
         offline,
         breakMinutes: typeof body.breakMinutes === 'number' ? body.breakMinutes : 0,
+        automatic: body.automatic === true,
+        source: req.get('X-TimeTrack-Source') === 'native' ? 'native' : 'web',
         idempotencyKey: scopeIdempotencyKeyForRoute(
           'clock_out',
           authUser.id,

@@ -3,7 +3,7 @@
     "name": "TimeTrack",
     "slug": "timetrack",
     "owner": "smart-patel-tech-solutions",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./TimeTrack Icon.png",
     "userInterfaceStyle": "automatic",
@@ -12,7 +12,7 @@
       "icon": "./TimeTrack Icon.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.timetrack.workforce",
-      "buildNumber": "23",
+      "buildNumber": "28",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": ["location", "fetch", "processing"],
@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "com.timetrack.workforce",
-      "versionCode": 23,
+      "versionCode": 27,
       "adaptiveIcon": {
         "foregroundImage": "./TimeTrack Icon.png",
         "backgroundColor": "#ffffff"
@@ -78,7 +78,9 @@
         {
           "android": {
             "compileSdkVersion": 36,
-            "targetSdkVersion": 36
+            "targetSdkVersion": 36,
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
           }
         }
       ]

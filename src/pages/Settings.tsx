@@ -284,6 +284,27 @@ export default function Settings() {
                   }
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="st-late-grace">Late / early grace (minutes)</Label>
+                <Input
+                  id="st-late-grace"
+                  type="number"
+                  step="1"
+                  min="0"
+                  max="120"
+                  value={settings.lateGraceMinutes ?? 0}
+                  onChange={(e) =>
+                    updateField(
+                      'lateGraceMinutes',
+                      Math.min(120, Math.max(0, parseInt(e.target.value, 10) || 0)),
+                    )
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  Used by the Cost of Late report and manager alerts. 0 = strict (09:05 on a 09:00
+                  start is 5 min late).
+                </p>
+              </div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">

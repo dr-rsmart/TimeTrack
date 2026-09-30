@@ -8,7 +8,7 @@
  * - Grouped Daily Totals: all filtered entries combined by date
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import {
   CalendarDays,
   Clock,
@@ -17,9 +17,11 @@ import {
   FileBarChart,
   ListChecks,
   Pencil,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
+  ApiError,
   employeeApi,
   reportApi,
   timeEntryApi,
@@ -85,6 +87,7 @@ export default function Reports() {
 
   // ── Cost of Late Coming (Feature #9) ──
   const [costRows, setCostRows] = useState<AttendanceCostRow[]>([]);
+  const [expandedCost, setExpandedCost] = useState<string | null>(null);
   const [costTotals, setCostTotals] = useState({
     lateMinutes: 0,
     earlyMinutes: 0,
@@ -96,6 +99,8 @@ export default function Reports() {
 
   // ── Edit time entry modal (admin/manager corrections) ──
   const [editEntry, setEditEntry] = useState<TimeEntry | null>(null);
+  const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
+  const [duplicatesOnly, setDuplicatesOnly] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -137,6 +142,37 @@ export default function Reports() {
       setLoadingEntries(false);
     }
   }, [from, to, branch, department, employeeEmail]);
+
+  /**
+   * Delete a time entry (e.g. a double clock-in) from the manager's report
+   * view, where entries can be filtered by employee/date. Authorization and
+   * scope are enforced server-side (application/timeEntryDeletion.ts); the
+   * server message is surfaced verbatim on refusal. Payroll totals refresh.
+   */
+  const handleDeleteEntry = async (entry: TimeEntry) => {
+    const who = entry.employeeName || entry.employeeEmail;
+    const when = `${formatDate(entry.date)} at ${formatTime(entry.clockIn)}`;
+    if (!window.confirm(`Delete the time entry for ${who} (${when})?\n\nThis cannot be undone.`)) {
+      return;
+    }
+    setDeletingEntryId(entry.id);
+    try {
+      await timeEntryApi.remove(entry.id);
+      toast.success(`Time entry deleted for ${who}`);
+      setTimeEntries((prev) => prev.filter((x) => x.id !== entry.id));
+      void load();
+      void loadTimeEntries();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Could not delete the time entry');
+    } finally {
+      setDeletingEntryId(null);
+    }
+  };
+
+  const duplicateCount = timeEntries.filter((e) => e.isFlaggedDuplicate).length;
+  const visibleEntries = duplicatesOnly
+    ? timeEntries.filter((e) => e.isFlaggedDuplicate)
+    : timeEntries;
 
   const loadDirectory = useCallback(async () => {
     try {
@@ -252,6 +288,21 @@ export default function Reports() {
           department: department || null,
           employeeEmail: employeeEmail || null,
         },
+        // Platform master (no company context): let the server attribute the
+        // export to every company whose employees appear in the loaded data.
+        ...(user?.role === 'master' && !user.companyProfileId
+          ? {
+              employeeIds: [
+                ...new Set(
+                  [
+                    ...rows.map((r) => r.employeeId),
+                    ...costRows.map((r) => r.employeeId),
+                    ...timeEntries.map((e) => e.employeeId),
+                  ].filter((id): id is string => Boolean(id)),
+                ),
+              ],
+            }
+          : {}),
       })
       .catch(() => {
         // Non-fatal: the export already succeeded.
@@ -672,6 +723,15 @@ export default function Reports() {
                 Time Entries ({from} → {to})
               </CardTitle>
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    data-testid="duplicates-only-toggle"
+                    checked={duplicatesOnly}
+                    onChange={(ev) => setDuplicatesOnly(ev.target.checked)}
+                  />
+                  Duplicates only ({duplicateCount})
+                </label>
                 <span>{entryTotals.count} entries</span>
                 <span className="font-semibold text-foreground">
                   {formatHours(entryTotals.hours)} total
@@ -684,9 +744,15 @@ export default function Reports() {
               <div className="flex h-48 items-center justify-center">
                 <Spinner className="h-8 w-8" />
               </div>
-            ) : timeEntries.length === 0 ? (
+            ) : visibleEntries.length === 0 ? (
               <EmptyState
-                message={entriesLoaded ? 'No time entries for this period' : 'Loading…'}
+                message={
+                  !entriesLoaded
+                    ? 'Loading…'
+                    : duplicatesOnly
+                      ? 'No flagged duplicate punches for this period'
+                      : 'No time entries for this period'
+                }
               />
             ) : (
               <Table>
@@ -705,7 +771,7 @@ export default function Reports() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {timeEntries.map((e) => (
+                  {visibleEntries.map((e) => (
                     <TableRow key={e.id}>
                       <TableCell>
                         <p className="font-medium">{e.employeeName || e.employeeEmail}</p>
@@ -730,19 +796,40 @@ export default function Reports() {
                             {e.status}
                           </Badge>
                           {e.isManualOverride && <Badge variant="warning">Manual</Badge>}
+                          {e.isFlaggedDuplicate && <Badge variant="destructive">Duplicate</Badge>}
                         </div>
                       </TableCell>
                       {canEdit && (
                         <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0 text-muted-foreground hover:text-brand"
-                            title="Edit time entry"
-                            onClick={() => setEditEntry(e)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-muted-foreground hover:text-brand"
+                              title="Edit time entry"
+                              onClick={() => setEditEntry(e)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            {e.status !== 'active' && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600"
+                                title="Delete time entry (e.g. a double clock-in)"
+                                aria-label={`Delete time entry for ${e.employeeName ?? e.employeeEmail} on ${formatDate(e.date)}`}
+                                data-testid={`report-delete-entry-${e.id}`}
+                                disabled={deletingEntryId === e.id}
+                                onClick={() => void handleDeleteEntry(e)}
+                              >
+                                {deletingEntryId === e.id ? (
+                                  <Spinner className="h-4 w-4" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       )}
                     </TableRow>
@@ -960,6 +1047,12 @@ export default function Reports() {
             </div>
           </CardHeader>
           <CardContent>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Totals cover only the selected period ({from} → {to}). Hours lost = minutes clocked in
+              late + minutes clocked out early, measured against the scheduled shift, else the
+              location&apos;s working hours, else company working hours. Rand lost = hours lost ×
+              the employee&apos;s rate per hour. Click an employee for the per-day breakdown.
+            </p>
             {loadingCost ? (
               <div className="flex h-48 items-center justify-center">
                 <Spinner className="h-8 w-8" />
@@ -987,41 +1080,79 @@ export default function Reports() {
                 </TableHeader>
                 <TableBody>
                   {costRows.map((r) => (
-                    <TableRow key={r.employeeId}>
-                      <TableCell>
-                        <div className="font-medium">{r.name}</div>
-                        <div className="text-xs text-muted-foreground">{r.email}</div>
-                      </TableCell>
-                      <TableCell>{r.branch}</TableCell>
-                      <TableCell className="text-right">
-                        {r.latePenaltyRate !== null ? (
-                          `R ${r.latePenaltyRate.toFixed(2)}`
-                        ) : (
-                          <span
-                            className="text-muted-foreground"
-                            title="Set a late penalty rate (or hourly rate) on the employee profile to see Rand lost"
+                    <Fragment key={r.employeeId}>
+                      <TableRow>
+                        <TableCell>
+                          <button
+                            type="button"
+                            className="font-medium text-left hover:underline"
+                            aria-expanded={expandedCost === r.employeeId}
+                            title="Show the per-day breakdown"
+                            onClick={() =>
+                              setExpandedCost((prev) =>
+                                prev === r.employeeId ? null : r.employeeId,
+                              )
+                            }
                           >
-                            —
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {r.lateMinutes > 0 ? <Badge variant="warning">{r.lateMinutes}</Badge> : '0'}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {r.earlyMinutes > 0 ? (
-                          <Badge variant="warning">{r.earlyMinutes}</Badge>
-                        ) : (
-                          '0'
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {formatHours(r.hoursLost)}
-                      </TableCell>
-                      <TableCell className="text-right font-semibold text-red-600">
-                        {r.latePenaltyRate !== null ? `R ${r.randLost.toFixed(2)}` : '—'}
-                      </TableCell>
-                    </TableRow>
+                            {expandedCost === r.employeeId ? '▾ ' : '▸ '}
+                            {r.name}
+                          </button>
+                          <div className="text-xs text-muted-foreground">{r.email}</div>
+                        </TableCell>
+                        <TableCell>{r.branch}</TableCell>
+                        <TableCell className="text-right">
+                          {r.latePenaltyRate !== null ? (
+                            `R ${r.latePenaltyRate.toFixed(2)}`
+                          ) : (
+                            <span
+                              className="text-muted-foreground"
+                              title="Set a late penalty rate (or hourly rate) on the employee profile to see Rand lost"
+                            >
+                              —
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {r.lateMinutes > 0 ? (
+                            <Badge variant="warning">{r.lateMinutes}</Badge>
+                          ) : (
+                            '0'
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {r.earlyMinutes > 0 ? (
+                            <Badge variant="warning">{r.earlyMinutes}</Badge>
+                          ) : (
+                            '0'
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatHours(r.hoursLost)}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold text-red-600">
+                          {r.latePenaltyRate !== null ? `R ${r.randLost.toFixed(2)}` : '—'}
+                        </TableCell>
+                      </TableRow>
+                      {expandedCost === r.employeeId &&
+                        r.days.map((d) => (
+                          <TableRow
+                            key={`${r.employeeId}-${d.date}`}
+                            className="bg-muted/30 text-xs"
+                          >
+                            <TableCell colSpan={3} className="pl-8 text-muted-foreground">
+                              {formatDate(d.date)}
+                            </TableCell>
+                            <TableCell className="text-right">{d.lateMinutes}</TableCell>
+                            <TableCell className="text-right">{d.earlyMinutes}</TableCell>
+                            <TableCell className="text-right">
+                              {formatHours((d.lateMinutes + d.earlyMinutes) / 60)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {r.latePenaltyRate !== null ? `R ${d.randLost.toFixed(2)}` : '—'}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                    </Fragment>
                   ))}
                   <TableRow className="bg-muted/50 font-semibold">
                     <TableCell colSpan={3}>Totals ({costRows.length} employees)</TableCell>

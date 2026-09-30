@@ -40,6 +40,12 @@ export const payrollExportLogSchema = z.object({
   filters: z
     .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
     .optional(),
+  /**
+   * Master (platform) exports only: employee ids contained in the file, so the
+   * server can attribute the export to every company whose data left the
+   * building. Ignored for tenant users (their own company is authoritative).
+   */
+  employeeIds: z.array(z.string().min(1).max(64)).max(20_000).optional(),
 });
 
 export type PayrollExportLogInput = z.infer<typeof payrollExportLogSchema>;
@@ -47,6 +53,10 @@ export type PayrollExportLogInput = z.infer<typeof payrollExportLogSchema>;
 // ── POST /payroll/export-log — record a client-side CSV download ──
 router.post(
   '/payroll/export-log',
+  // requireAuth MUST run first: it is the only middleware that populates
+  // req.authUser. Without it requireAdminOrManager always answered 401, which
+  // the SPA treats as "session ended" — signing users out after every export.
+  requireAuth,
   requireAdminOrManager,
   validate(payrollExportLogSchema),
   async (req, res) => {
@@ -54,13 +64,6 @@ router.post(
       const authUser = req.authUser!;
       const body = req.body as PayrollExportLogInput;
 
-      if (!authUser.companyProfileId) {
-        // Only `master` can lack a tenant, and master does not run payroll
-        // exports for a single company. Refuse rather than write an orphan row.
-        return sendError(res, 400, 'A company context is required to log a payroll export.', {
-          code: 'TENANT_REQUIRED',
-        });
-      }
       if (body.to < body.from) {
         return sendError(res, 400, 'The export period end date precedes its start date.', {
           code: 'BAD_RANGE',
@@ -68,24 +71,62 @@ router.post(
         });
       }
 
-      const row = await prisma.payrollExportLog.create({
-        data: {
-          companyProfileId: authUser.companyProfileId,
-          formatId: body.formatId,
-          formatLabel: body.formatLabel,
-          periodFrom: parseDate(body.from),
-          periodTo: parseDate(body.to),
-          rowCount: body.rowCount,
-          filters: (body.filters ?? {}) as object,
-          actorId: authUser.id,
-          actorEmail: authUser.email,
-          actorRole: authUser.role,
-          ipAddress: getClientIp(req),
-        },
-        select: { id: true, createdAt: true },
-      });
+      // Resolve which company (or companies) the exported data belongs to.
+      //  - Tenant users (and a master impersonating a tenant): their company.
+      //  - Master platform exports (no company context): every company whose
+      //    employees appear in the file, resolved SERVER-SIDE from the ids —
+      //    one audit row per affected company, so each tenant's history shows
+      //    that the platform operator exported its payroll data.
+      let companyIds: string[];
+      if (authUser.companyProfileId) {
+        companyIds = [authUser.companyProfileId];
+      } else {
+        const ids = [...new Set(body.employeeIds ?? [])];
+        const owners = ids.length
+          ? await prisma.employee.findMany({
+              where: { id: { in: ids } },
+              select: { companyProfileId: true },
+              distinct: ['companyProfileId'],
+            })
+          : [];
+        companyIds = owners.map((o) => o.companyProfileId);
+        if (companyIds.length === 0) {
+          // Nothing tenant-attributable was exported (empty file).
+          return res.status(200).json({ success: true, ids: [], logged: 0 });
+        }
+      }
 
-      res.status(201).json({ success: true, id: row.id, createdAt: row.createdAt });
+      const base = {
+        formatId: body.formatId,
+        formatLabel: body.formatLabel,
+        periodFrom: parseDate(body.from),
+        periodTo: parseDate(body.to),
+        filters: {
+          ...(body.filters ?? {}),
+          ...(authUser.companyProfileId ? {} : { scope: 'platform', companies: companyIds.length }),
+        } as object,
+        actorId: authUser.id,
+        actorEmail: authUser.email,
+        actorRole: authUser.role,
+        ipAddress: getClientIp(req),
+      };
+
+      const rows = await prisma.$transaction(
+        companyIds.map((companyProfileId) =>
+          prisma.payrollExportLog.create({
+            data: { ...base, companyProfileId, rowCount: body.rowCount },
+            select: { id: true, createdAt: true },
+          }),
+        ),
+      );
+
+      res.status(201).json({
+        success: true,
+        id: rows[0].id,
+        ids: rows.map((r) => r.id),
+        logged: rows.length,
+        createdAt: rows[0].createdAt,
+      });
     } catch (err) {
       logger.error('[payroll-exports] Log write error:', err);
       internalError(res, 'recording the payroll export');
