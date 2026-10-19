@@ -11,10 +11,10 @@
  *    falls on the next calendar day.
  *  - Leave-type shifts (Holiday/Leave/Sick/PTO/Unpaid/Bereavement/…) never
  *    generate lateness — the employee was not expected to work.
- *  - Without a scheduled shift (or start/end time) there is nothing to be
- *    late against: the day yields zero lost minutes. (Company default hours
- *    are the notification/cron fallback, but cost attribution requires an
- *    explicit schedule so payroll disputes stay defensible.)
+ *  - Without a scheduled shift, the Cost-of-Late report measures against the
+ *    clock-in location's working hours, then company default hours
+ *    (resolveExpectedWindow). Manager late/early ALERTS do not: they require an
+ *    assigned shift (computeShiftDeviation — Shift Presence Rule).
  *
  * All arithmetic is integer minutes; Decimal converts to Rand at the boundary.
  */
@@ -194,6 +194,76 @@ export function resolveExpectedWindow(input: {
   const co = fromList(input.companySchedules);
   if (co) return { start: co.startTime, end: co.endTime, shiftType: null, source: 'company' };
   return { start: null, end: null, shiftType: null, source: 'none' };
+}
+
+export interface ShiftDeviationInput {
+  /** Business date of the worked day (YYYY-MM-DD). */
+  dateStr: string;
+  shift: {
+    startTime: string | null;
+    endTime: string | null;
+    shiftType: string | null;
+    status?: string | null;
+  } | null;
+  /** First clock-in as minutes-of-day in the business timezone. */
+  clockInMinutesOfDay: number;
+  /** Last clock-out in the business timezone; null while a session is still open. */
+  clockOut: { dateStr: string; minutesOfDay: number } | null;
+  /** CompanySettings.lateGraceMinutes. */
+  graceMinutes: number;
+}
+
+export interface ShiftDeviation {
+  lateMinutes: number;
+  earlyMinutes: number;
+  /** Shift start/end ("HH:mm") the deviation was measured against. */
+  start: string;
+  end: string | null;
+}
+
+const NO_DEVIATION_SHIFT_STATUSES = new Set(['cancelled', 'no_show']);
+
+/**
+ * Shift Presence Rule (manager attendance-alert feed + real-time manager push):
+ * late/early deviation is measured ONLY against an explicitly assigned working
+ * shift. Returns null (never Late or Early) when the employee has no shift that
+ * day, the shift is cancelled or already marked no_show (the no-show alert
+ * covers it), it is a leave/half-day shift, or it has no start/end time.
+ * Unscheduled days are flexible hours: location/company hours stay a reminder
+ * and auto clock-out fallback only.
+ *
+ * The Cost-of-Late report deliberately keeps the wider shift → location →
+ * company window (resolveExpectedWindow) so payroll still sees time lost
+ * against business hours on unscheduled days.
+ */
+export function computeShiftDeviation(input: ShiftDeviationInput): ShiftDeviation | null {
+  const { shift } = input;
+  if (!shift || (shift.status && NO_DEVIATION_SHIFT_STATUSES.has(shift.status))) return null;
+  const window = resolveExpectedWindow({
+    dateStr: input.dateStr,
+    shift,
+    locationSchedules: [],
+    companySchedules: [],
+  });
+  if (window.source !== 'shift' || !window.start) return null;
+  const startMin = parseTime(window.start);
+  const endMin = parseTime(window.end);
+  const cost = computeAttendanceCost({
+    shiftStart: window.start,
+    shiftEnd: window.end,
+    shiftType: window.shiftType,
+    crossesMidnight: startMin !== null && endMin !== null && endMin <= startMin,
+    clockInMinutesOfDay: input.clockInMinutesOfDay,
+    clockOutMinutesOfDay: input.clockOut ? input.clockOut.minutesOfDay : null,
+    clockOutNextDay: input.clockOut !== null && input.clockOut.dateStr > input.dateStr,
+    graceMinutes: input.graceMinutes,
+  });
+  return {
+    lateMinutes: cost.lateMinutes,
+    earlyMinutes: cost.earlyMinutes,
+    start: window.start,
+    end: window.end,
+  };
 }
 
 /**

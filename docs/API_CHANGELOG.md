@@ -8,6 +8,18 @@ committed at `server/docs/openapi.json`.
 Versions follow the `/api/v1` contract surface. The legacy `/api`
 surface remains available and backward-compatible.
 
+## Unreleased
+
+### Changed
+
+- `GET /api/reports/attendance-alerts` — `late_clock_in` / `early_clock_out` are now
+  measured only against the employee's assigned shift (Shift Presence Rule). Days
+  with no shift, a cancelled or no-show shift, a leave/half-day shift, or a shift
+  without start/end times no longer produce late/early alerts, and messages always
+  read `(vs scheduled shift HH:mm)`. The real-time manager late/early push follows
+  the same rule. The Cost-of-Late report is unchanged: it still falls back to the
+  clock-in location's working hours, then company working hours.
+
 ## v1.5.2 - 2026-09-25 (bulk shifts, self-delete, duplicate resolution, payroll exports)
 
 ### Added

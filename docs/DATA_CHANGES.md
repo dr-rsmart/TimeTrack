@@ -744,3 +744,38 @@ DEFAULT 0` (0 = existing strict late/early behaviour) and new table `WebPushSubs
 "lateGraceMinutes";`) then `DELETE FROM _prisma_migrations WHERE migration_name =
 '25_grace_minutes_web_push'`. Full restore only if data were affected: `pg_restore --clean
 --if-exists` of the dump above.
+
+## 2026-10-19 — Railway production → local `timetrack_prod` → local `timetrack_pre-prod` refresh
+
+- **Source:** Railway production `railway` DB (project `TimeTrack`, env `production`, service
+  `Postgres`, PostgreSQL 18.6) via the public TCP proxy. Credentials resolved at runtime from
+  `railway variable list -s Postgres --kv` and never written to disk.
+- **Production impact: none (read-only).** Every Railway session ran with
+  `PGOPTIONS=-c default_transaction_read_only=on` (verified beforehand: a `CREATE TEMP TABLE`
+  probe was rejected with "read-only transaction"). `pg_dump` used `--lock-wait-timeout=10000`
+  so it could never queue behind production locks; the dump took 23 s. `https://time-track.tech/ping`
+  returned 200 before and after. No Railway variables, deployments or services were changed.
+- **Rollback dumps (git-ignored, full `pg_dump -Fc` WITH owner/privileges, verified with `pg_restore -l`):**
+  - `backups/timetrack_prod-before-railway-20261019-110346.dump` — 590,915 bytes, 205 TOC,
+    SHA-256 `AA13C363F6304A6BB6DDB28993FFD4DCEA780BE169CE172F4D0F555420A7C346`
+  - `backups/timetrack_pre-prod-before-prod-sync-20261019-110346.dump` — 650,894 bytes, 340 TOC,
+    SHA-256 `398619440AF46F99A5B935B1CDE0F68AEC3BD9FB97D62F558ABA8F95D5198D09`
+- **Method (both steps):** `pg_dump -Fc --no-owner --no-privileges` of the source → restore into a
+  fresh `<target>__sync_tmp` database (`template0`, UTF8, `English_South Africa.1252`) with
+  `pg_restore --no-owner --no-privileges --exit-on-error --single-transaction` → rename swap
+  (target → parked copy, temp → target) only after a clean restore → verify → drop the parked copy.
+  A failed restore could therefore never leave a target half-restored. Temporary snapshots deleted.
+- **Pre-sync state:** local `timetrack_prod` was behind production (20 tables, 31 migrations, last
+  `20260927130000_list_indexes`).
+- **Verification:** Railway = `timetrack_prod` = `timetrack_pre-prod` on all 40 public tables (row
+  counts, Railway counted before and after the dump with no drift), 155 indexes, 54 FKs, 28 RLS
+  policies / 16 RLS tables, 32 applied migrations, last migration `25_grace_minutes_web_push`.
+  Key counts: `AuditLog` 5,699; `CompanyProfile` 5; `CompanySettings` 6; `Employee` 101;
+  `EmployeeGeofence` 52; `EmploymentHistory` 183; `Geofence` 32; `NativeRefreshToken` 706;
+  `PayrollExportLog` 2; `ReminderLog` 388; `Shift` 934; `TimeEntry` 1,721; `User` 108.
+- **Runtime role:** `timetrack_app` grants re-applied on `timetrack_prod` only. These are the same
+  statements as `server/setup_runtime_role.mjs`, but without its `ALTER ROLE … PASSWORD`, so the
+  existing password in `server/.env` keeps working. Verified: `timetrack_app` connects to
+  `timetrack_prod` with SELECT/INSERT on `TimeEntry`. `timetrack_pre-prod` had no `timetrack_app`
+  grants before the refresh and was left that way.
+- **Rollback:** drop/create the DB and `pg_restore --no-owner` the matching dump above.

@@ -20,6 +20,7 @@ import {
   resolveLatePenaltyRate,
   resolveExpectedWindow,
   collapseDayPunches,
+  computeShiftDeviation,
 } from '../domain/attendanceCost.js';
 import {
   getBusinessTimezone,
@@ -682,37 +683,15 @@ router.get('/attendance-alerts', requireAuth, async (req, res) => {
           clockIn: true,
           clockOut: true,
           status: true,
-          companyProfileId: true,
-          geofence: { select: { workingHoursSchedules: true } },
         },
       }),
     ]);
 
-    // Company default schedules — same fallback chain as the Cost-of-Late
-    // report (shift → clock-in location hours → company default) so the
-    // alert feed and the report can never disagree on the expected window.
-    const alertCompanyIds = [
-      ...new Set(entries.map((e) => e.companyProfileId).filter((x): x is string => !!x)),
-    ];
-    const alertCompanySettings = alertCompanyIds.length
-      ? await prisma.companySettings.findMany({
-          where: { companyProfileId: { in: alertCompanyIds } },
-          select: { companyProfileId: true, defaultWorkingHoursSchedules: true },
-          orderBy: { updatedAt: 'desc' },
-        })
-      : [];
-    const alertCompanySchedules = new Map<string, WorkingHoursSchedule[]>();
-    for (const row of alertCompanySettings) {
-      if (row.companyProfileId && !alertCompanySchedules.has(row.companyProfileId)) {
-        alertCompanySchedules.set(
-          row.companyProfileId,
-          parseWorkingHoursSchedules(row.defaultWorkingHoursSchedules),
-        );
-      }
-    }
-
     // Same day-collapse as the Cost-of-Late report: first clock-in, last
     // clock-out (early-leave only once no session is still open that day).
+    // Late/early here follow the Shift Presence Rule (computeShiftDeviation):
+    // only an assigned shift is a reference, so unlike the Cost-of-Late report
+    // no location/company working hours are loaded for this feed.
     const groupedByKeyDate = new Map<string, (typeof entries)[number][]>();
     for (const e of entries) {
       const k = `${identityKey(e.employeeId, e.employeeEmail)}|${toDateStr(e.date)}`;
@@ -722,13 +701,7 @@ router.get('/attendance-alerts', requireAuth, async (req, res) => {
     }
     const entriesByKeyDate = new Map<
       string,
-      {
-        clockIn: Date;
-        clockOut: Date | null;
-        employeeEmail: string;
-        locationSchedules: WorkingHoursSchedule[];
-        companySchedules: WorkingHoursSchedule[];
-      }
+      { clockIn: Date; clockOut: Date | null; employeeEmail: string }
     >();
     for (const [k, list] of groupedByKeyDate) {
       const span = collapseDayPunches(list);
@@ -738,10 +711,6 @@ router.get('/attendance-alerts', requireAuth, async (req, res) => {
         clockIn: span.clockIn,
         clockOut: stillOpen ? null : span.clockOut,
         employeeEmail: span.first.employeeEmail,
-        locationSchedules: parseWorkingHoursSchedules(span.first.geofence?.workingHoursSchedules),
-        companySchedules: span.first.companyProfileId
-          ? (alertCompanySchedules.get(span.first.companyProfileId) ?? [])
-          : [],
       });
     }
     interface Alert {
@@ -817,83 +786,57 @@ router.get('/attendance-alerts', requireAuth, async (req, res) => {
       // Late/early for days WITH an entry are handled in the entry loop below.
     }
 
-    // ── Late clock-in / early clock-out (entry-driven) ──
-    // Every worked day is evaluated against the SAME expected window as the
-    // Cost-of-Late report: shift → clock-in location hours → company default.
-    // Previously this only ran for shift rows and compared against the raw
-    // shift.startTime, so an unscheduled day never alerted while a stray/stale
-    // shift row (e.g. a 06:00 bulk-created default) produced "180 min late"
-    // alerts that the report did not agree with. The message now names the
-    // reference used so managers can see WHY an alert fired.
+    // ── Late clock-in / early clock-out (Shift Presence Rule) ──
+    // Measured ONLY against the employee's assigned shift (computeShiftDeviation).
+    // No shift that day = flexible hours: never "Late"/"Early" here. Location and
+    // company hours remain the reminder + auto clock-out fallback only.
     const shiftByKeyDate = new Map<string, (typeof shifts)[number]>();
     for (const s of shifts) {
       if (!s.employeeEmail || s.status === 'cancelled') continue;
       shiftByKeyDate.set(`${identityKey(s.employeeId, s.employeeEmail)}|${toDateStr(s.date)}`, s);
     }
-    const sourceLabel = (src: string, start: string | null): string =>
-      src === 'shift'
-        ? `scheduled shift ${start}`
-        : src === 'location'
-          ? `location hours ${start}`
-          : `company working hours ${start}`;
 
     for (const [k, entry] of entriesByKeyDate) {
       const dateKey = k.slice(k.lastIndexOf('|') + 1);
       const shift = shiftByKeyDate.get(k);
-      if (shift?.status === 'no_show') continue;
-      const window = resolveExpectedWindow({
+      if (!shift) continue;
+      const deviation = computeShiftDeviation({
         dateStr: dateKey,
-        shift: shift
-          ? { startTime: shift.startTime, endTime: shift.endTime, shiftType: shift.shiftType }
-          : null,
-        locationSchedules: entry.locationSchedules,
-        companySchedules: entry.companySchedules,
-      });
-      if (window.source === 'none' || !window.start) continue;
-      const startMin = timeStrToMinutes(window.start);
-      const endMin = timeStrToMinutes(window.end);
-      const crossesMidnight = startMin !== null && endMin !== null && endMin <= startMin;
-      const clockInBiz = businessNow(tz, entry.clockIn);
-      const clockOutBiz = entry.clockOut ? businessNow(tz, entry.clockOut) : null;
-      const cost = computeAttendanceCost({
-        shiftStart: window.start,
-        shiftEnd: window.end,
-        shiftType: window.shiftType,
-        crossesMidnight,
-        clockInMinutesOfDay: clockInBiz.minutesOfDay,
-        clockOutMinutesOfDay: clockOutBiz ? clockOutBiz.minutesOfDay : null,
-        clockOutNextDay: clockOutBiz !== null && clockOutBiz.dateStr > dateKey,
+        shift,
+        clockInMinutesOfDay: businessNow(tz, entry.clockIn).minutesOfDay,
+        clockOut: entry.clockOut ? businessNow(tz, entry.clockOut) : null,
         graceMinutes,
       });
+      if (!deviation) continue;
       const emp = findEmp(entry.employeeEmail);
       const name = emp ? `${emp.firstName} ${emp.surname}` : entry.employeeEmail;
       const scope = { branch: emp?.branch ?? null, department: emp?.department ?? null };
-      const idBase = shift?.id ?? `${entry.employeeEmail.toLowerCase()}:${dateKey}`;
+      const idBase = shift.id;
 
-      if (cost.lateMinutes > 0) {
+      if (deviation.lateMinutes > 0) {
         alerts.push({
           id: `late:${idBase}`,
           type: 'late_clock_in',
-          severity: cost.lateMinutes >= 30 ? 'warning' : 'info',
+          severity: deviation.lateMinutes >= 30 ? 'warning' : 'info',
           employeeEmail: entry.employeeEmail,
           employeeName: name,
           ...scope,
           date: dateKey,
-          minutes: cost.lateMinutes,
-          message: `${name} clocked in ${cost.lateMinutes} min late on ${dateKey} (vs ${sourceLabel(window.source, window.start)}).`,
+          minutes: deviation.lateMinutes,
+          message: `${name} clocked in ${deviation.lateMinutes} min late on ${dateKey} (vs scheduled shift ${deviation.start}).`,
         });
       }
-      if (cost.earlyMinutes > 0) {
+      if (deviation.earlyMinutes > 0) {
         alerts.push({
           id: `early:${idBase}`,
           type: 'early_clock_out',
-          severity: cost.earlyMinutes >= 30 ? 'warning' : 'info',
+          severity: deviation.earlyMinutes >= 30 ? 'warning' : 'info',
           employeeEmail: entry.employeeEmail,
           employeeName: name,
           ...scope,
           date: dateKey,
-          minutes: cost.earlyMinutes,
-          message: `${name} clocked out ${cost.earlyMinutes} min early on ${dateKey} (vs ${sourceLabel(window.source, window.end)}).`,
+          minutes: deviation.earlyMinutes,
+          message: `${name} clocked out ${deviation.earlyMinutes} min early on ${dateKey} (vs scheduled shift ${deviation.end}).`,
         });
       }
     }

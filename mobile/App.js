@@ -236,6 +236,53 @@ const BG_PERMISSION_PROMPTED_KEY = 'timetrack_bg_permission_prompted';
 const BG_PERMISSION_REPROMPT_MS = 24 * 60 * 60 * 1000;
 /** Persisted Prominent-Disclosure decision: 'granted' | 'declined'. */
 const BG_DISCLOSURE_CONSENT_KEY = 'timetrack_bg_disclosure_consent';
+/** Persisted flag: the employee has seen (and responded to) the Android battery guidance. */
+const BATTERY_OPT_PROMPTED_KEY = 'timetrack_battery_opt_prompted';
+/** Guards against showing the battery guidance twice in one app session. */
+let batteryPromptShownThisSession = false;
+
+/**
+ * Prompt Android users (especially on aggressive OEM firmware such as Samsung
+ * One UI / Galaxy A-Series) to exempt TimeTrack from Battery Optimization /
+ * Doze Mode restrictions so background geofencing is not killed when the app
+ * is swiped away or the screen is locked for extended periods.
+ *
+ * Shown once, only when background location is already granted, and only
+ * AFTER the notification permission dialog has resolved (callers await it) so
+ * the two never stack. The "shown" flag is persisted when the employee
+ * responds — not before — so an alert that was never actually seen (e.g. the
+ * app was killed) is offered again on the next launch.
+ *
+ * Opens the app's system settings page (Linking.openSettings) rather than
+ * requesting REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, which Google Play restricts.
+ */
+async function promptAndroidBatteryOptimizationExemption() {
+  if (Platform.OS !== 'android' || batteryPromptShownThisSession) return;
+  try {
+    if ((await AsyncStorage.getItem(BATTERY_OPT_PROMPTED_KEY)) === 'true') return;
+    batteryPromptShownThisSession = true;
+    const markSeen = () => {
+      void AsyncStorage.setItem(BATTERY_OPT_PROMPTED_KEY, 'true').catch(() => undefined);
+    };
+    Alert.alert(
+      'Keep Auto Clock Active (Battery Settings)',
+      'On Android devices (such as Samsung Galaxy A-Series), system battery optimization / Doze Mode can pause background geofencing when your phone is locked or the app is closed.\n\nTo ensure reliable automatic clock-in and clock-out, tap "Open Settings" → Battery → select "Unrestricted" (or disable battery optimization for TimeTrack).',
+      [
+        { text: 'Later', style: 'cancel', onPress: markSeen },
+        {
+          text: 'Open Settings',
+          onPress: () => {
+            markSeen();
+            Linking.openSettings().catch(() => undefined);
+          },
+        },
+      ],
+      { cancelable: true, onDismiss: markSeen },
+    );
+  } catch {
+    // Non-fatal: never block attendance flow on a settings guidance prompt.
+  }
+}
 
 /**
  * Read ALL monitored geofences. Prefers the multi-location list; falls back
@@ -1269,6 +1316,10 @@ export default function App() {
             await registerPushTokenWithServer();
           } catch {}
           setPermissionsReady(true);
+          // Existing installs that already granted background location never pass
+          // through the disclosure, so offer the one-time battery guidance here
+          // (after the notification prompt above has resolved).
+          void promptAndroidBatteryOptimizationExemption();
         } else {
           // Present Prominent Disclosure first.
           setDisclosureVisible(true);
@@ -1292,6 +1343,7 @@ export default function App() {
       // Consent recording is best-effort; the request flow still proceeds.
     }
     try {
+      let backgroundGranted = false;
       const { status: fg } = await Location.requestForegroundPermissionsAsync();
       if (fg === 'granted') {
         const { status: bg } = await Location.requestBackgroundPermissionsAsync();
@@ -1309,6 +1361,8 @@ export default function App() {
               ],
             );
           }
+        } else {
+          backgroundGranted = true;
         }
       }
       try {
@@ -1328,6 +1382,9 @@ export default function App() {
           error?.message || error,
         );
       }
+      // Battery guidance only after the notification permission dialog has
+      // resolved, so the two prompts never stack on screen.
+      if (backgroundGranted) await promptAndroidBatteryOptimizationExemption();
     } catch {
       // Continue regardless; WebView still functions
     }
@@ -1699,6 +1756,18 @@ export default function App() {
               access in device settings.
             </Text>
           </View>
+
+          {Platform.OS === 'android' && (
+            <View style={styles.disclosureCard}>
+              <Text style={styles.disclosureCardHeader}>🔋 Android Battery Optimization</Text>
+              <Text style={styles.disclosureCardBody}>
+                On Android devices (including Samsung Galaxy A-Series), set TimeTrack&apos;s Battery
+                usage to <Text style={styles.boldText}>Unrestricted</Text> in system settings so
+                Doze Mode does not pause geofence auto clock-in/out while your phone is locked or
+                the app is closed.
+              </Text>
+            </View>
+          )}
 
           <Text style={styles.disclosureFooterText}>
             If you decline, background location is never accessed and{' '}

@@ -6,6 +6,8 @@
  *    early departures are now pushed (Expo + web push) to admins/managers of
  *    the SAME company as soon as the punch is committed. Tenant isolation is
  *    enforced by notifyCompanyManagersPush (hard companyProfileId filter).
+ *    Late/early is measured against the ASSIGNED shift only (Shift Presence
+ *    Rule, computeShiftDeviation) — an unscheduled punch is never "late".
  *
  * 2. IN-FENCE RE-OPEN — GPS drift at a fence edge can fire exit → enter
  *    minutes apart while the employee never left site. The reclock guard
@@ -22,13 +24,8 @@ import type { TimeEntry } from '@prisma/client';
 import prisma from '../prisma.js';
 import { logger } from '../logger.js';
 import { notifyCompanyManagersPush } from '../push.js';
-import {
-  computeAttendanceCost,
-  resolveExpectedWindow,
-  collectEmployeeLocationSchedules,
-} from '../domain/attendanceCost.js';
-import { parseWorkingHoursSchedules } from '../workingHoursSchedules.js';
-import { businessNow, getBusinessTimezone, timeStrToMinutes } from '../timezone.js';
+import { computeShiftDeviation } from '../domain/attendanceCost.js';
+import { businessNow, getBusinessTimezone } from '../timezone.js';
 import { ATTENDANCE_STATUS } from '../domain/attendance.js';
 
 export const DEFAULT_AUTO_REOPEN_MERGE_MINUTES = 60;
@@ -134,19 +131,25 @@ export async function tryReopenInFenceSession(input: {
   }
 }
 
-/** Late/early minutes for a punch against the shared expected window. */
-async function computeDeviation(
+/**
+ * Late/early minutes for a punch, measured ONLY against the employee's
+ * assigned shift for that date (Shift Presence Rule — see
+ * computeShiftDeviation). No shift, a cancelled/no-show shift, a leave or
+ * half-day shift, or a shift without times all return null, so an
+ * unscheduled punch is never pushed to managers as Late or Early.
+ */
+export async function computeDeviation(
   entry: TimeEntry,
   kind: 'in' | 'out',
 ): Promise<{ minutes: number; reference: string } | null> {
   const tz = getBusinessTimezone();
   const dateStr = entry.date.toISOString().slice(0, 10);
-  const [shift, settings, employee, geofence] = await Promise.all([
+  const [shift, settings] = await Promise.all([
     prisma.shift.findFirst({
       where: {
         companyProfileId: entry.companyProfileId,
         date: entry.date,
-        status: { not: 'cancelled' },
+        status: { notIn: ['cancelled', 'no_show'] },
         OR: [
           ...(entry.employeeId ? [{ employeeId: entry.employeeId }] : []),
           { employeeEmail: { equals: entry.employeeEmail, mode: 'insensitive' as const } },
@@ -157,64 +160,24 @@ async function computeDeviation(
     prisma.companySettings.findFirst({
       where: { companyProfileId: entry.companyProfileId },
       orderBy: { updatedAt: 'desc' },
-      select: { defaultWorkingHoursSchedules: true, lateGraceMinutes: true },
+      select: { lateGraceMinutes: true },
     }),
-    entry.employeeId
-      ? prisma.employee.findUnique({
-          where: { id: entry.employeeId },
-          select: {
-            geofence: { select: { workingHoursSchedules: true } },
-            employeeGeofences: {
-              select: { geofence: { select: { workingHoursSchedules: true } } },
-            },
-          },
-        })
-      : null,
-    entry.geofenceId
-      ? prisma.geofence.findUnique({
-          where: { id: entry.geofenceId },
-          select: { workingHoursSchedules: true },
-        })
-      : null,
   ]);
-  const locationSchedules = geofence
-    ? parseWorkingHoursSchedules(geofence.workingHoursSchedules)
-    : employee
-      ? collectEmployeeLocationSchedules(employee, parseWorkingHoursSchedules)
-      : [];
-  const window = resolveExpectedWindow({
+  const inBiz = businessNow(tz, entry.clockIn);
+  const outBiz = kind === 'out' && entry.clockOut ? businessNow(tz, entry.clockOut) : null;
+  const deviation = computeShiftDeviation({
     dateStr,
     shift,
-    locationSchedules,
-    companySchedules: parseWorkingHoursSchedules(settings?.defaultWorkingHoursSchedules),
-  });
-  if (window.source === 'none') return null;
-  const startMin = timeStrToMinutes(window.start);
-  const endMin = timeStrToMinutes(window.end);
-  const crossesMidnight = startMin !== null && endMin !== null && endMin <= startMin;
-  const inBiz = businessNow(tz, entry.clockIn);
-  const outBiz = entry.clockOut ? businessNow(tz, entry.clockOut) : null;
-  const cost = computeAttendanceCost({
-    shiftStart: window.start,
-    shiftEnd: window.end,
-    shiftType: window.shiftType,
-    crossesMidnight,
     clockInMinutesOfDay: inBiz.minutesOfDay,
-    clockOutMinutesOfDay: kind === 'out' && outBiz ? outBiz.minutesOfDay : null,
-    clockOutNextDay: outBiz !== null && outBiz.dateStr > dateStr,
+    clockOut: outBiz,
     graceMinutes: settings?.lateGraceMinutes ?? 0,
   });
-  const label =
-    window.source === 'shift'
-      ? 'shift'
-      : window.source === 'location'
-        ? 'location hours'
-        : 'working hours';
-  if (kind === 'in' && cost.lateMinutes > 0) {
-    return { minutes: cost.lateMinutes, reference: `${label} ${window.start}` };
+  if (!deviation) return null;
+  if (kind === 'in' && deviation.lateMinutes > 0) {
+    return { minutes: deviation.lateMinutes, reference: `shift ${deviation.start}` };
   }
-  if (kind === 'out' && cost.earlyMinutes > 0) {
-    return { minutes: cost.earlyMinutes, reference: `${label} ${window.end}` };
+  if (kind === 'out' && deviation.earlyMinutes > 0) {
+    return { minutes: deviation.earlyMinutes, reference: `shift ${deviation.end}` };
   }
   return null;
 }
