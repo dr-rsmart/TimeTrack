@@ -58,8 +58,8 @@ out.reviewSubmissions = (submissions.data || []).map((s) => ({
   platform: s.attributes.platform,
 }));
 
-const builds21 = await api('/builds?filter[app]=6803827296&filter[version]=21&limit=2');
-out.builds21 = (builds21.data || []).map((b) => ({
+const latestBuilds = await api('/builds?filter[app]=6803827296&sort=-uploadedDate&limit=5');
+out.latestBuilds = (latestBuilds.data || []).map((b) => ({
   version: b.attributes.version,
   processingState: b.attributes.processingState,
   expired: b.attributes.expired,
