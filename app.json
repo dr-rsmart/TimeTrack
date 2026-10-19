@@ -70,7 +70,8 @@
       [
         "expo-notifications",
         {
-          "defaultChannel": "geofence-events"
+          "defaultChannel": "geofence-events",
+          "mode": "production"
         }
       ],
       [

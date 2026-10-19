@@ -128,8 +128,13 @@ if (!notificationResponseListenerRegistered) {
 // Foreground notifications are hidden by default unless an explicit handler
 // opts into displaying them. Use the same channel and sound for every
 // automatic punch, whether the app is foregrounded or backgrounded.
+// expo-notifications 0.32: `shouldShowAlert` is deprecated — on iOS 14+ the
+// presentation comes from `shouldShowBanner` (top banner) and `shouldShowList`
+// (Notification Centre). `shouldShowAlert` stays for older OS versions.
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
@@ -147,30 +152,74 @@ async function configureNotifications() {
   });
 }
 
+/**
+ * Mint the Expo push token and register it with the server (DevicePushToken).
+ *
+ * Every outcome is recorded as `pushRegistration` in the auto-clock
+ * diagnostics, which the web app's status panel can show, so a broken push
+ * setup is visible instead of silent:
+ *   'registered'          — server stored the token (HTTP 2xx)
+ *   'permission-denied'   — the user has not allowed notifications
+ *   'no-session'          — not signed in yet; retried on AUTH_TOKEN / resume
+ *   'token-failed'        — Expo could not mint a token (missing APNs/FCM
+ *                           credentials on EAS, no Google services, no network)
+ *   'server-<status>'     — the server rejected the registration
+ * No token, credential, or error payload is ever stored — only these codes.
+ */
 async function registerPushTokenWithServer() {
+  const record = (pushRegistration) =>
+    updateAutoClockDiagnostics({ pushRegistration, pushRegistrationAt: Date.now() });
   try {
     const permission = await Notifications.getPermissionsAsync();
-    if (permission.status !== 'granted') return;
-    // Supply the EAS projectId explicitly so token minting also works in
-    // dev-client / bare workflows where the Expo config is not resolvable.
-    const token = await Notifications.getExpoPushTokenAsync({
-      projectId: '5e549d1f-9f6c-4f8f-bffe-ff18a20c366d',
-    });
+    if (permission.status !== 'granted') {
+      await record('permission-denied');
+      return;
+    }
     const accessToken = await AsyncStorage.getItem(TOKEN_KEY);
-    if (!accessToken || !token?.data) return;
-    await fetch(`${TIMETRACK_URL}/api/auth/push-token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ token: token.data, platform: Platform.OS }),
-    });
+    if (!accessToken) {
+      await record('no-session');
+      return;
+    }
+    let token = null;
+    try {
+      // Supply the EAS projectId explicitly so token minting also works in
+      // dev-client / bare workflows where the Expo config is not resolvable.
+      token = await Notifications.getExpoPushTokenAsync({
+        projectId: '5e549d1f-9f6c-4f8f-bffe-ff18a20c366d',
+      });
+    } catch (error) {
+      console.warn('[TimeTrack] Expo push token unavailable:', error?.message || error);
+    }
+    if (!token?.data) {
+      await record('token-failed');
+      return;
+    }
+    const post = (bearer) =>
+      fetch(`${TIMETRACK_URL}/api/auth/push-token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${bearer}`,
+        },
+        body: JSON.stringify({ token: token.data, platform: Platform.OS }),
+      });
+    let res = await post(accessToken);
+    // A stale native access token (password change / logout elsewhere) must not
+    // silently drop the registration: refresh once and retry, like punches do.
+    if (res.status === 401 && (await refreshNativeAccessToken())) {
+      res = await post(await AsyncStorage.getItem(TOKEN_KEY));
+    }
+    if (!res.ok) {
+      await record(`server-${res.status}`);
+      return;
+    }
     // Persist the minted token so sign-out / account switch can deactivate the
     // server-side row (otherwise a stale DevicePushToken keeps receiving push).
     await AsyncStorage.setItem(PUSH_TOKEN_KEY, token.data);
+    await record('registered');
   } catch (error) {
     console.warn('[TimeTrack] Could not register push token:', error?.message || error);
+    await record('network');
   }
 }
 
@@ -1011,6 +1060,11 @@ async function syncAutoClockStatusToWebview(requestId) {
       backgroundArmed: diagnostics.backgroundArmed === true,
       backgroundBlockedReason: diagnostics.backgroundBlockedReason ?? null,
       failure: diagnostics.failure ?? null,
+      // Push registration outcome (status code only — never the token).
+      pushRegistration:
+        typeof diagnostics.pushRegistration === 'string' ? diagnostics.pushRegistration : null,
+      pushRegistrationAt:
+        typeof diagnostics.pushRegistrationAt === 'number' ? diagnostics.pushRegistrationAt : null,
       outboxCount:
         typeof diagnostics.outboxCount === 'number' && diagnostics.outboxCount >= 0
           ? Math.min(Math.floor(diagnostics.outboxCount), PUNCH_OUTBOX_MAX_ITEMS)

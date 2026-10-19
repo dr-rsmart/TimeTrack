@@ -327,6 +327,37 @@ describe('native diagnostic accuracy (native-owned: web monitor stopped in the s
   });
 });
 
+describe('parseNativeAutoClockStatus — push registration diagnostics', () => {
+  const base = { suppressed: false, at: 123 };
+
+  it('accepts known registration outcomes and their timestamp', () => {
+    for (const code of [
+      'registered',
+      'permission-denied',
+      'no-session',
+      'token-failed',
+      'network',
+      'server-503',
+    ]) {
+      expect(
+        parseNativeAutoClockStatus({ ...base, pushRegistration: code })?.pushRegistration,
+      ).toBe(code);
+    }
+    expect(
+      parseNativeAutoClockStatus({ ...base, pushRegistrationAt: 456 })?.pushRegistrationAt,
+    ).toBe(456);
+  });
+
+  it('rejects unknown codes and anything that looks like a token', () => {
+    for (const code of ['ExponentPushToken[abc]', 'server-abc', 'ok', 42]) {
+      expect(
+        parseNativeAutoClockStatus({ ...base, pushRegistration: code })?.pushRegistration,
+      ).toBeNull();
+    }
+    expect(parseNativeAutoClockStatus(base)?.pushRegistrationAt).toBeNull();
+  });
+});
+
 describe('parseNativeAutoClockStatus — Cycle 17 background-armed diagnostics', () => {
   const base = {
     suppressed: false,

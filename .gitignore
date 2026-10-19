@@ -14,6 +14,10 @@ server/dist/
 asc-api-key.json
 asc-api-key.p8
 google-service-account.json
+# Firebase Android config (FCM push). The repo is PUBLIC and gitleaks flags the
+# Firebase API key, so it is supplied to EAS Build via the GOOGLE_SERVICES_JSON
+# file environment variable instead (see app.config.js).
+google-services.json
 !.env.example
 server/.env
 server/.env.*

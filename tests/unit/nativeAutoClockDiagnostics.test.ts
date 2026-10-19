@@ -21,10 +21,14 @@ function harness() {
   const fetch = vi.fn().mockResolvedValue({ status: 201, json: async () => ({}) });
   const permission = vi.fn().mockResolvedValue({ status: 'granted' });
   const injectJavaScript = vi.fn();
+  const notifications = {
+    getPermissionsAsync: vi.fn().mockResolvedValue({ status: 'denied' }),
+    getExpoPushTokenAsync: vi.fn(),
+  };
   const api = runInNewContext(
     `${pipeline}
     webviewBridgeRef = { current: { injectJavaScript } };
-    ({ processBackgroundLocation, syncAutoClockStatusToWebview });`,
+    ({ processBackgroundLocation, syncAutoClockStatusToWebview, registerPushTokenWithServer });`,
     {
       console,
       Date,
@@ -36,6 +40,7 @@ function harness() {
         setNotificationHandler: vi.fn(),
         scheduleNotificationAsync: vi.fn(),
         addNotificationResponseReceivedListener: vi.fn(),
+        ...notifications,
       },
       TaskManager: { defineTask: vi.fn() },
       Location: {
@@ -54,6 +59,7 @@ function harness() {
   ) as {
     processBackgroundLocation: (payload: unknown) => Promise<void>;
     syncAutoClockStatusToWebview: (id: string) => Promise<void>;
+    registerPushTokenWithServer: () => Promise<void>;
   };
   const fix = (accuracy = 20, timestamp = Date.now()) => ({
     timestamp,
@@ -84,7 +90,7 @@ function harness() {
     });
     return detail;
   };
-  return { storage, fetch, permission, sample, snapshot, api };
+  return { storage, fetch, permission, notifications, sample, snapshot, api };
 }
 
 describe('native pipeline diagnostics', () => {
@@ -150,6 +156,55 @@ describe('native pipeline diagnostics', () => {
       backgroundPermission: 'denied',
     });
     expect(await h.snapshot()).toMatchObject({ backgroundPermission: 'granted' });
+  });
+
+  it('records the push registration outcome without storing the token', async () => {
+    const h = harness();
+    // Notifications permission not granted → explicit, visible outcome.
+    await h.api.registerPushTokenWithServer();
+    expect(await h.snapshot()).toMatchObject({ pushRegistration: 'permission-denied' });
+
+    // Granted, but Expo cannot mint a token (missing APNs/FCM credentials).
+    h.notifications.getPermissionsAsync.mockResolvedValue({ status: 'granted' });
+    h.notifications.getExpoPushTokenAsync.mockRejectedValueOnce(new Error('no aps-environment'));
+    await h.api.registerPushTokenWithServer();
+    expect(await h.snapshot()).toMatchObject({ pushRegistration: 'token-failed' });
+
+    // Token minted, server rejects → status code surfaced.
+    h.notifications.getExpoPushTokenAsync.mockResolvedValue({ data: 'ExponentPushToken[abc]' });
+    h.fetch.mockResolvedValueOnce({ ok: false, status: 400, json: async () => ({}) });
+    await h.api.registerPushTokenWithServer();
+    expect(await h.snapshot()).toMatchObject({ pushRegistration: 'server-400' });
+
+    // Happy path: registered, platform sent, token kept locally for sign-out only.
+    h.fetch.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) });
+    await h.api.registerPushTokenWithServer();
+    const snap = await h.snapshot();
+    expect(snap).toMatchObject({ pushRegistration: 'registered' });
+    expect(typeof snap.pushRegistrationAt).toBe('number');
+    expect(JSON.stringify(snap)).not.toContain('ExponentPushToken');
+    const [url, init] = h.fetch.mock.calls.at(-1)!;
+    expect(url).toBe('https://time-track.tech/api/auth/push-token');
+    expect(JSON.parse(init.body)).toEqual({ token: 'ExponentPushToken[abc]', platform: 'ios' });
+    expect(h.storage.get('timetrack_push_token')).toBe('ExponentPushToken[abc]');
+  });
+
+  it('refreshes a stale native token once and retries the push registration', async () => {
+    const h = harness();
+    h.storage.set('timetrack_native_refresh_token', 'refresh-test');
+    h.notifications.getPermissionsAsync.mockResolvedValue({ status: 'granted' });
+    h.notifications.getExpoPushTokenAsync.mockResolvedValue({ data: 'ExponentPushToken[xyz]' });
+    h.fetch
+      .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({}) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ token: 'fresh-token', refreshToken: 'rotated-refresh' }),
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) });
+    await h.api.registerPushTokenWithServer();
+    expect(h.fetch).toHaveBeenCalledTimes(3);
+    expect(h.fetch.mock.calls[2][1].headers.Authorization).toBe('Bearer fresh-token');
+    expect(await h.snapshot()).toMatchObject({ pushRegistration: 'registered' });
   });
 
   it('reports OS task failures without exposing their payload', async () => {

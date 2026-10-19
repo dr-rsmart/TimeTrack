@@ -58,9 +58,20 @@ export interface NativeAutoClockStatus {
   backgroundBlockedReason?: 'permission' | null;
   failure?: 'auth' | 'network' | 'server' | 'rejected' | 'reclock' | null;
   cooldownUntil?: number | null;
+  /**
+   * Outcome of the last push-token registration attempt (mobile/App.js
+   * registerPushTokenWithServer): 'registered', 'permission-denied',
+   * 'no-session', 'token-failed', 'network' or 'server-<status>'.
+   * Status code only — never the token itself.
+   */
+  pushRegistration?: string | null;
+  pushRegistrationAt?: number | null;
   /** Snapshot time (epoch ms). */
   at: number;
 }
+
+const PUSH_REGISTRATION_RE =
+  /^(registered|permission-denied|no-session|token-failed|network|server-\d{3})$/;
 
 /** Validate an untrusted event detail into a NativeAutoClockStatus. */
 export function parseNativeAutoClockStatus(detail: unknown): NativeAutoClockStatus | null {
@@ -114,6 +125,11 @@ export function parseNativeAutoClockStatus(detail: unknown): NativeAutoClockStat
         ? d.failure
         : null,
     cooldownUntil: timestamp(d.cooldownUntil),
+    pushRegistration:
+      typeof d.pushRegistration === 'string' && PUSH_REGISTRATION_RE.test(d.pushRegistration)
+        ? d.pushRegistration
+        : null,
+    pushRegistrationAt: timestamp(d.pushRegistrationAt),
     at: d.at as number,
   };
 }

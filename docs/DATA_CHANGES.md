@@ -745,6 +745,19 @@ DEFAULT 0` (0 = existing strict late/early behaviour) and new table `WebPushSubs
 '25_grace_minutes_web_push'`. Full restore only if data were affected: `pg_restore --clean
 --if-exists` of the dump above.
 
+## 2026-10-19 — Railway production deploy `6198f01` (Shift Presence Rule, code-only)
+
+- **Target:** Railway production (project `TimeTrack`, env `production`), deployment
+  `14965069-fd69-49b0-9d65-a4dc1f610261`, pushed 12:03 SAST, `SUCCESS` 12:08:05 SAST.
+- **Database impact: none.** Container log: "26 migrations found … No pending migrations to apply."
+  No schema change, no data change, no Railway variable change.
+- **Availability:** `https://time-track.tech/ping` returned 200 on every 15 s probe throughout
+  the build and switchover (zero downtime). Post-deploy `/api/health`: database healthy, 5
+  realtime clients reconnected; authenticated API traffic serving normally.
+- **Behaviour change:** manager late/early alerts and real-time late/early pushes now require an
+  assigned shift (see `docs/API_CHANGELOG.md` "Unreleased"). Cost-of-Late report unchanged.
+- **Rollback:** `railway redeploy` of the previous deployment (commit `c8a3b7f`); no schema to revert.
+
 ## 2026-10-19 — Railway production → local `timetrack_prod` → local `timetrack_pre-prod` refresh
 
 - **Source:** Railway production `railway` DB (project `TimeTrack`, env `production`, service
