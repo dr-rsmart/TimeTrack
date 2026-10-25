@@ -273,13 +273,16 @@ describe('native pipeline diagnostics', () => {
     expect(h.storage.get('timetrack_clocked_in')).toBe('false');
   });
 
-  it('keeps R8/ProGuard disabled in app.json and preserves RNHeadlessAppLoader rules to prevent Android startup/background crashes', () => {
+  it('enables R8/ProGuard for Google Play Vitals while explicitly keeping RNHeadlessAppLoader and expo.modules.** to prevent Android startup/background crashes', () => {
     const appJson = JSON.parse(readFileSync(new URL('../../app.json', import.meta.url), 'utf8'));
     const buildProps = appJson.expo.plugins.find(
       (p: unknown) => Array.isArray(p) && p[0] === 'expo-build-properties',
     );
-    expect(buildProps?.[1]?.android?.enableProguardInReleaseBuilds).toBe(false);
-    expect(buildProps?.[1]?.android?.enableShrinkResourcesInReleaseBuilds).toBe(false);
+    expect(buildProps?.[1]?.android?.enableProguardInReleaseBuilds).toBe(true);
+    expect(buildProps?.[1]?.android?.enableShrinkResourcesInReleaseBuilds).toBe(true);
     expect(buildProps?.[1]?.android?.extraProguardRules).toContain('RNHeadlessAppLoader');
+    expect(buildProps?.[1]?.android?.extraProguardRules).toContain(
+      '-keep class expo.modules.** { *; }',
+    );
   });
 });
