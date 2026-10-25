@@ -913,6 +913,12 @@ const GEOFENCE_REGION_TASK = 'timetrack-geofence-region-task';
 const MAX_OS_REGIONS = 20;
 /** OS region radius floor: iOS/Android are unreliable below ~100 m. */
 const MIN_OS_REGION_RADIUS_M = 100;
+/** Cached JSON signature of currently armed OS geofence regions to avoid redundant re-registration churn. */
+let lastSyncedOsRegionsSignature = null;
+/** Tracks whether Android's foreground location service has already been started in this process session. */
+let androidFgLocationStarted = false;
+/** In-flight mutex for ensureBackgroundLocationUpdates() so concurrent callers never race startForegroundService. */
+let ensureBackgroundInFlight = null;
 
 async function sampleFreshFixes(count) {
   const locations = [];
@@ -972,6 +978,7 @@ async function syncOsGeofenceRegions() {
       () => false,
     );
     if (bg?.status !== 'granted' || !enabled || geofences.length === 0) {
+      lastSyncedOsRegionsSignature = null;
       if (running) await Location.stopGeofencingAsync(GEOFENCE_REGION_TASK).catch(() => undefined);
       await updateAutoClockDiagnostics({ osRegionsArmed: 0 });
       return;
@@ -987,7 +994,11 @@ async function syncOsGeofenceRegions() {
         notifyOnEnter: true,
         notifyOnExit: true,
       }));
-    await Location.startGeofencingAsync(GEOFENCE_REGION_TASK, regions);
+    const signature = JSON.stringify(regions);
+    if (!running || lastSyncedOsRegionsSignature !== signature) {
+      await Location.startGeofencingAsync(GEOFENCE_REGION_TASK, regions);
+      lastSyncedOsRegionsSignature = signature;
+    }
     await updateAutoClockDiagnostics({ osRegionsArmed: regions.length });
   } catch {
     // Best effort: continuous updates + the BackgroundFetch watchdog remain.
@@ -995,6 +1006,7 @@ async function syncOsGeofenceRegions() {
 }
 
 async function stopOsGeofenceRegions() {
+  lastSyncedOsRegionsSignature = null;
   try {
     if (await Location.hasStartedGeofencingAsync(GEOFENCE_REGION_TASK)) {
       await Location.stopGeofencingAsync(GEOFENCE_REGION_TASK);
@@ -1011,6 +1023,16 @@ async function stopOsGeofenceRegions() {
  * retry this helper when the app returns to the foreground.
  */
 async function ensureBackgroundLocationUpdates() {
+  if (ensureBackgroundInFlight) {
+    return ensureBackgroundInFlight;
+  }
+  ensureBackgroundInFlight = ensureBackgroundLocationUpdatesImpl().finally(() => {
+    ensureBackgroundInFlight = null;
+  });
+  return ensureBackgroundInFlight;
+}
+
+async function ensureBackgroundLocationUpdatesImpl() {
   // POLICY GATE (Play Prominent Disclosure & Consent / iOS Background Location):
   // Background location must NEVER start unless the OS background permission is
   // granted — OR on devices where only "While using the app" is granted (or iOS
@@ -1064,9 +1086,11 @@ async function ensureBackgroundLocationUpdates() {
   // On Android, TaskService.restoreTasks() restores the task record during cold
   // start before the Activity is foregrounded, so LocationTaskConsumer skips
   // starting LocationTaskService (the foreground service). Re-calling
-  // startLocationUpdatesAsync while foregrounded on Android updates the existing
-  // task in-place and starts the foreground service if it wasn't running.
-  if (started && !isAndroidForeground) {
+  // startLocationUpdatesAsync ONCE while foregrounded on Android updates the
+  // existing task in-place and starts the foreground service if it wasn't running.
+  // Subsequent calls in the same session skip re-registration to avoid tearing
+  // down and re-binding LocationTaskService repeatedly on startup.
+  if (started && (!isAndroidForeground || androidFgLocationStarted)) {
     await updateAutoClockDiagnostics({
       backgroundArmed: true,
       backgroundBlockedReason: null,
@@ -1099,10 +1123,14 @@ async function ensureBackgroundLocationUpdates() {
   };
 
   try {
+    const useFgService = !(Platform.OS === 'android' && !isAndroidForeground);
     await Location.startLocationUpdatesAsync(
       BACKGROUND_LOCATION_TASK,
-      Platform.OS === 'android' && !isAndroidForeground ? baseOptions : withFgService,
+      useFgService ? withFgService : baseOptions,
     );
+    if (isAndroidForeground && useFgService) {
+      androidFgLocationStarted = true;
+    }
   } catch (err) {
     // Android 12+ throws ForegroundServiceStartNotAllowedException if the
     // activity transitions to background right as startLocationUpdatesAsync runs.
@@ -1482,11 +1510,12 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const fgStatus = await Location.getForegroundPermissionsAsync();
-        const bgStatus = await Location.getBackgroundPermissionsAsync();
+        const [fgStatus, bgStatus, consent] = await Promise.all([
+          Location.getForegroundPermissionsAsync(),
+          Location.getBackgroundPermissionsAsync(),
+          AsyncStorage.getItem(BG_DISCLOSURE_CONSENT_KEY).catch(() => null),
+        ]);
 
-        // Retrieve persisted consent
-        const consent = await AsyncStorage.getItem(BG_DISCLOSURE_CONSENT_KEY).catch(() => null);
         if (consent === 'granted') {
           setConsentGranted(true);
         } else {
@@ -1498,20 +1527,24 @@ export default function App() {
           (bgStatus.status === 'granted' || consent === 'granted')
         ) {
           // Both already granted (or foreground-initiated background location
-          // with prior Prominent Disclosure consent), configure notifications
-          // and mark ready.
-          try {
-            await configureNotifications();
-          } catch {}
-          try {
-            await Notifications.requestPermissionsAsync();
-            await registerPushTokenWithServer();
-          } catch {}
+          // with prior Prominent Disclosure consent): mark ready IMMEDIATELY
+          // so the WebView is never blocked by FCM/Expo/Railway push-token
+          // network round-trips (~5-10s on mobile networks).
           setPermissionsReady(true);
-          // Existing installs that already granted background location never pass
-          // through the disclosure, so offer the one-time battery guidance here
-          // (after the notification prompt above has resolved).
-          void promptAndroidBatteryOptimizationExemption();
+          setCheckingPermissions(false);
+          void (async () => {
+            try {
+              await configureNotifications();
+            } catch {}
+            try {
+              await Notifications.requestPermissionsAsync();
+              void registerPushTokenWithServer();
+            } catch {}
+            // Existing installs that already granted background location never pass
+            // through the disclosure, so offer the one-time battery guidance here
+            // (after the notification prompt above has resolved).
+            void promptAndroidBatteryOptimizationExemption();
+          })();
         } else {
           // Present Prominent Disclosure first.
           setDisclosureVisible(true);
@@ -1558,26 +1591,30 @@ export default function App() {
           backgroundGranted = true;
         }
       }
-      try {
-        await configureNotifications();
-      } catch (error) {
-        console.warn(
-          '[TimeTrack] Could not configure notification channel:',
-          error?.message || error,
-        );
-      }
-      try {
-        await Notifications.requestPermissionsAsync();
-        await registerPushTokenWithServer();
-      } catch (error) {
-        console.warn(
-          '[TimeTrack] Could not request notification permission:',
-          error?.message || error,
-        );
-      }
-      // Battery guidance only after the notification permission dialog has
-      // resolved, so the two prompts never stack on screen.
-      if (backgroundGranted) await promptAndroidBatteryOptimizationExemption();
+      setPermissionsReady(true);
+      void (async () => {
+        try {
+          await configureNotifications();
+        } catch (error) {
+          console.warn(
+            '[TimeTrack] Could not configure notification channel:',
+            error?.message || error,
+          );
+        }
+        try {
+          await Notifications.requestPermissionsAsync();
+          void registerPushTokenWithServer();
+        } catch (error) {
+          console.warn(
+            '[TimeTrack] Could not request notification permission:',
+            error?.message || error,
+          );
+        }
+        // Battery guidance only after the notification permission dialog has
+        // resolved, so the two prompts never stack on screen.
+        if (backgroundGranted) await promptAndroidBatteryOptimizationExemption();
+      })();
+      return;
     } catch {
       // Continue regardless; WebView still functions
     }
@@ -1870,6 +1907,7 @@ export default function App() {
       }
       if (msg.type === 'SESSION_ENDED') {
         autoClockSessionGeneration += 1;
+        androidFgLocationStarted = false;
         // Deactivate the server-side token BEFORE wiping local auth so the
         // signed-out device stops receiving push immediately.
         void deactivatePushTokenWithServer();
@@ -1983,21 +2021,12 @@ export default function App() {
     );
   }
 
-  if (checkingPermissions) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-        {/* Simple blank loading screen while permissions are evaluated */}
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
       {/* Thin, non-interactive load indicator. It never covers or blocks the
           WebView — the web app's own UI is visible from the first frame. */}
-      {!webError && loadProgress > 0 && loadProgress < 1 && (
+      {!webError && (checkingPermissions || (loadProgress > 0 && loadProgress < 1)) && (
         <View style={styles.progressTrack} pointerEvents="none">
           <View
             style={[
@@ -2020,6 +2049,7 @@ export default function App() {
             retryAttemptRef.current = 0;
             setWebError(null);
             setLoadProgress(0.08);
+            void restoreNativeSession();
           }}
           onLoadProgress={({ nativeEvent }) => {
             setLoadProgress(nativeEvent.progress);

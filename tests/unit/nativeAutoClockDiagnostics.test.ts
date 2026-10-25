@@ -285,4 +285,17 @@ describe('native pipeline diagnostics', () => {
       '-keep class expo.modules.** { *; }',
     );
   });
+
+  it('serializes ensureBackgroundLocationUpdates on Android foreground and does not block WebView mount on push-token network calls', async () => {
+    const h = harness();
+    h.platform.OS = 'android';
+    await Promise.all([
+      h.api.ensureBackgroundLocationUpdates(),
+      h.api.ensureBackgroundLocationUpdates(),
+      h.api.ensureBackgroundLocationUpdates(),
+    ]);
+    await h.api.ensureBackgroundLocationUpdates();
+    expect(h.startLocationUpdatesAsync).toHaveBeenCalledTimes(1);
+    expect(source).not.toContain('await registerPushTokenWithServer()');
+  });
 });
