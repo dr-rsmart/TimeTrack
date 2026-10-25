@@ -3,7 +3,7 @@
     "name": "TimeTrack",
     "slug": "timetrack",
     "owner": "smart-patel-tech-solutions",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./TimeTrack Icon.png",
     "userInterfaceStyle": "automatic",
@@ -12,7 +12,7 @@
       "icon": "./TimeTrack Icon.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.timetrack.workforce",
-      "buildNumber": "28",
+      "buildNumber": "30",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": ["location", "fetch", "processing"],
@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "com.timetrack.workforce",
-      "versionCode": 27,
+      "versionCode": 30,
       "adaptiveIcon": {
         "foregroundImage": "./TimeTrack Icon.png",
         "backgroundColor": "#ffffff"
@@ -80,8 +80,9 @@
           "android": {
             "compileSdkVersion": 36,
             "targetSdkVersion": 36,
-            "enableProguardInReleaseBuilds": true,
-            "enableShrinkResourcesInReleaseBuilds": true
+            "enableProguardInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false,
+            "extraProguardRules": "-keep class expo.modules.adapters.react.apploader.RNHeadlessAppLoader { *; }\n-keep class expo.modules.adapters.react.apploader.** { *; }\n-keep class expo.modules.apploader.** { *; }\n-keep class expo.modules.taskManager.** { *; }\n-keep class expo.modules.location.** { *; }\n-keep class expo.modules.backgroundfetch.** { *; }\n-keep class expo.modules.notifications.** { *; }\n-keep public class expo.modules.ExpoModulesPackageList { *; }"
           }
         }
       ]

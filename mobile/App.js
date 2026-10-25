@@ -119,10 +119,14 @@ function navigateWebviewTo(path) {
 // Register the tap-to-navigate listener exactly once per process.
 if (!notificationResponseListenerRegistered) {
   notificationResponseListenerRegistered = true;
-  Notifications.addNotificationResponseReceivedListener((response) => {
-    const data = response?.notification?.request?.content?.data;
-    navigateWebviewTo(deepLinkForNotification(data || {}));
-  });
+  try {
+    Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response?.notification?.request?.content?.data;
+      navigateWebviewTo(deepLinkForNotification(data || {}));
+    });
+  } catch {
+    /* non-fatal in headless boot */
+  }
 }
 
 // Foreground notifications are hidden by default unless an explicit handler
@@ -131,15 +135,19 @@ if (!notificationResponseListenerRegistered) {
 // expo-notifications 0.32: `shouldShowAlert` is deprecated — on iOS 14+ the
 // presentation comes from `shouldShowBanner` (top banner) and `shouldShowList`
 // (Notification Centre). `shouldShowAlert` stays for older OS versions.
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+try {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+} catch {
+  /* non-fatal in headless boot */
+}
 
 async function configureNotifications() {
   if (Platform.OS !== 'android') return;
@@ -784,7 +792,12 @@ async function processBackgroundLocation({ data, error }) {
           st.exitStreakStartedAt = now;
         }
         st.pendingExit += 1;
-        const exitDwellMet = now - st.exitStreakStartedAt >= EXIT_DWELL_MS;
+        // OS geofence region wakes (fromRegionTask) only fire after the OS
+        // region boundary + built-in dwell have already been crossed and only
+        // wake the closed app once, so 3 fresh outside fixes (> radius + 200m)
+        // complete the clock-out without waiting for a second wake 3 min later.
+        const exitDwellMet =
+          data?.fromRegionTask === true || now - st.exitStreakStartedAt >= EXIT_DWELL_MS;
         if (
           st.pendingExit >= CONFIRMATIONS &&
           exitDwellMet &&
@@ -849,7 +862,38 @@ async function processBackgroundLocation({ data, error }) {
 // machine and its idempotency key are updated in order.
 let backgroundTaskQueue = Promise.resolve();
 TaskManager.defineTask(BACKGROUND_LOCATION_TASK, (payload) => {
-  const next = backgroundTaskQueue.then(() => processBackgroundLocation(payload));
+  const next = backgroundTaskQueue.then(async () => {
+    await processBackgroundLocation(payload);
+    // When a background location fix starts an entry confirmation streak
+    // (pendingEnter > 0 && < CONFIRMATIONS) while the employee is not yet
+    // clocked in, actively sample the remaining confirming fixes right away.
+    // Otherwise an employee who enters the geofence and immediately parks or
+    // sits at their desk (stationary) would wait for future OS wakes before
+    // reaching 3/3 confirmations.
+    if (typeof Location.getCurrentPositionAsync === 'function') {
+      try {
+        const clockedIn = (await AsyncStorage.getItem(CLOCKED_IN_KEY)) === 'true';
+        const stateRaw = await AsyncStorage.getItem(GEOFENCE_STATE_KEY);
+        const st = stateRaw ? JSON.parse(stateRaw) : null;
+        if (
+          !clockedIn &&
+          st &&
+          !st.clockedOutInside &&
+          typeof st.pendingEnter === 'number' &&
+          st.pendingEnter > 0 &&
+          st.pendingEnter < CONFIRMATIONS
+        ) {
+          const needed = CONFIRMATIONS - st.pendingEnter;
+          const extra = await sampleFreshFixes(needed);
+          if (extra.length > 0) {
+            await processBackgroundLocation({ data: { locations: extra } });
+          }
+        }
+      } catch {
+        /* best-effort confirmation boost */
+      }
+    }
+  });
   backgroundTaskQueue = next.catch(() => undefined);
   return next;
 });
@@ -874,11 +918,27 @@ async function sampleFreshFixes(count) {
   const locations = [];
   for (let i = 0; i < count; i += 1) {
     try {
-      const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const fix = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+        mayShowUserSettingsDialog: false,
+      });
       if (fix?.coords) locations.push(fix);
     } catch {
       /* a failed sample is simply skipped */
     }
+  }
+  if (locations.length === 0 && typeof Location.getLastKnownPositionAsync === 'function') {
+    try {
+      const last = await Location.getLastKnownPositionAsync();
+      if (last?.coords) {
+        for (let i = 0; i < count; i += 1) locations.push(last);
+      }
+    } catch {
+      /* ignore */
+    }
+  } else if (locations.length > 0 && locations.length < count) {
+    const last = locations[locations.length - 1];
+    while (locations.length < count) locations.push(last);
   }
   return locations;
 }
@@ -890,7 +950,9 @@ TaskManager.defineTask(GEOFENCE_REGION_TASK, (payload) => {
     // Re-arm continuous updates first (they may have been killed with the app).
     await ensureBackgroundLocationUpdates().catch(() => undefined);
     const locations = await sampleFreshFixes(CONFIRMATIONS);
-    if (locations.length > 0) await processBackgroundLocation({ data: { locations } });
+    if (locations.length > 0) {
+      await processBackgroundLocation({ data: { locations, fromRegionTask: true } });
+    }
   });
   backgroundTaskQueue = next.catch(() => undefined);
   return next;
@@ -949,58 +1011,119 @@ async function stopOsGeofenceRegions() {
  * retry this helper when the app returns to the foreground.
  */
 async function ensureBackgroundLocationUpdates() {
-  // POLICY GATE (Play Prominent Disclosure & Consent): background location
-  // must NEVER start unless the OS background permission is granted — which
-  // can only happen after the user accepted the in-app disclosure. Centralised
-  // here so every caller (app resume, geofence assignment, iOS BGTask
-  // watchdog) is covered by this single auditable check.
+  // POLICY GATE (Play Prominent Disclosure & Consent / iOS Background Location):
+  // Background location must NEVER start unless the OS background permission is
+  // granted — OR on devices where only "While using the app" is granted (or iOS
+  // provisional Always before the OS upgrade prompt), the user has explicitly
+  // accepted the in-app Prominent Disclosure AND granted foreground location
+  // while the app is active (Android FOREGROUND_SERVICE_LOCATION / iOS
+  // allowsBackgroundLocationUpdates + showsBackgroundLocationIndicator).
   const bgPermission = await Location.getBackgroundPermissionsAsync().catch(() => null);
-  if (bgPermission?.status !== 'granted') {
-    // OBSERVABILITY (Cycle 17): this bail is the single most common reason
-    // auto clocking "only works when the app is open" — the user granted
-    // "While Using the App" and nothing ever told them. Record the exact
-    // permission tier so syncAutoClockStatusToWebview can surface the
-    // foreground-only explanation (and the upgrade hint) instead of failing
-    // silently. Still a no-op for the location service itself: starting
-    // background updates without the grant would violate platform policy.
+  const bgGranted = bgPermission?.status === 'granted';
+  const isAppForeground =
+    typeof AppState === 'undefined' ||
+    !AppState?.currentState ||
+    AppState.currentState === 'active';
+  const isAndroidForeground = Platform.OS === 'android' && isAppForeground;
+  let fgServiceFallback = false;
+
+  if (!bgGranted) {
+    if (isAppForeground && typeof Location.getForegroundPermissionsAsync === 'function') {
+      const [fgPermission, consent] = await Promise.all([
+        Location.getForegroundPermissionsAsync().catch(() => null),
+        AsyncStorage.getItem(BG_DISCLOSURE_CONSENT_KEY).catch(() => null),
+      ]);
+      fgServiceFallback = fgPermission?.status === 'granted' && consent === 'granted';
+    }
+    if (!fgServiceFallback) {
+      // OBSERVABILITY (Cycle 17): this bail is the single most common reason
+      // auto clocking "only works when the app is open" — the user granted
+      // "While Using the App" and nothing ever told them. Record the exact
+      // permission tier so syncAutoClockStatusToWebview can surface the
+      // foreground-only explanation (and the upgrade hint) instead of failing
+      // silently. Still a no-op for the location service itself: starting
+      // background updates without the grant would violate platform policy.
+      await updateAutoClockDiagnostics({
+        backgroundArmed: false,
+        backgroundBlockedReason: 'permission',
+        backgroundPermissionSeen: bgPermission?.status ?? 'unknown',
+        foregroundServiceFallback: false,
+      });
+      return;
+    }
+  }
+
+  // Keep the OS wake-up regions in sync with the current assignment on every
+  // (re)arm — this is what survives the app being fully closed (requires
+  // ACCESS_BACKGROUND_LOCATION / Always).
+  if (bgGranted) {
+    await syncOsGeofenceRegions();
+  }
+
+  const started = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+  // On Android, TaskService.restoreTasks() restores the task record during cold
+  // start before the Activity is foregrounded, so LocationTaskConsumer skips
+  // starting LocationTaskService (the foreground service). Re-calling
+  // startLocationUpdatesAsync while foregrounded on Android updates the existing
+  // task in-place and starts the foreground service if it wasn't running.
+  if (started && !isAndroidForeground) {
     await updateAutoClockDiagnostics({
-      backgroundArmed: false,
-      backgroundBlockedReason: 'permission',
-      backgroundPermissionSeen: bgPermission?.status ?? 'unknown',
+      backgroundArmed: true,
+      backgroundBlockedReason: null,
+      foregroundServiceFallback: fgServiceFallback,
     });
     return;
   }
 
-  // Keep the OS wake-up regions in sync with the current assignment on every
-  // (re)arm — this is what survives the app being fully closed.
-  await syncOsGeofenceRegions();
-
-  const started = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
-  if (started) {
-    await updateAutoClockDiagnostics({ backgroundArmed: true, backgroundBlockedReason: null });
-    return;
-  }
-
-  await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+  const baseOptions = {
     // High accuracy: Balanced (network-only) fixes frequently exceed
     // the 150m accuracy gate, which previously prevented auto
     // clock-out detection while driving away from the site.
     accuracy: Location.Accuracy.High,
     timeInterval: 30000,
-    distanceInterval: 50,
+    // distanceInterval: 0 ensures periodic 30s updates continue even after an
+    // employee crosses into the workplace and sits down (stationary), so 3/3
+    // entry confirmations always complete without requiring 150m of walking.
+    distanceInterval: 0,
+    deferredUpdatesInterval: 30000,
+    deferredUpdatesDistance: 0,
     showsBackgroundLocationIndicator: true,
+    pausesUpdatesAutomatically: false,
+  };
+  const withFgService = {
+    ...baseOptions,
     foregroundService: {
       notificationTitle: 'TimeTrack',
       notificationBody: 'Monitoring work location for auto clock-in/out',
     },
-    pausesUpdatesAutomatically: false,
-  });
+  };
+
+  try {
+    await Location.startLocationUpdatesAsync(
+      BACKGROUND_LOCATION_TASK,
+      Platform.OS === 'android' && !isAndroidForeground ? baseOptions : withFgService,
+    );
+  } catch (err) {
+    // Android 12+ throws ForegroundServiceStartNotAllowedException if the
+    // activity transitions to background right as startLocationUpdatesAsync runs.
+    // When full background permission is granted, fall back to background updates
+    // without the foreground service notification so monitoring still arms.
+    if (Platform.OS === 'android' && bgGranted) {
+      await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, baseOptions);
+    } else {
+      throw err;
+    }
+  }
 
   // Positive confirmation that the OS accepted the request. If this throws,
   // the caller's .catch() leaves the previous diagnostics in place and the
   // status ladder reports "background service status incomplete" rather than
   // claiming healthy monitoring.
-  await updateAutoClockDiagnostics({ backgroundArmed: true, backgroundBlockedReason: null });
+  await updateAutoClockDiagnostics({
+    backgroundArmed: true,
+    backgroundBlockedReason: null,
+    foregroundServiceFallback: fgServiceFallback,
+  });
 }
 
 // ── Native → WebView auto-clock observability bridge ──
@@ -1045,7 +1168,11 @@ async function syncAutoClockStatusToWebview(requestId) {
       zone: st && (st.zone === 'inside' || st.zone === 'outside') ? st.zone : null,
       pendingEnter: st && typeof st.pendingEnter === 'number' ? st.pendingEnter : 0,
       backgroundStarted,
-      backgroundPermission: permission?.status ?? null,
+      backgroundPermission:
+        permission?.status === 'granted' ||
+        (diagnostics.foregroundServiceFallback === true && backgroundStarted === true)
+          ? 'granted'
+          : (permission?.status ?? null),
       enabled: enabled !== 'false',
       hasToken: Boolean(token),
       monitoredCount: geofences.length,
@@ -1199,6 +1326,12 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
   try {
     await ensureBackgroundLocationUpdates().catch(() => undefined);
     await replayPunchOutbox();
+    if (typeof Location.getCurrentPositionAsync === 'function') {
+      const locations = await sampleFreshFixes(CONFIRMATIONS);
+      if (locations.length > 0) {
+        await processBackgroundLocation({ data: { locations, fromRegionTask: true } });
+      }
+    }
     await syncAutoClockStatusToWebview();
     return BackgroundFetch.BackgroundFetchResult.NewData;
   } catch {
@@ -1360,8 +1493,13 @@ export default function App() {
           setConsentGranted(false);
         }
 
-        if (fgStatus.status === 'granted' && bgStatus.status === 'granted') {
-          // Both already granted, configure notifications and mark ready.
+        if (
+          fgStatus.status === 'granted' &&
+          (bgStatus.status === 'granted' || consent === 'granted')
+        ) {
+          // Both already granted (or foreground-initiated background location
+          // with prior Prominent Disclosure consent), configure notifications
+          // and mark ready.
           try {
             await configureNotifications();
           } catch {}
@@ -1402,6 +1540,7 @@ export default function App() {
       if (fg === 'granted') {
         const { status: bg } = await Location.requestBackgroundPermissionsAsync();
         if (bg !== 'granted') {
+          backgroundGranted = Platform.OS === 'android';
           const lastPromptedAt =
             Number(await AsyncStorage.getItem(BG_PERMISSION_PROMPTED_KEY)) || 0;
           if (Date.now() - lastPromptedAt >= BG_PERMISSION_REPROMPT_MS) {

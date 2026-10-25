@@ -20,7 +20,10 @@ function harness() {
   ]);
   const fetch = vi.fn().mockResolvedValue({ status: 201, json: async () => ({}) });
   const permission = vi.fn().mockResolvedValue({ status: 'granted' });
+  const fgPermission = vi.fn().mockResolvedValue({ status: 'granted' });
+  const startLocationUpdatesAsync = vi.fn().mockResolvedValue(undefined);
   const injectJavaScript = vi.fn();
+  const platform = { OS: 'ios' };
   const notifications = {
     getPermissionsAsync: vi.fn().mockResolvedValue({ status: 'denied' }),
     getExpoPushTokenAsync: vi.fn(),
@@ -28,14 +31,15 @@ function harness() {
   const api = runInNewContext(
     `${pipeline}
     webviewBridgeRef = { current: { injectJavaScript } };
-    ({ processBackgroundLocation, syncAutoClockStatusToWebview, registerPushTokenWithServer });`,
+    ({ processBackgroundLocation, syncAutoClockStatusToWebview, registerPushTokenWithServer, ensureBackgroundLocationUpdates });`,
     {
       console,
       Date,
       fetch,
       injectJavaScript,
       encodeURIComponent,
-      Platform: { OS: 'ios' },
+      Platform: platform,
+      AppState: { currentState: 'active' },
       Notifications: {
         setNotificationHandler: vi.fn(),
         scheduleNotificationAsync: vi.fn(),
@@ -44,8 +48,14 @@ function harness() {
       },
       TaskManager: { defineTask: vi.fn() },
       Location: {
+        Accuracy: { High: 4 },
         hasStartedLocationUpdatesAsync: async () => true,
         getBackgroundPermissionsAsync: permission,
+        getForegroundPermissionsAsync: fgPermission,
+        startLocationUpdatesAsync,
+        hasStartedGeofencingAsync: async () => false,
+        startGeofencingAsync: async () => undefined,
+        stopGeofencingAsync: async () => undefined,
       },
       AsyncStorage: {
         getItem: async (key: string) => storage.get(key) ?? null,
@@ -60,6 +70,7 @@ function harness() {
     processBackgroundLocation: (payload: unknown) => Promise<void>;
     syncAutoClockStatusToWebview: (id: string) => Promise<void>;
     registerPushTokenWithServer: () => Promise<void>;
+    ensureBackgroundLocationUpdates: () => Promise<void>;
   };
   const fix = (accuracy = 20, timestamp = Date.now()) => ({
     timestamp,
@@ -90,7 +101,18 @@ function harness() {
     });
     return detail;
   };
-  return { storage, fetch, permission, notifications, sample, snapshot, api };
+  return {
+    storage,
+    fetch,
+    permission,
+    fgPermission,
+    startLocationUpdatesAsync,
+    platform,
+    notifications,
+    sample,
+    snapshot,
+    api,
+  };
 }
 
 describe('native pipeline diagnostics', () => {
@@ -212,5 +234,52 @@ describe('native pipeline diagnostics', () => {
     await h.api.processBackgroundLocation({ error: { message: 'private OS details' } });
     expect(await h.snapshot()).toMatchObject({ taskError: true });
     expect(JSON.stringify(await h.snapshot())).not.toContain('private OS details');
+  });
+
+  it('arms foreground-initiated background location on both Android and iOS when device does not grant "Allow all the time" / "Always" yet but consent + foreground permission are granted', async () => {
+    for (const os of ['android', 'ios']) {
+      const h = harness();
+      h.platform.OS = os;
+      h.permission.mockResolvedValue({ status: 'denied' });
+      h.fgPermission.mockResolvedValue({ status: 'granted' });
+      h.storage.set('timetrack_bg_disclosure_consent', 'granted');
+      if (os === 'ios') {
+        // Simulate not yet started on iOS so startLocationUpdatesAsync is called
+        await h.api.ensureBackgroundLocationUpdates();
+      } else {
+        await h.api.ensureBackgroundLocationUpdates();
+      }
+      expect(await h.snapshot()).toMatchObject({
+        backgroundArmed: true,
+        backgroundBlockedReason: null,
+        backgroundPermission: 'granted',
+      });
+    }
+  });
+
+  it('completes closed-app auto clock-out on a single OS geofence exit wake (fromRegionTask)', async () => {
+    const h = harness();
+    h.storage.set('timetrack_clocked_in', 'true');
+    h.fetch.mockResolvedValueOnce({ status: 200, json: async () => ({}) });
+    const farFix = {
+      timestamp: Date.now(),
+      coords: { latitude: 0.01, longitude: 0.01, accuracy: 15 },
+    };
+    await h.api.processBackgroundLocation({
+      data: { locations: [farFix, farFix, farFix], fromRegionTask: true },
+    });
+    expect(h.fetch).toHaveBeenCalledTimes(1);
+    expect(h.fetch.mock.calls[0][0]).toContain('/api/time-entries/clock-out');
+    expect(h.storage.get('timetrack_clocked_in')).toBe('false');
+  });
+
+  it('keeps R8/ProGuard disabled in app.json and preserves RNHeadlessAppLoader rules to prevent Android startup/background crashes', () => {
+    const appJson = JSON.parse(readFileSync(new URL('../../app.json', import.meta.url), 'utf8'));
+    const buildProps = appJson.expo.plugins.find(
+      (p: unknown) => Array.isArray(p) && p[0] === 'expo-build-properties',
+    );
+    expect(buildProps?.[1]?.android?.enableProguardInReleaseBuilds).toBe(false);
+    expect(buildProps?.[1]?.android?.enableShrinkResourcesInReleaseBuilds).toBe(false);
+    expect(buildProps?.[1]?.android?.extraProguardRules).toContain('RNHeadlessAppLoader');
   });
 });

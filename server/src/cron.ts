@@ -658,7 +658,7 @@ async function sendShiftReminders(): Promise<void> {
           `start:${shift.id}`,
           shift.employeeEmail,
           'Shift Starting Soon',
-          `Your shift starts at ${shift.startTime} — ${SHIFT_REMINDER_LEAD_MINUTES} minutes to go.`,
+          `Your shift starts at ${shift.startTime} — ${SHIFT_REMINDER_LEAD_MINUTES} minutes to go. Remember to clock in.`,
           shift.companyProfileId,
         );
       }
@@ -684,7 +684,7 @@ async function sendShiftReminders(): Promise<void> {
             `end:${shift.id}`,
             shift.employeeEmail,
             'Shift Ending Soon',
-            `Your shift ends at ${shift.endTime} — ${SHIFT_REMINDER_LEAD_MINUTES} minutes to go.`,
+            `Your shift ends at ${shift.endTime} — ${SHIFT_REMINDER_LEAD_MINUTES} minutes to go. Remember to clock out.`,
             shift.companyProfileId,
           );
         }
@@ -751,21 +751,37 @@ async function sendShiftReminders(): Promise<void> {
       // DOES filter by WORKING_SHIFT_TYPES: there we decide whether to send a
       // reminder FOR a shift (leave earns none); here we decide whether a
       // shift row exists AT ALL (leave must still suppress the fallback).
+      // Time-less full_day shifts (both startTime and endTime null) are NOT
+      // treated as accounted for so they still receive location/company
+      // normal-business-hours reminders.
       const scheduledToday = await prisma.shift.findMany({
         where: {
           companyProfileId: settings.companyProfileId,
           status: { in: ['scheduled', 'active'] },
           date: parseDate(biz.dateStr),
         },
-        select: { employeeId: true, employeeEmail: true },
+        select: {
+          employeeId: true,
+          employeeEmail: true,
+          shiftType: true,
+          startTime: true,
+          endTime: true,
+        },
       });
       const scheduledKeys = new Set(
-        scheduledToday.flatMap((s) =>
-          [
-            s.employeeId ? `id:${s.employeeId}` : null,
-            s.employeeEmail ? `email:${s.employeeEmail.toLowerCase()}` : null,
-          ].filter((v): v is string => v !== null),
-        ),
+        scheduledToday
+          .filter(
+            (s) =>
+              !WORKING_SHIFT_TYPES.has(s.shiftType) ||
+              s.shiftType === 'half_day' ||
+              Boolean(s.startTime || s.endTime),
+          )
+          .flatMap((s) =>
+            [
+              s.employeeId ? `id:${s.employeeId}` : null,
+              s.employeeEmail ? `email:${s.employeeEmail.toLowerCase()}` : null,
+            ].filter((v): v is string => v !== null),
+          ),
       );
       const unscheduled = await prisma.employee.findMany({
         where: { companyProfileId: settings.companyProfileId, status: 'active' },
